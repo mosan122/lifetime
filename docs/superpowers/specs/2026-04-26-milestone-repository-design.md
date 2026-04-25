@@ -192,3 +192,34 @@ dependencies:
 - **`participants`:** `List<String>` para nombres o IDs simples. Puede evolucionar a `List<PersonEntity>` sin cambiar la interfaz del repositorio.
 - **Auth:** el `userId` se obtiene de `supabase.auth.currentUser!.id` dentro del datasource. El repositorio no gestiona sesiones.
 - **No Use Cases en este scope:** el repositorio es la unidad pedida. Los Use Cases se añaden cuando la presentación lo requiera.
+
+---
+
+## 9. Roadmap v2 — Mejoras futuras
+
+### 9.1 Análisis visual multimodal en `callBiographerNarrative`
+
+Gemini 1.5 Flash es multimodal. En v2, el método aceptará una imagen en base64 para que el Biógrafo pueda analizar visualmente el contenido (detectar una tarta de cumpleaños, un paisaje, caras) y enriquecer la narrativa sin que el usuario tenga que describirlo.
+
+**Cambio de contrato (v2):**
+
+```json
+// Input v2
+{
+  "metadata": { "date": "ISO8601", "location": "nombre_lugar_o_null" },
+  "userNote": "texto libre del usuario",
+  "base64Image": "data:image/jpeg;base64,/9j/4AAQ..."  // NUEVO — opcional
+}
+```
+
+**Cambio en datasource (v2):**
+```dart
+Future<BiographerResponse> callBiographerNarrative({
+  required String note,
+  required DateTime date,
+  String? location,
+  String? base64Image,   // NUEVO — opcional, no rompe la firma actual
+});
+```
+
+El parámetro es opcional para mantener retrocompatibilidad. Si no se provee imagen, la Edge Function usa solo texto (comportamiento v1).
