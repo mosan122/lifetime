@@ -79,6 +79,8 @@ class MilestoneRemoteDataSourceImpl implements MilestoneRemoteDataSource {
 
   @override
   Future<MilestoneModel> fetchMilestoneById(String id) async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) throw const AuthException('No authenticated user');
     final response = await _supabase
         .from('milestones')
         .select('*, media_assets(*)')

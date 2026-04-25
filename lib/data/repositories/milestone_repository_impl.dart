@@ -65,6 +65,8 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
       return const Left(AuthFailure());
     } on PostgrestException catch (e) {
       return Left(DatabaseFailure(e.message));
+    } on FunctionException catch (e) {
+      return Left(NetworkFailure(e.details?.toString() ?? 'Edge Function error'));
     } catch (e) {
       return Left(NetworkFailure(e.toString()));
     }
@@ -79,6 +81,8 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
       return const Left(AuthFailure());
     } on PostgrestException catch (e) {
       return Left(DatabaseFailure(e.message));
+    } on FunctionException catch (e) {
+      return Left(NetworkFailure(e.details?.toString() ?? 'Edge Function error'));
     } catch (e) {
       return Left(NetworkFailure(e.toString()));
     }

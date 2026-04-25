@@ -66,13 +66,13 @@ class MilestoneModel extends Milestone {
   }) {
     final map = <String, dynamic>{
       'title': title,
-      'description': description,
       'participants': participants,
       'event_date': eventDate.toIso8601String(),
-      'location_name': locationName,
       'category': category,
       'is_public': isPublic,
     };
+    if (description != null) map['description'] = description;
+    if (locationName != null) map['location_name'] = locationName;
     if (latitude != null && longitude != null) {
       map['location_coords'] = 'POINT($longitude $latitude)';
     }
