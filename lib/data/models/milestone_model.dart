@@ -25,9 +25,11 @@ class MilestoneModel extends Milestone {
     final coords = json['location_coords'];
     if (coords is Map) {
       // PostgREST devuelve GEOGRAPHY como GeoJSON: {"type":"Point","coordinates":[lng, lat]}
-      final coordinates = coords['coordinates'] as List;
-      longitude = (coordinates[0] as num).toDouble();
-      latitude = (coordinates[1] as num).toDouble();
+      final rawCoords = coords['coordinates'];
+      if (rawCoords is List && rawCoords.length >= 2) {
+        longitude = (rawCoords[0] as num).toDouble();
+        latitude = (rawCoords[1] as num).toDouble();
+      }
     }
 
     return MilestoneModel(
