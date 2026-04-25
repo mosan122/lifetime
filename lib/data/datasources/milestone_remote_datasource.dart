@@ -37,6 +37,9 @@ class MilestoneRemoteDataSourceImpl implements MilestoneRemoteDataSource {
       },
     );
 
+    if (response.data is! Map<String, dynamic>) {
+      throw const FormatException('Unexpected biographer response format');
+    }
     final data = response.data as Map<String, dynamic>;
     final title = data['title'] as String?;
     final narrative = data['narrative'] as String?;
@@ -50,7 +53,9 @@ class MilestoneRemoteDataSourceImpl implements MilestoneRemoteDataSource {
 
   @override
   Future<MilestoneModel> insertMilestone(Map<String, dynamic> data) async {
-    final userId = _supabase.auth.currentUser!.id;
+    final user = _supabase.auth.currentUser;
+    if (user == null) throw const AuthException('No authenticated user');
+    final userId = user.id;
     final response = await _supabase
         .from('milestones')
         .insert({...data, 'user_id': userId})
@@ -61,15 +66,15 @@ class MilestoneRemoteDataSourceImpl implements MilestoneRemoteDataSource {
 
   @override
   Future<List<MilestoneModel>> fetchMilestones() async {
-    final userId = _supabase.auth.currentUser!.id;
+    final user = _supabase.auth.currentUser;
+    if (user == null) throw const AuthException('No authenticated user');
+    final userId = user.id;
     final response = await _supabase
         .from('milestones')
         .select('*, media_assets(*)')
         .eq('user_id', userId)
         .order('event_date', ascending: false);
-    return (response as List)
-        .map((e) => MilestoneModel.fromJson(e as Map<String, dynamic>))
-        .toList();
+    return response.map(MilestoneModel.fromJson).toList();
   }
 
   @override
