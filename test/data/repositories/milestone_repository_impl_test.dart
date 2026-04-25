@@ -140,6 +140,25 @@ void main() {
       );
     });
 
+    test('returns Left(NetworkFailure) when FunctionException is thrown', () async {
+      when(() => mockDatasource.callBiographerNarrative(
+            userNote: any(named: 'userNote'),
+            date: any(named: 'date'),
+            location: any(named: 'location'),
+          )).thenThrow(FunctionException(status: 500, details: 'timeout'));
+
+      final result = await repository.createMilestone(
+        userNote: tUserNote,
+        eventDate: tDate,
+      );
+
+      expect(result.isLeft(), isTrue);
+      result.fold(
+        (f) => expect(f, isA<NetworkFailure>()),
+        (_) => fail('Expected Left'),
+      );
+    });
+
     test('returns Left(BiographerFailure) when FormatException is thrown', () async {
       when(() => mockDatasource.callBiographerNarrative(
             userNote: any(named: 'userNote'),
