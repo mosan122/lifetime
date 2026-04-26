@@ -4,6 +4,7 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../../injection_container.dart';
 import '../../../../domain/entities/milestone.dart';
 import '../bloc/milestone_timeline_cubit.dart';
+import 'add_milestone_page.dart';
 
 class TimelinePage extends StatelessWidget {
   const TimelinePage({super.key});
@@ -46,8 +47,18 @@ class _TimelineView extends StatelessWidget {
         },
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () {}, // CreateMilestonePage — siguiente tarea
         tooltip: 'Nuevo hito',
+        onPressed: () async {
+          // Capture cubit before the async gap to avoid context warnings
+          final cubit = context.read<MilestoneTimelineCubit>();
+          final didCreate = await Navigator.push<bool>(
+            context,
+            MaterialPageRoute(builder: (_) => const AddMilestonePage()),
+          );
+          if (didCreate == true) {
+            cubit.loadTimeline();
+          }
+        },
         child: const Icon(Icons.add),
       ),
     );
