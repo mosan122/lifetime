@@ -1,0 +1,95 @@
+# ─── Flutter / Dart ───────────────────────────────────────────────────────────
+
+# Build outputs
+build/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# Pub cache and lock for library packages (keep pubspec.lock for apps)
+.pub-cache/
+.pub/
+
+# Generated Dart files
+*.g.dart
+*.freezed.dart
+*.mocks.dart
+
+# Coverage
+coverage/
+lcov.info
+
+# ─── Supabase ─────────────────────────────────────────────────────────────────
+
+# CLI temp files (project ref, linked project metadata, version cache)
+supabase/.temp/
+
+# Local seed data if it contains PII or test credentials
+# supabase/seed.sql   ← descomenta si el seed contiene datos sensibles
+
+# Edge Function local secrets
+supabase/functions/**/.env
+supabase/functions/**/secrets.json
+
+# ─── Variables de entorno y secretos ──────────────────────────────────────────
+
+.env
+.env.*
+*.env
+!*.env.example
+secrets.json
+google-services.json
+GoogleService-Info.plist
+
+# Claves de servicio de Firebase / GCP
+*.keystore
+*.jks
+*.p8
+*.p12
+*.pfx
+
+# ─── IDEs ─────────────────────────────────────────────────────────────────────
+
+# VS Code
+.vscode/
+!.vscode/extensions.json
+!.vscode/launch.json
+
+# JetBrains / Android Studio
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# ─── Sistemas operativos ──────────────────────────────────────────────────────
+
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ─── Android ──────────────────────────────────────────────────────────────────
+
+**/android/local.properties
+**/android/.gradle/
+**/android/captures/
+**/android/key.properties
+
+# ─── iOS / macOS ──────────────────────────────────────────────────────────────
+
+**/ios/Pods/
+**/ios/.symlinks/
+**/macos/Pods/
+**/macos/.symlinks/
+*.xcworkspace
+!default.xcworkspace
+
+# ─── Web ──────────────────────────────────────────────────────────────────────
+
+lib/generated_plugin_registrant.dart
+
+# ─── Logs y temporales ────────────────────────────────────────────────────────
+
+*.log
+*.tmp
+*.temp
