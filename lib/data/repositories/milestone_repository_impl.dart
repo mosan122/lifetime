@@ -46,9 +46,12 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
     } on AuthException {
       return const Left(AuthFailure());
     } on PostgrestException catch (e) {
-      return Left(DatabaseFailure(e.message));
+      return Left(DatabaseFailure(e.message, code: e.code));
     } on FunctionException catch (e) {
-      return Left(NetworkFailure(e.details?.toString() ?? 'Edge Function error'));
+      return Left(NetworkFailure(
+        e.details?.toString() ?? 'Edge Function error',
+        e.status?.toString(),
+      ));
     } on FormatException {
       return const Left(BiographerFailure());
     } catch (e) {
@@ -64,9 +67,12 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
     } on AuthException {
       return const Left(AuthFailure());
     } on PostgrestException catch (e) {
-      return Left(DatabaseFailure(e.message));
+      return Left(DatabaseFailure(e.message, code: e.code));
     } on FunctionException catch (e) {
-      return Left(NetworkFailure(e.details?.toString() ?? 'Edge Function error'));
+      return Left(NetworkFailure(
+        e.details?.toString() ?? 'Edge Function error',
+        e.status?.toString(),
+      ));
     } catch (e) {
       return Left(NetworkFailure(e.toString()));
     }
@@ -80,9 +86,12 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
     } on AuthException {
       return const Left(AuthFailure());
     } on PostgrestException catch (e) {
-      return Left(DatabaseFailure(e.message));
+      return Left(DatabaseFailure(e.message, code: e.code));
     } on FunctionException catch (e) {
-      return Left(NetworkFailure(e.details?.toString() ?? 'Edge Function error'));
+      return Left(NetworkFailure(
+        e.details?.toString() ?? 'Edge Function error',
+        e.status?.toString(),
+      ));
     } catch (e) {
       return Left(NetworkFailure(e.toString()));
     }

@@ -2,25 +2,30 @@ import 'package:equatable/equatable.dart';
 
 abstract class Failure extends Equatable {
   final String message;
-  const Failure(this.message);
+  final String? code;
+
+  const Failure(this.message, {this.code});
 
   @override
-  List<Object> get props => [message];
+  List<Object?> get props => [message, code];
 }
 
 class AuthFailure extends Failure {
-  const AuthFailure([String message = 'Authentication error']) : super(message);
+  const AuthFailure([String message = 'Authentication error', String? code])
+      : super(message, code: code);
 }
 
 class DatabaseFailure extends Failure {
-  const DatabaseFailure(String message) : super(message);
+  const DatabaseFailure(String message, {String? code}) : super(message, code: code);
 }
 
 class NetworkFailure extends Failure {
-  const NetworkFailure([String message = 'Network error']) : super(message);
+  const NetworkFailure([String message = 'Network error', String? code])
+      : super(message, code: code);
 }
 
 class BiographerFailure extends Failure {
-  const BiographerFailure([String message = 'Biographer service error'])
-      : super(message);
+  const BiographerFailure(
+      [String message = 'Biographer service error', String? code])
+      : super(message, code: code);
 }

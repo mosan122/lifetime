@@ -122,7 +122,7 @@ void main() {
       );
     });
 
-    test('returns Left(DatabaseFailure) when PostgrestException is thrown on insert', () async {
+    test('returns Left(DatabaseFailure) with code when PostgrestException is thrown on insert', () async {
       stubBiographerSuccess();
       when(() => mockDatasource.insertMilestone(any())).thenThrow(
         PostgrestException(message: 'duplicate key', code: '23505'),
@@ -135,12 +135,15 @@ void main() {
 
       expect(result.isLeft(), isTrue);
       result.fold(
-        (f) => expect(f, isA<DatabaseFailure>()),
+        (f) {
+          expect(f, isA<DatabaseFailure>());
+          expect((f as DatabaseFailure).code, equals('23505'));
+        },
         (_) => fail('Expected Left'),
       );
     });
 
-    test('returns Left(NetworkFailure) when FunctionException is thrown', () async {
+    test('returns Left(NetworkFailure) with code when FunctionException is thrown', () async {
       when(() => mockDatasource.callBiographerNarrative(
             userNote: any(named: 'userNote'),
             date: any(named: 'date'),
@@ -154,7 +157,10 @@ void main() {
 
       expect(result.isLeft(), isTrue);
       result.fold(
-        (f) => expect(f, isA<NetworkFailure>()),
+        (f) {
+          expect(f, isA<NetworkFailure>());
+          expect((f as NetworkFailure).code, equals('500'));
+        },
         (_) => fail('Expected Left'),
       );
     });
@@ -189,7 +195,7 @@ void main() {
       );
     });
 
-    test('returns Left(DatabaseFailure) when PostgrestException is thrown', () async {
+    test('returns Left(DatabaseFailure) with code when PostgrestException is thrown', () async {
       when(() => mockDatasource.fetchMilestones()).thenThrow(
         PostgrestException(message: 'connection error', code: '08000'),
       );
@@ -197,7 +203,10 @@ void main() {
       final result = await repository.getMilestones();
 
       result.fold(
-        (f) => expect(f, isA<DatabaseFailure>()),
+        (f) {
+          expect(f, isA<DatabaseFailure>());
+          expect((f as DatabaseFailure).code, equals('08000'));
+        },
         (_) => fail('Expected Left'),
       );
     });
@@ -213,7 +222,7 @@ void main() {
       expect(result, Right(tMilestoneModel));
     });
 
-    test('returns Left(DatabaseFailure) when PostgrestException is thrown', () async {
+    test('returns Left(DatabaseFailure) with code when PostgrestException is thrown', () async {
       when(() => mockDatasource.fetchMilestoneById(any())).thenThrow(
         PostgrestException(message: 'not found', code: 'PGRST116'),
       );
@@ -221,7 +230,10 @@ void main() {
       final result = await repository.getMilestoneById('ms-999');
 
       result.fold(
-        (f) => expect(f, isA<DatabaseFailure>()),
+        (f) {
+          expect(f, isA<DatabaseFailure>());
+          expect((f as DatabaseFailure).code, equals('PGRST116'));
+        },
         (_) => fail('Expected Left'),
       );
     });
