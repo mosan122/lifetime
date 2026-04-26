@@ -6,6 +6,7 @@ import 'data/repositories/milestone_repository_impl.dart';
 import 'domain/repositories/milestone_repository.dart';
 import 'features/milestones/domain/usecases/create_milestone_usecase.dart';
 import 'features/milestones/domain/usecases/get_milestones_usecase.dart';
+import 'features/milestones/presentation/bloc/milestone_timeline_cubit.dart';
 
 final sl = GetIt.instance;
 
@@ -28,4 +29,7 @@ Future<void> init() async {
   // ─── Use Cases ────────────────────────────────────────────────────────────
   sl.registerFactory<CreateMilestoneUseCase>(() => CreateMilestoneUseCase(sl()));
   sl.registerFactory<GetMilestonesUseCase>(() => GetMilestonesUseCase(sl()));
+
+  // ─── Cubits ───────────────────────────────────────────────────────────────
+  sl.registerFactory<MilestoneTimelineCubit>(() => MilestoneTimelineCubit(sl()));
 }
