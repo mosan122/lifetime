@@ -16,7 +16,7 @@ extension GetMilestoneCollectionCollection on Isar {
 
 const MilestoneCollectionSchema = CollectionSchema(
   name: r'MilestoneCollection',
-  id: 6801414828442965873,
+  id: 6801414828442966016, // nearest JS-safe value (web compat)
   properties: {
     r'category': PropertySchema(
       id: 0,
@@ -103,7 +103,7 @@ const MilestoneCollectionSchema = CollectionSchema(
   idName: r'isarId',
   indexes: {
     r'id': IndexSchema(
-      id: -3268401673993471357,
+      id: -3268401673993471488, // nearest JS-safe value (web compat)
       name: r'id',
       unique: true,
       replace: false,

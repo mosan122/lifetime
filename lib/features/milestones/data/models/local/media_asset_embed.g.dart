@@ -11,7 +11,7 @@ part of 'media_asset_embed.dart';
 
 const MediaAssetEmbedSchema = Schema(
   name: r'MediaAssetEmbed',
-  id: 1351180467498859997,
+  id: 1351180467498860032, // nearest JS-safe value (web compat)
   properties: {
     r'cloudFileId': PropertySchema(
       id: 0,
