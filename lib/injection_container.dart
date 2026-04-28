@@ -51,13 +51,22 @@ Future<void> init() async {
     ),
   );
 
-  // ─── Isar (local DB) ──────────────────────────────────────────────────────
-  final dir = await getApplicationDocumentsDirectory();
-  final isar = await Isar.open(
-    [MilestoneCollectionSchema],
-    directory: dir.path,
-  );
-  sl.registerLazySingleton<Isar>(() => isar);
+  // ─── Isar (local DB) — native only ───────────────────────────────────────
+  if (!kIsWeb) {
+    final dir = await getApplicationDocumentsDirectory();
+    final isar = await Isar.open(
+      [MilestoneCollectionSchema],
+      directory: dir.path,
+    );
+    sl.registerLazySingleton<Isar>(() => isar);
+    sl.registerLazySingleton<IsarMilestoneDataSource>(
+      () => IsarMilestoneDataSourceImpl(sl()),
+    );
+  } else {
+    sl.registerLazySingleton<IsarMilestoneDataSource>(
+      () => _WebMilestoneDataSource(),
+    );
+  }
 
   // ─── Services ─────────────────────────────────────────────────────────────
   final premiumService = PremiumService();
@@ -67,9 +76,6 @@ Future<void> init() async {
   // ─── Data Sources ─────────────────────────────────────────────────────────
   sl.registerLazySingleton<MilestoneRemoteDataSource>(
     () => MilestoneRemoteDataSourceImpl(sl()),
-  );
-  sl.registerLazySingleton<IsarMilestoneDataSource>(
-    () => IsarMilestoneDataSourceImpl(sl()),
   );
   sl.registerLazySingleton<AuthRemoteDataSource>(
     () => AuthRemoteDataSourceImpl(sl(), sl()),
@@ -112,4 +118,41 @@ Future<void> init() async {
   sl.registerFactory<ExportCubit>(() => ExportCubit(sl()));
   sl.registerFactory<MapCubit>(() => MapCubit(sl()));
   sl.registerFactory<AuthCubit>(() => AuthCubit(sl(), sl()));
+}
+
+// In-memory fallback used on web (Isar requires native FFI, unavailable in JS).
+class _WebMilestoneDataSource implements IsarMilestoneDataSource {
+  final List<MilestoneCollection> _store = [];
+
+  @override
+  Future<List<MilestoneCollection>> fetchAll() async {
+    final sorted = [..._store]
+      ..sort((a, b) => b.eventDate.compareTo(a.eventDate));
+    return sorted;
+  }
+
+  @override
+  Future<MilestoneCollection?> fetchById(String id) async =>
+      _store.where((c) => c.id == id).firstOrNull;
+
+  @override
+  Future<MilestoneCollection> upsert(MilestoneCollection c) async {
+    _store.removeWhere((e) => e.id == c.id);
+    _store.add(c);
+    return c;
+  }
+
+  @override
+  Future<void> deleteById(String id) async =>
+      _store.removeWhere((e) => e.id == id);
+
+  @override
+  Future<void> markSynced(String id) async {
+    final item = _store.where((e) => e.id == id).firstOrNull;
+    if (item != null) item.syncStatus = SyncStatus.synced;
+  }
+
+  @override
+  Future<List<MilestoneCollection>> fetchPending() async =>
+      _store.where((c) => c.syncStatus == SyncStatus.pending).toList();
 }
