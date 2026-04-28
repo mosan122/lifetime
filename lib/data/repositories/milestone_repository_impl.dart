@@ -44,7 +44,7 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
         await _local.upsert(
             MilestoneCollection.fromMilestone(model, SyncStatus.synced));
       }
-      return Right(remoteModels.cast<Milestone>());
+      return Right(List<Milestone>.from(remoteModels));
     } on AuthException {
       return const Left(AuthFailure());
     } on PostgrestException catch (e) {
@@ -137,8 +137,6 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
       await _local.upsert(
           MilestoneCollection.fromMilestone(remoteModel, SyncStatus.synced));
       return Right(remoteModel);
-    } on FormatException {
-      return const Left(BiographerFailure());
     } catch (_) {
       return _saveLocalOnly(
         title: title ?? _dateTitle(eventDate),
@@ -257,7 +255,7 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
       final saved = await _local.upsert(collection);
       return Right(saved.toDomain());
     } catch (e) {
-      return Left(NetworkFailure(e.toString()));
+      return Left(DatabaseFailure(e.toString()));
     }
   }
 
