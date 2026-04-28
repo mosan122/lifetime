@@ -10,7 +10,7 @@ void main() {
   late Directory tempDir;
   late IsarMilestoneDataSourceImpl datasource;
 
-  MilestoneCollection _makeCollection({
+  MilestoneCollection makeCollection({
     String id = 'ms-1',
     String title = 'Test Hito',
     SyncStatus syncStatus = SyncStatus.pending,
@@ -50,7 +50,7 @@ void main() {
 
   group('upsert + fetchAll', () {
     test('upsert returns the collection and fetchAll contains it', () async {
-      final collection = _makeCollection();
+      final collection = makeCollection();
 
       await datasource.upsert(collection);
       final all = await datasource.fetchAll();
@@ -61,10 +61,10 @@ void main() {
     });
 
     test('fetchAll returns items ordered by eventDate descending', () async {
-      await datasource.upsert(_makeCollection(
+      await datasource.upsert(makeCollection(
           id: 'ms-older', title: 'Older')
         ..eventDate = DateTime(2025, 1, 1));
-      await datasource.upsert(_makeCollection(
+      await datasource.upsert(makeCollection(
           id: 'ms-newer', title: 'Newer')
         ..eventDate = DateTime(2026, 6, 1));
 
@@ -75,10 +75,10 @@ void main() {
     });
 
     test('upserting the same id updates in place', () async {
-      final original = _makeCollection(title: 'Original');
+      final original = makeCollection(title: 'Original');
       await datasource.upsert(original);
 
-      final updated = _makeCollection(title: 'Updated');
+      final updated = makeCollection(title: 'Updated');
       await datasource.upsert(updated);
 
       final all = await datasource.fetchAll();
@@ -89,7 +89,7 @@ void main() {
 
   group('fetchById', () {
     test('returns collection when id matches', () async {
-      await datasource.upsert(_makeCollection(id: 'ms-abc'));
+      await datasource.upsert(makeCollection(id: 'ms-abc'));
 
       final result = await datasource.fetchById('ms-abc');
 
@@ -105,7 +105,7 @@ void main() {
 
   group('deleteById', () {
     test('removes the item from the store', () async {
-      await datasource.upsert(_makeCollection());
+      await datasource.upsert(makeCollection());
 
       await datasource.deleteById('ms-1');
 
@@ -123,7 +123,7 @@ void main() {
 
   group('markSynced', () {
     test('updates syncStatus to synced without changing other fields', () async {
-      await datasource.upsert(_makeCollection(syncStatus: SyncStatus.pending));
+      await datasource.upsert(makeCollection(syncStatus: SyncStatus.pending));
 
       await datasource.markSynced('ms-1');
 
@@ -140,9 +140,9 @@ void main() {
 
   group('fetchPending', () {
     test('returns only pending items', () async {
-      await datasource.upsert(_makeCollection(
+      await datasource.upsert(makeCollection(
           id: 'ms-synced', syncStatus: SyncStatus.synced));
-      await datasource.upsert(_makeCollection(
+      await datasource.upsert(makeCollection(
           id: 'ms-pending', syncStatus: SyncStatus.pending));
 
       final pending = await datasource.fetchPending();
@@ -152,7 +152,7 @@ void main() {
     });
 
     test('returns empty list when no pending items', () async {
-      await datasource.upsert(_makeCollection(syncStatus: SyncStatus.synced));
+      await datasource.upsert(makeCollection(syncStatus: SyncStatus.synced));
 
       final pending = await datasource.fetchPending();
 

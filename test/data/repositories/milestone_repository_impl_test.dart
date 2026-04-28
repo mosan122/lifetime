@@ -2,7 +2,6 @@
 import 'package:dartz/dartz.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:lifetime/core/failures/failure.dart';
 import 'package:lifetime/core/services/premium_service.dart';
 import 'package:lifetime/data/datasources/isar_milestone_datasource.dart';
@@ -35,7 +34,7 @@ void main() {
   const tUserNote = 'Celebré mi 30 cumpleaños con amigos.';
   const tLocationName = 'Madrid';
 
-  final tBiographerResult =
+  const tBiographerResult =
       (title: 'Mi 30 cumpleaños', narrative: 'Fue un día especial.');
 
   final tMilestoneModel = MilestoneModel(

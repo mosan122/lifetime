@@ -30,10 +30,10 @@ void main() {
     premiumService = PremiumService();
   });
 
-  AuthCubit _makeCubit() => AuthCubit(mockRepo, premiumService);
+  AuthCubit makeCubit() => AuthCubit(mockRepo, premiumService);
 
   test('initial state is AuthUnauthenticated', () {
-    expect(_makeCubit().state, const AuthUnauthenticated());
+    expect(makeCubit().state, const AuthUnauthenticated());
   });
 
   group('checkCurrentUser', () {
@@ -41,7 +41,7 @@ void main() {
       'emits Authenticated(isPremium: false) when session exists and no premium stored',
       setUp: () =>
           when(() => mockRepo.getCurrentUser()).thenAnswer((_) async => tUser),
-      build: _makeCubit,
+      build: makeCubit,
       act: (c) => c.checkCurrentUser(),
       expect: () => [const AuthAuthenticated(tUser, isPremium: false)],
     );
@@ -53,7 +53,7 @@ void main() {
         premiumService = PremiumService();
         when(() => mockRepo.getCurrentUser()).thenAnswer((_) async => tUser);
       },
-      build: _makeCubit,
+      build: makeCubit,
       act: (c) => c.checkCurrentUser(),
       expect: () => [const AuthAuthenticated(tUser, isPremium: true)],
     );
@@ -62,7 +62,7 @@ void main() {
       'emits Unauthenticated when no session',
       setUp: () =>
           when(() => mockRepo.getCurrentUser()).thenAnswer((_) async => null),
-      build: _makeCubit,
+      build: makeCubit,
       act: (c) => c.checkCurrentUser(),
       expect: () => [const AuthUnauthenticated()],
     );
@@ -73,7 +73,7 @@ void main() {
       'emits [Authenticating, Authenticated(isPremium: false)] on success',
       setUp: () => when(() => mockRepo.signInWithGoogle())
           .thenAnswer((_) async => const Right(tUser)),
-      build: _makeCubit,
+      build: makeCubit,
       act: (c) => c.signInWithGoogle(),
       expect: () => [
         const AuthAuthenticating(),
@@ -86,7 +86,7 @@ void main() {
       setUp: () => when(() => mockRepo.signInWithGoogle())
           .thenAnswer((_) async =>
               const Left(AuthFailure('Sign-in cancelled'))),
-      build: _makeCubit,
+      build: makeCubit,
       act: (c) => c.signInWithGoogle(),
       expect: () => [
         const AuthAuthenticating(),
@@ -100,7 +100,7 @@ void main() {
       'emits Unauthenticated after sign out',
       setUp: () => when(() => mockRepo.signOut())
           .thenAnswer((_) async => const Right(unit)),
-      build: _makeCubit,
+      build: makeCubit,
       seed: () => const AuthAuthenticated(tUser),
       act: (c) => c.signOut(),
       expect: () => [const AuthUnauthenticated()],
@@ -110,7 +110,7 @@ void main() {
   group('setPremium', () {
     blocTest<AuthCubit, AuthState>(
       'emits AuthAuthenticated(isPremium: true) when called with true',
-      build: _makeCubit,
+      build: makeCubit,
       seed: () => const AuthAuthenticated(tUser, isPremium: false),
       act: (c) => c.setPremium(true),
       expect: () => [const AuthAuthenticated(tUser, isPremium: true)],
@@ -118,7 +118,7 @@ void main() {
 
     blocTest<AuthCubit, AuthState>(
       'does not emit when state is Unauthenticated',
-      build: _makeCubit,
+      build: makeCubit,
       seed: () => const AuthUnauthenticated(),
       act: (c) => c.setPremium(true),
       expect: () => [],
