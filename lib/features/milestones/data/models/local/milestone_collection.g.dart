@@ -16,7 +16,7 @@ extension GetMilestoneCollectionCollection on Isar {
 
 const MilestoneCollectionSchema = CollectionSchema(
   name: r'MilestoneCollection',
-  id: 6801414828442966016, // nearest JS-safe value (web compat)
+  id: 6801414828442965873,
   properties: {
     r'category': PropertySchema(
       id: 0,
@@ -74,24 +74,40 @@ const MilestoneCollectionSchema = CollectionSchema(
       type: IsarType.objectList,
       target: r'MediaAssetEmbed',
     ),
-    r'participants': PropertySchema(
+    r'mediaItems': PropertySchema(
       id: 11,
+      name: r'mediaItems',
+      type: IsarType.objectList,
+      target: r'MediaItemEmbed',
+    ),
+    r'participantIds': PropertySchema(
+      id: 12,
+      name: r'participantIds',
+      type: IsarType.stringList,
+    ),
+    r'participants': PropertySchema(
+      id: 13,
       name: r'participants',
       type: IsarType.stringList,
     ),
     r'syncStatus': PropertySchema(
-      id: 12,
+      id: 14,
       name: r'syncStatus',
       type: IsarType.string,
       enumMap: _MilestoneCollectionsyncStatusEnumValueMap,
     ),
+    r'tags': PropertySchema(
+      id: 15,
+      name: r'tags',
+      type: IsarType.stringList,
+    ),
     r'title': PropertySchema(
-      id: 13,
+      id: 16,
       name: r'title',
       type: IsarType.string,
     ),
     r'userId': PropertySchema(
-      id: 14,
+      id: 17,
       name: r'userId',
       type: IsarType.string,
     )
@@ -103,7 +119,7 @@ const MilestoneCollectionSchema = CollectionSchema(
   idName: r'isarId',
   indexes: {
     r'id': IndexSchema(
-      id: -3268401673993471488, // nearest JS-safe value (web compat)
+      id: -3268401673993471357,
       name: r'id',
       unique: true,
       replace: false,
@@ -117,7 +133,10 @@ const MilestoneCollectionSchema = CollectionSchema(
     )
   },
   links: {},
-  embeddedSchemas: {r'MediaAssetEmbed': MediaAssetEmbedSchema},
+  embeddedSchemas: {
+    r'MediaAssetEmbed': MediaAssetEmbedSchema,
+    r'MediaItemEmbed': MediaItemEmbedSchema
+  },
   getId: _milestoneCollectionGetId,
   getLinks: _milestoneCollectionGetLinks,
   attach: _milestoneCollectionAttach,
@@ -159,6 +178,22 @@ int _milestoneCollectionEstimateSize(
           MediaAssetEmbedSchema.estimateSize(value, offsets, allOffsets);
     }
   }
+  bytesCount += 3 + object.mediaItems.length * 3;
+  {
+    final offsets = allOffsets[MediaItemEmbed]!;
+    for (var i = 0; i < object.mediaItems.length; i++) {
+      final value = object.mediaItems[i];
+      bytesCount +=
+          MediaItemEmbedSchema.estimateSize(value, offsets, allOffsets);
+    }
+  }
+  bytesCount += 3 + object.participantIds.length * 3;
+  {
+    for (var i = 0; i < object.participantIds.length; i++) {
+      final value = object.participantIds[i];
+      bytesCount += value.length * 3;
+    }
+  }
   bytesCount += 3 + object.participants.length * 3;
   {
     for (var i = 0; i < object.participants.length; i++) {
@@ -167,6 +202,13 @@ int _milestoneCollectionEstimateSize(
     }
   }
   bytesCount += 3 + object.syncStatus.name.length * 3;
+  bytesCount += 3 + object.tags.length * 3;
+  {
+    for (var i = 0; i < object.tags.length; i++) {
+      final value = object.tags[i];
+      bytesCount += value.length * 3;
+    }
+  }
   bytesCount += 3 + object.title.length * 3;
   bytesCount += 3 + object.userId.length * 3;
   return bytesCount;
@@ -194,10 +236,18 @@ void _milestoneCollectionSerialize(
     MediaAssetEmbedSchema.serialize,
     object.media,
   );
-  writer.writeStringList(offsets[11], object.participants);
-  writer.writeString(offsets[12], object.syncStatus.name);
-  writer.writeString(offsets[13], object.title);
-  writer.writeString(offsets[14], object.userId);
+  writer.writeObjectList<MediaItemEmbed>(
+    offsets[11],
+    allOffsets,
+    MediaItemEmbedSchema.serialize,
+    object.mediaItems,
+  );
+  writer.writeStringList(offsets[12], object.participantIds);
+  writer.writeStringList(offsets[13], object.participants);
+  writer.writeString(offsets[14], object.syncStatus.name);
+  writer.writeStringList(offsets[15], object.tags);
+  writer.writeString(offsets[16], object.title);
+  writer.writeString(offsets[17], object.userId);
 }
 
 MilestoneCollection _milestoneCollectionDeserialize(
@@ -225,12 +275,21 @@ MilestoneCollection _milestoneCollectionDeserialize(
         MediaAssetEmbed(),
       ) ??
       [];
-  object.participants = reader.readStringList(offsets[11]) ?? [];
+  object.mediaItems = reader.readObjectList<MediaItemEmbed>(
+        offsets[11],
+        MediaItemEmbedSchema.deserialize,
+        allOffsets,
+        MediaItemEmbed(),
+      ) ??
+      [];
+  object.participantIds = reader.readStringList(offsets[12]) ?? [];
+  object.participants = reader.readStringList(offsets[13]) ?? [];
   object.syncStatus = _MilestoneCollectionsyncStatusValueEnumMap[
-          reader.readStringOrNull(offsets[12])] ??
+          reader.readStringOrNull(offsets[14])] ??
       SyncStatus.synced;
-  object.title = reader.readString(offsets[13]);
-  object.userId = reader.readString(offsets[14]);
+  object.tags = reader.readStringList(offsets[15]) ?? [];
+  object.title = reader.readString(offsets[16]);
+  object.userId = reader.readString(offsets[17]);
   return object;
 }
 
@@ -270,14 +329,26 @@ P _milestoneCollectionDeserializeProp<P>(
           ) ??
           []) as P;
     case 11:
-      return (reader.readStringList(offset) ?? []) as P;
+      return (reader.readObjectList<MediaItemEmbed>(
+            offset,
+            MediaItemEmbedSchema.deserialize,
+            allOffsets,
+            MediaItemEmbed(),
+          ) ??
+          []) as P;
     case 12:
+      return (reader.readStringList(offset) ?? []) as P;
+    case 13:
+      return (reader.readStringList(offset) ?? []) as P;
+    case 14:
       return (_MilestoneCollectionsyncStatusValueEnumMap[
               reader.readStringOrNull(offset)] ??
           SyncStatus.synced) as P;
-    case 13:
+    case 15:
+      return (reader.readStringList(offset) ?? []) as P;
+    case 16:
       return (reader.readString(offset)) as P;
-    case 14:
+    case 17:
       return (reader.readString(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
@@ -1660,6 +1731,321 @@ extension MilestoneCollectionQueryFilter on QueryBuilder<MilestoneCollection,
   }
 
   QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      mediaItemsLengthEqualTo(int length) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'mediaItems',
+        length,
+        true,
+        length,
+        true,
+      );
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      mediaItemsIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'mediaItems',
+        0,
+        true,
+        0,
+        true,
+      );
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      mediaItemsIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'mediaItems',
+        0,
+        false,
+        999999,
+        true,
+      );
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      mediaItemsLengthLessThan(
+    int length, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'mediaItems',
+        0,
+        true,
+        length,
+        include,
+      );
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      mediaItemsLengthGreaterThan(
+    int length, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'mediaItems',
+        length,
+        include,
+        999999,
+        true,
+      );
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      mediaItemsLengthBetween(
+    int lower,
+    int upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'mediaItems',
+        lower,
+        includeLower,
+        upper,
+        includeUpper,
+      );
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      participantIdsElementEqualTo(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'participantIds',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      participantIdsElementGreaterThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'participantIds',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      participantIdsElementLessThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'participantIds',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      participantIdsElementBetween(
+    String lower,
+    String upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'participantIds',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      participantIdsElementStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.startsWith(
+        property: r'participantIds',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      participantIdsElementEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.endsWith(
+        property: r'participantIds',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      participantIdsElementContains(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.contains(
+        property: r'participantIds',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      participantIdsElementMatches(String pattern,
+          {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.matches(
+        property: r'participantIds',
+        wildcard: pattern,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      participantIdsElementIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'participantIds',
+        value: '',
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      participantIdsElementIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        property: r'participantIds',
+        value: '',
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      participantIdsLengthEqualTo(int length) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'participantIds',
+        length,
+        true,
+        length,
+        true,
+      );
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      participantIdsIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'participantIds',
+        0,
+        true,
+        0,
+        true,
+      );
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      participantIdsIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'participantIds',
+        0,
+        false,
+        999999,
+        true,
+      );
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      participantIdsLengthLessThan(
+    int length, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'participantIds',
+        0,
+        true,
+        length,
+        include,
+      );
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      participantIdsLengthGreaterThan(
+    int length, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'participantIds',
+        length,
+        include,
+        999999,
+        true,
+      );
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      participantIdsLengthBetween(
+    int lower,
+    int upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'participantIds',
+        lower,
+        includeLower,
+        upper,
+        includeUpper,
+      );
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
       participantsElementEqualTo(
     String value, {
     bool caseSensitive = true,
@@ -2021,6 +2407,231 @@ extension MilestoneCollectionQueryFilter on QueryBuilder<MilestoneCollection,
   }
 
   QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      tagsElementEqualTo(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'tags',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      tagsElementGreaterThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'tags',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      tagsElementLessThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'tags',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      tagsElementBetween(
+    String lower,
+    String upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'tags',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      tagsElementStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.startsWith(
+        property: r'tags',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      tagsElementEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.endsWith(
+        property: r'tags',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      tagsElementContains(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.contains(
+        property: r'tags',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      tagsElementMatches(String pattern, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.matches(
+        property: r'tags',
+        wildcard: pattern,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      tagsElementIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'tags',
+        value: '',
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      tagsElementIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        property: r'tags',
+        value: '',
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      tagsLengthEqualTo(int length) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'tags',
+        length,
+        true,
+        length,
+        true,
+      );
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      tagsIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'tags',
+        0,
+        true,
+        0,
+        true,
+      );
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      tagsIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'tags',
+        0,
+        false,
+        999999,
+        true,
+      );
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      tagsLengthLessThan(
+    int length, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'tags',
+        0,
+        true,
+        length,
+        include,
+      );
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      tagsLengthGreaterThan(
+    int length, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'tags',
+        length,
+        include,
+        999999,
+        true,
+      );
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      tagsLengthBetween(
+    int lower,
+    int upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'tags',
+        lower,
+        includeLower,
+        upper,
+        includeUpper,
+      );
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
       titleEqualTo(
     String value, {
     bool caseSensitive = true,
@@ -2299,6 +2910,13 @@ extension MilestoneCollectionQueryObject on QueryBuilder<MilestoneCollection,
       mediaElement(FilterQuery<MediaAssetEmbed> q) {
     return QueryBuilder.apply(this, (query) {
       return query.object(q, r'media');
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      mediaItemsElement(FilterQuery<MediaItemEmbed> q) {
+    return QueryBuilder.apply(this, (query) {
+      return query.object(q, r'mediaItems');
     });
   }
 }
@@ -2763,6 +3381,13 @@ extension MilestoneCollectionQueryWhereDistinct
   }
 
   QueryBuilder<MilestoneCollection, MilestoneCollection, QDistinct>
+      distinctByParticipantIds() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'participantIds');
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QDistinct>
       distinctByParticipants() {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'participants');
@@ -2773,6 +3398,13 @@ extension MilestoneCollectionQueryWhereDistinct
       distinctBySyncStatus({bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'syncStatus', caseSensitive: caseSensitive);
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QDistinct>
+      distinctByTags() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'tags');
     });
   }
 
@@ -2874,6 +3506,20 @@ extension MilestoneCollectionQueryProperty
     });
   }
 
+  QueryBuilder<MilestoneCollection, List<MediaItemEmbed>, QQueryOperations>
+      mediaItemsProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'mediaItems');
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, List<String>, QQueryOperations>
+      participantIdsProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'participantIds');
+    });
+  }
+
   QueryBuilder<MilestoneCollection, List<String>, QQueryOperations>
       participantsProperty() {
     return QueryBuilder.apply(this, (query) {
@@ -2885,6 +3531,13 @@ extension MilestoneCollectionQueryProperty
       syncStatusProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'syncStatus');
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, List<String>, QQueryOperations>
+      tagsProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'tags');
     });
   }
 

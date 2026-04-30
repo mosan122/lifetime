@@ -5,6 +5,10 @@ import 'package:http/http.dart' as http;
 import 'package:isar/isar.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'core/services/local_media_store.dart';
+import 'core/services/local_media_store_web.dart'
+    if (dart.library.io) 'core/services/local_media_store_io.dart'
+    as local_media_store_factory;
 import 'core/services/location_service.dart';
 import 'core/services/premium_service.dart';
 import 'data/datasources/google_drive_datasource.dart';
@@ -18,7 +22,12 @@ import 'features/auth/data/datasources/auth_remote_datasource.dart';
 import 'features/auth/data/repositories/auth_repository_impl.dart';
 import 'features/auth/domain/repositories/auth_repository.dart';
 import 'features/auth/presentation/bloc/auth_cubit.dart';
+import 'features/milestones/data/datasources/isar_person_datasource.dart';
 import 'features/milestones/data/models/local/milestone_collection.dart';
+import 'features/milestones/data/models/local/person_collection.dart';
+import 'features/profile/data/datasources/profile_remote_datasource.dart';
+import 'features/profile/data/repositories/profile_repository_impl.dart';
+import 'features/profile/domain/repositories/profile_repository.dart';
 import 'features/milestones/domain/usecases/create_milestone_usecase.dart';
 import 'features/milestones/domain/usecases/delete_milestone_usecase.dart';
 import 'features/milestones/domain/usecases/export_bitacora_usecase.dart';
@@ -36,35 +45,77 @@ import 'features/settings/presentation/bloc/export_cubit.dart';
 final sl = GetIt.instance;
 
 // Web OAuth client ID — only needed on web (mobile reads from google-services.json).
-const _googleWebClientId = String.fromEnvironment('GOOGLE_CLIENT_ID');
-
 /// Call once in main() after Supabase.initialize().
 Future<void> init() async {
   // ─── External ─────────────────────────────────────────────────────────────
   sl.registerLazySingleton<SupabaseClient>(() => Supabase.instance.client);
   sl.registerLazySingleton<LocationService>(() => LocationServiceImpl());
   sl.registerLazySingleton<http.Client>(() => http.Client());
-  sl.registerLazySingleton<GoogleSignIn>(
-    () => GoogleSignIn(
-      clientId: kIsWeb ? _googleWebClientId : null,
-      scopes: ['https://www.googleapis.com/auth/drive.file'],
-    ),
+  sl.registerLazySingleton<LocalMediaStore>(
+    () => local_media_store_factory.createLocalMediaStore(),
+  );
+  // google_sign_in v7 uses a singleton instance + explicit initialize().
+  sl.registerLazySingleton<GoogleSignIn>(() => GoogleSignIn.instance);
+  await GoogleSignIn.instance.initialize(
+    serverClientId:
+        '242729475593-oc3pa4loinraaj19af4tali8kur61hqe.apps.googleusercontent.com',
   );
 
   // ─── Isar (local DB) — native only ───────────────────────────────────────
   if (!kIsWeb) {
     final dir = await getApplicationDocumentsDirectory();
-    final isar = await Isar.open(
-      [MilestoneCollectionSchema],
-      directory: dir.path,
-    );
-    sl.registerLazySingleton<Isar>(() => isar);
-    sl.registerLazySingleton<IsarMilestoneDataSource>(
-      () => IsarMilestoneDataSourceImpl(sl()),
-    );
+    Isar? isar;
+    var isarEnabled = true;
+    var peopleEnabled = true;
+    try {
+      isar = await Isar.open(
+        [MilestoneCollectionSchema, PersonCollectionSchema],
+        name: 'lifetime',
+        directory: dir.path,
+      );
+    } on IsarError {
+      // `isar_generator` v3 is pinned to analyzer<6 which can be incompatible
+      // with newer Flutter SDK toolchains. In that case we may ship with
+      // partially-generated schemas (e.g. people). Fall back to opening only
+      // the milestones collection so the app can boot.
+      final existing = Isar.getInstance('lifetime') ?? Isar.getInstance();
+      await existing?.close();
+      try {
+        isar = await Isar.open(
+          [MilestoneCollectionSchema],
+          name: 'lifetime',
+          directory: dir.path,
+        );
+        peopleEnabled = false;
+      } on IsarError {
+        // Last resort: disable Isar completely (keep app bootable).
+        isarEnabled = false;
+      }
+    }
+    if (isarEnabled && isar != null) {
+      sl.registerLazySingleton<Isar>(() => isar!);
+      sl.registerLazySingleton<IsarMilestoneDataSource>(
+        () => IsarMilestoneDataSourceImpl(sl()),
+      );
+      sl.registerLazySingleton<IsarPersonDataSource>(
+        () => peopleEnabled
+            ? IsarPersonDataSourceImpl(sl())
+            : _WebPersonDataSource(),
+      );
+    } else {
+      sl.registerLazySingleton<IsarMilestoneDataSource>(
+        () => _WebMilestoneDataSource(),
+      );
+      sl.registerLazySingleton<IsarPersonDataSource>(
+        () => _WebPersonDataSource(),
+      );
+    }
   } else {
     sl.registerLazySingleton<IsarMilestoneDataSource>(
       () => _WebMilestoneDataSource(),
+    );
+    sl.registerLazySingleton<IsarPersonDataSource>(
+      () => _WebPersonDataSource(),
     );
   }
 
@@ -80,6 +131,9 @@ Future<void> init() async {
   sl.registerLazySingleton<AuthRemoteDataSource>(
     () => AuthRemoteDataSourceImpl(sl(), sl()),
   );
+  sl.registerLazySingleton<ProfileRemoteDataSource>(
+    () => ProfileRemoteDataSourceImpl(sl()),
+  );
   sl.registerLazySingleton<GoogleDriveDataSource>(
     () => GoogleDriveDataSourceImpl(sl()),
   );
@@ -91,10 +145,16 @@ Future<void> init() async {
       sl<MilestoneRemoteDataSource>(),
       sl<PremiumService>(),
       () => Supabase.instance.client.auth.currentUser?.id ?? '',
+      sl<DriveRepository>(),
+      sl<LocalMediaStore>(),
+      sl<IsarPersonDataSource>(),
     ),
   );
   sl.registerLazySingleton<AuthRepository>(
     () => AuthRepositoryImpl(sl()),
+  );
+  sl.registerLazySingleton<ProfileRepository>(
+    () => ProfileRepositoryImpl(sl(), sl()),
   );
   sl.registerLazySingleton<DriveRepository>(
     () => DriveRepositoryImpl(sl()),
@@ -117,7 +177,7 @@ Future<void> init() async {
   sl.registerFactory<DeleteMilestoneCubit>(() => DeleteMilestoneCubit(sl()));
   sl.registerFactory<ExportCubit>(() => ExportCubit(sl()));
   sl.registerFactory<MapCubit>(() => MapCubit(sl()));
-  sl.registerFactory<AuthCubit>(() => AuthCubit(sl(), sl()));
+  sl.registerFactory<AuthCubit>(() => AuthCubit(sl(), sl(), sl(), sl()));
 }
 
 // In-memory fallback used on web (Isar requires native FFI, unavailable in JS).
@@ -155,4 +215,35 @@ class _WebMilestoneDataSource implements IsarMilestoneDataSource {
   @override
   Future<List<MilestoneCollection>> fetchPending() async =>
       _store.where((c) => c.syncStatus == SyncStatus.pending).toList();
+}
+
+class _WebPersonDataSource implements IsarPersonDataSource {
+  final List<PersonCollection> _store = [];
+
+  @override
+  Future<PersonCollection?> fetchByDisplayName(String displayName) async {
+    return _store.where((p) => p.displayName == displayName).firstOrNull;
+  }
+
+  @override
+  Future<PersonCollection?> fetchById(String id) async =>
+      _store.where((p) => p.id == id).firstOrNull;
+
+  @override
+  Future<List<PersonCollection>> fetchByIds(List<String> ids) async {
+    if (ids.isEmpty) return [];
+    final wanted = ids.toSet();
+    return _store.where((p) => wanted.contains(p.id)).toList();
+  }
+
+  @override
+  Future<PersonCollection> upsert(PersonCollection c) async {
+    final existingIndex = _store.indexWhere((e) => e.id == c.id);
+    if (existingIndex != -1) {
+      _store[existingIndex] = c;
+    } else {
+      _store.add(c);
+    }
+    return c;
+  }
 }

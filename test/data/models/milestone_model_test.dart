@@ -27,6 +27,7 @@ void main() {
     'category': 'familia',
     'is_public': false,
     'created_at': '2026-04-26T10:00:00.000Z',
+    'drive_file_id': 'drive-abc-123',
   };
 
   final tJsonNoCoords = {
@@ -59,6 +60,12 @@ void main() {
       expect(model.longitude, closeTo(-3.7038, 0.0001));
       expect(model.category, equals('familia'));
       expect(model.isPublic, isFalse);
+      expect(model.driveFileId, equals('drive-abc-123'));
+    });
+
+    test('parses drive_file_id as null when absent', () {
+      final model = MilestoneModel.fromJson(tJsonNoCoords);
+      expect(model.driveFileId, isNull);
     });
 
     test('parses GeoJSON coordinates into lat/lng', () {
@@ -113,6 +120,91 @@ void main() {
       );
 
       expect(map.containsKey('location_coords'), isFalse);
+    });
+
+    test('WKT has longitude BEFORE latitude — PostGIS POINT(lng lat) order', () {
+      final map = MilestoneModel.toInsertMap(
+        title: 'T',
+        description: null,
+        participants: const [],
+        eventDate: DateTime(2026, 4, 26),
+        locationName: null,
+        latitude: 40.4168,
+        longitude: -3.7038,
+        category: 'general',
+        isPublic: false,
+      );
+
+      final wkt = map['location_coords'] as String;
+      // Strip 'POINT(' prefix and ')' suffix to isolate the two numbers.
+      final inner = wkt.substring(6, wkt.length - 1);
+      final parts = inner.split(' ');
+
+      expect(
+        double.parse(parts[0]),
+        equals(-3.7038),
+        reason: 'longitude must be the first value in a PostGIS WKT point',
+      );
+      expect(
+        double.parse(parts[1]),
+        equals(40.4168),
+        reason: 'latitude must be the second value in a PostGIS WKT point',
+      );
+    });
+
+    test('omits location_coords when only one of lat/lng is provided', () {
+      final mapLatOnly = MilestoneModel.toInsertMap(
+        title: 'T',
+        description: null,
+        participants: const [],
+        eventDate: DateTime(2026, 4, 26),
+        locationName: null,
+        latitude: 40.4168,
+        longitude: null,
+        category: 'general',
+        isPublic: false,
+      );
+      final mapLngOnly = MilestoneModel.toInsertMap(
+        title: 'T',
+        description: null,
+        participants: const [],
+        eventDate: DateTime(2026, 4, 26),
+        locationName: null,
+        latitude: null,
+        longitude: -3.7038,
+        category: 'general',
+        isPublic: false,
+      );
+
+      expect(mapLatOnly.containsKey('location_coords'), isFalse);
+      expect(mapLngOnly.containsKey('location_coords'), isFalse);
+    });
+  });
+
+  group('WKT ↔ GeoJSON round-trip consistency', () {
+    test('toInsertMap WKT order matches fromJson GeoJSON [lng, lat] order', () {
+      const lat = 40.4168;
+      const lng = -3.7038;
+
+      // Simulate what PostgREST returns after storing POINT(lng lat):
+      // it comes back as GeoJSON with coordinates: [lng, lat].
+      final model = MilestoneModel.fromJson({
+        'id': 'ms-rt',
+        'user_id': 'u-1',
+        'title': 'Round-trip',
+        'participants': <String>[],
+        'event_date': '2026-04-26T00:00:00.000Z',
+        'category': 'general',
+        'is_public': false,
+        'created_at': '2026-04-26T10:00:00.000Z',
+        'location_coords': {
+          'type': 'Point',
+          'coordinates': [lng, lat], // PostgREST GeoJSON: [longitude, latitude]
+        },
+      });
+
+      expect(model.latitude, equals(lat));
+      expect(model.longitude, equals(lng));
     });
   });
 }

@@ -46,7 +46,8 @@ void main() {
     registerFallbackValue(tDate);
   });
 
-  test('forwards params to repository and returns Right(Milestone) on success', () async {
+  // Shared stub helper — must include imageBase64 matcher.
+  void stubSuccess() {
     when(() => mockRepository.createMilestone(
           userNote: any(named: 'userNote'),
           eventDate: any(named: 'eventDate'),
@@ -56,7 +57,15 @@ void main() {
           category: any(named: 'category'),
           participants: any(named: 'participants'),
           isPublic: any(named: 'isPublic'),
+          driveFileId: any(named: 'driveFileId'),
+          imageBase64: any(named: 'imageBase64'),
+          localMediaPaths: any(named: 'localMediaPaths'),
+          localMediaTypes: any(named: 'localMediaTypes'),
         )).thenAnswer((_) async => Right(tMilestone));
+  }
+
+  test('forwards params to repository and returns Right(Milestone) on success', () async {
+    stubSuccess();
 
     final result = await useCase(tParams);
 
@@ -70,6 +79,64 @@ void main() {
           category: tParams.category,
           participants: tParams.participants,
           isPublic: tParams.isPublic,
+          driveFileId: tParams.driveFileId,
+          imageBase64: tParams.imageBase64,
+          localMediaPaths: tParams.localMediaPaths,
+          localMediaTypes: tParams.localMediaTypes,
+        )).called(1);
+  });
+
+  test('forwards imageBase64 to repository when provided', () async {
+    const tBase64 = 'SGVsbG8gV29ybGQ=';
+    final paramsWithImage = CreateMilestoneParams(
+      userNote: 'Foto del cumpleaños.',
+      eventDate: tDate,
+      imageBase64: tBase64,
+    );
+    stubSuccess();
+
+    await useCase(paramsWithImage);
+
+    verify(() => mockRepository.createMilestone(
+          userNote: paramsWithImage.userNote,
+          eventDate: paramsWithImage.eventDate,
+          locationName: paramsWithImage.locationName,
+          latitude: paramsWithImage.latitude,
+          longitude: paramsWithImage.longitude,
+          category: paramsWithImage.category,
+          participants: paramsWithImage.participants,
+          isPublic: paramsWithImage.isPublic,
+          driveFileId: paramsWithImage.driveFileId,
+          imageBase64: tBase64,
+          localMediaPaths: paramsWithImage.localMediaPaths,
+          localMediaTypes: paramsWithImage.localMediaTypes,
+        )).called(1);
+  });
+
+  test('forwards localMediaPaths to repository when provided', () async {
+    const tLocalMediaPath = '/tmp/cache_photo.jpg';
+    final paramsWithLocal = CreateMilestoneParams(
+      userNote: 'Foto del cumpleaños.',
+      eventDate: tDate,
+      localMediaPaths: const [tLocalMediaPath],
+    );
+    stubSuccess();
+
+    await useCase(paramsWithLocal);
+
+    verify(() => mockRepository.createMilestone(
+          userNote: paramsWithLocal.userNote,
+          eventDate: paramsWithLocal.eventDate,
+          locationName: paramsWithLocal.locationName,
+          latitude: paramsWithLocal.latitude,
+          longitude: paramsWithLocal.longitude,
+          category: paramsWithLocal.category,
+          participants: paramsWithLocal.participants,
+          isPublic: paramsWithLocal.isPublic,
+          driveFileId: paramsWithLocal.driveFileId,
+          imageBase64: paramsWithLocal.imageBase64,
+          localMediaPaths: paramsWithLocal.localMediaPaths,
+          localMediaTypes: paramsWithLocal.localMediaTypes,
         )).called(1);
   });
 
@@ -83,6 +150,10 @@ void main() {
           category: any(named: 'category'),
           participants: any(named: 'participants'),
           isPublic: any(named: 'isPublic'),
+          driveFileId: any(named: 'driveFileId'),
+          imageBase64: any(named: 'imageBase64'),
+          localMediaPaths: any(named: 'localMediaPaths'),
+          localMediaTypes: any(named: 'localMediaTypes'),
         )).thenAnswer((_) async => const Left(AuthFailure()));
 
     final result = await useCase(tParams);
@@ -104,6 +175,10 @@ void main() {
           category: any(named: 'category'),
           participants: any(named: 'participants'),
           isPublic: any(named: 'isPublic'),
+          driveFileId: any(named: 'driveFileId'),
+          imageBase64: any(named: 'imageBase64'),
+          localMediaPaths: any(named: 'localMediaPaths'),
+          localMediaTypes: any(named: 'localMediaTypes'),
         )).thenAnswer(
       (_) async => const Left(NetworkFailure('timeout', '500')),
     );
@@ -129,5 +204,18 @@ void main() {
       eventDate: DateTime(2026, 1, 1),
     );
     expect(p1, equals(p2));
+  });
+
+  test('CreateMilestoneParams with imageBase64 differs from without', () {
+    final withImage = CreateMilestoneParams(
+      userNote: 'note',
+      eventDate: DateTime(2026, 1, 1),
+      imageBase64: 'abc123',
+    );
+    final withoutImage = CreateMilestoneParams(
+      userNote: 'note',
+      eventDate: DateTime(2026, 1, 1),
+    );
+    expect(withImage, isNot(equals(withoutImage)));
   });
 }

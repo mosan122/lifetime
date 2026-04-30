@@ -59,7 +59,7 @@ void main() {
     expect(m.isPublic, isFalse);
   });
 
-  test('props list contains all 13 fields', () {
-    expect(makeMilestone().props, hasLength(13));
+  test('props list contains all 17 fields', () {
+    expect(makeMilestone().props, hasLength(17));
   });
 }

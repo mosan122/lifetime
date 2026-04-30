@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'media_item.dart';
 import 'media_asset_entity.dart';
 
 class Milestone extends Equatable {
@@ -7,7 +8,10 @@ class Milestone extends Equatable {
   final String title;
   final String? description;
   final List<String> participants;
+  final List<String> participantIds;
+  final List<String> tags;
   final List<MediaAssetEntity> media;
+  final List<MediaItem> mediaItems;
   final DateTime eventDate;
   final String? locationName;
   final double? latitude;
@@ -15,6 +19,7 @@ class Milestone extends Equatable {
   final String category;
   final bool isPublic;
   final DateTime createdAt;
+  final String? driveFileId;
 
   const Milestone({
     required this.id,
@@ -22,7 +27,10 @@ class Milestone extends Equatable {
     required this.title,
     this.description,
     this.participants = const [],
+    this.participantIds = const [],
+    this.tags = const [],
     this.media = const [],
+    this.mediaItems = const [],
     required this.eventDate,
     this.locationName,
     this.latitude,
@@ -30,6 +38,7 @@ class Milestone extends Equatable {
     this.category = 'general',
     this.isPublic = false,
     required this.createdAt,
+    this.driveFileId,
   });
 
   @override
@@ -39,7 +48,10 @@ class Milestone extends Equatable {
         title,
         description,
         participants,
+        participantIds,
+        tags,
         media,
+        mediaItems,
         eventDate,
         locationName,
         latitude,
@@ -47,5 +59,6 @@ class Milestone extends Equatable {
         category,
         isPublic,
         createdAt,
+        driveFileId,
       ];
 }

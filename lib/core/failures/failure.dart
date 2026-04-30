@@ -16,7 +16,8 @@ class AuthFailure extends Failure {
 }
 
 class DatabaseFailure extends Failure {
-  const DatabaseFailure(String message, {String? code}) : super(message, code: code);
+  const DatabaseFailure(String message, {String? code})
+      : super(message, code: code);
 }
 
 class NetworkFailure extends Failure {
@@ -25,7 +26,6 @@ class NetworkFailure extends Failure {
 }
 
 class BiographerFailure extends Failure {
-  const BiographerFailure(
-      [String message = 'Biographer service error', String? code])
+  const BiographerFailure([String message = 'Biographer service error', String? code])
       : super(message, code: code);
 }

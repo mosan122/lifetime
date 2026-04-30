@@ -9,12 +9,24 @@ import 'package:lifetime/core/services/premium_service.dart';
 import 'package:lifetime/features/auth/domain/entities/auth_user.dart';
 import 'package:lifetime/features/auth/domain/repositories/auth_repository.dart';
 import 'package:lifetime/features/auth/presentation/bloc/auth_cubit.dart';
+import 'package:lifetime/features/profile/domain/entities/profile.dart';
+import 'package:lifetime/features/profile/domain/repositories/profile_repository.dart';
+import 'package:supabase_flutter/supabase_flutter.dart'
+    show SupabaseClient, GoTrueClient, User;
 
 class MockAuthRepository extends Mock implements AuthRepository {}
+class MockProfileRepository extends Mock implements ProfileRepository {}
+class MockSupabaseClient extends Mock implements SupabaseClient {}
+class MockGoTrueClient extends Mock implements GoTrueClient {}
+class MockUser extends Mock implements User {}
 
 void main() {
   late MockAuthRepository mockRepo;
+  late MockProfileRepository mockProfileRepo;
   late PremiumService premiumService;
+  late MockSupabaseClient mockSupabase;
+  late MockGoTrueClient mockGoTrue;
+  late MockUser mockSupaUser;
 
   const tUser = AuthUser(
     id: 'goog-1',
@@ -26,11 +38,20 @@ void main() {
 
   setUp(() {
     mockRepo = MockAuthRepository();
+    mockProfileRepo = MockProfileRepository();
     SharedPreferences.setMockInitialValues({});
     premiumService = PremiumService();
+
+    mockSupabase = MockSupabaseClient();
+    mockGoTrue = MockGoTrueClient();
+    mockSupaUser = MockUser();
+    when(() => mockSupabase.auth).thenReturn(mockGoTrue);
+    when(() => mockGoTrue.currentUser).thenReturn(mockSupaUser);
+    when(() => mockSupaUser.id).thenReturn('supa-uid-1');
   });
 
-  AuthCubit makeCubit() => AuthCubit(mockRepo, premiumService);
+  AuthCubit makeCubit() =>
+      AuthCubit(mockRepo, premiumService, mockProfileRepo, mockSupabase);
 
   test('initial state is AuthUnauthenticated', () {
     expect(makeCubit().state, const AuthUnauthenticated());
@@ -39,8 +60,12 @@ void main() {
   group('checkCurrentUser', () {
     blocTest<AuthCubit, AuthState>(
       'emits Authenticated(isPremium: false) when session exists and no premium stored',
-      setUp: () =>
-          when(() => mockRepo.getCurrentUser()).thenAnswer((_) async => tUser),
+      setUp: () {
+        when(() => mockRepo.getCurrentUser()).thenAnswer((_) async => tUser);
+        when(() => mockProfileRepo.fetchProfile('supa-uid-1')).thenAnswer(
+          (_) async => const Right(Profile(id: 'supa-uid-1', isPremium: false)),
+        );
+      },
       build: makeCubit,
       act: (c) => c.checkCurrentUser(),
       expect: () => [const AuthAuthenticated(tUser, isPremium: false)],
@@ -49,9 +74,10 @@ void main() {
     blocTest<AuthCubit, AuthState>(
       'emits Authenticated(isPremium: true) when session exists and premium stored',
       setUp: () {
-        SharedPreferences.setMockInitialValues({'is_premium': true});
-        premiumService = PremiumService();
         when(() => mockRepo.getCurrentUser()).thenAnswer((_) async => tUser);
+        when(() => mockProfileRepo.fetchProfile('supa-uid-1')).thenAnswer(
+          (_) async => const Right(Profile(id: 'supa-uid-1', isPremium: true)),
+        );
       },
       build: makeCubit,
       act: (c) => c.checkCurrentUser(),
@@ -71,8 +97,13 @@ void main() {
   group('signInWithGoogle', () {
     blocTest<AuthCubit, AuthState>(
       'emits [Authenticating, Authenticated(isPremium: false)] on success',
-      setUp: () => when(() => mockRepo.signInWithGoogle())
-          .thenAnswer((_) async => const Right(tUser)),
+      setUp: () {
+        when(() => mockRepo.signInWithGoogle())
+            .thenAnswer((_) async => const Right(tUser));
+        when(() => mockProfileRepo.fetchProfile('supa-uid-1')).thenAnswer(
+          (_) async => const Right(Profile(id: 'supa-uid-1', isPremium: false)),
+        );
+      },
       build: makeCubit,
       act: (c) => c.signInWithGoogle(),
       expect: () => [

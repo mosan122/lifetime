@@ -8,11 +8,14 @@ abstract class MilestoneRemoteDataSource {
     required String userNote,
     required DateTime date,
     String? location,
+    String? imageBase64,
   });
 
   Future<MilestoneModel> insertMilestone(Map<String, dynamic> data);
   Future<List<MilestoneModel>> fetchMilestones();
   Future<MilestoneModel> fetchMilestoneById(String id);
+  Future<void> deleteMilestone(String id);
+  Future<MilestoneModel> updateMilestone(String id, Map<String, dynamic> data);
 }
 
 class MilestoneRemoteDataSourceImpl implements MilestoneRemoteDataSource {
@@ -25,6 +28,7 @@ class MilestoneRemoteDataSourceImpl implements MilestoneRemoteDataSource {
     required String userNote,
     required DateTime date,
     String? location,
+    String? imageBase64,
   }) async {
     final response = await _supabase.functions.invoke(
       'biographer-narrative',
@@ -34,6 +38,7 @@ class MilestoneRemoteDataSourceImpl implements MilestoneRemoteDataSource {
           if (location != null) 'location': location,
         },
         'userNote': userNote,
+        if (imageBase64 != null) 'imageBase64': imageBase64,
       },
     );
 
@@ -85,6 +90,32 @@ class MilestoneRemoteDataSourceImpl implements MilestoneRemoteDataSource {
         .from('milestones')
         .select('*, media_assets(*)')
         .eq('id', id)
+        .single();
+    return MilestoneModel.fromJson(response);
+  }
+
+  @override
+  Future<void> deleteMilestone(String id) async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) throw const AuthException('No authenticated user');
+    await _supabase
+        .from('milestones')
+        .delete()
+        .eq('id', id)
+        .eq('user_id', user.id);
+  }
+
+  @override
+  Future<MilestoneModel> updateMilestone(
+      String id, Map<String, dynamic> data) async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) throw const AuthException('No authenticated user');
+    final response = await _supabase
+        .from('milestones')
+        .update(data)
+        .eq('id', id)
+        .eq('user_id', user.id)
+        .select('*, media_assets(*)')
         .single();
     return MilestoneModel.fromJson(response);
   }

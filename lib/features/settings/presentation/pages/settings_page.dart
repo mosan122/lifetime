@@ -133,9 +133,11 @@ class _SettingsView extends StatelessWidget {
     required String subject,
   }) async {
     final bytes = Uint8List.fromList(utf8.encode(content));
-    await Share.shareXFiles(
-      [XFile.fromData(bytes, mimeType: mimeType, name: filename)],
-      subject: subject,
+    await SharePlus.instance.share(
+      ShareParams(
+        subject: subject,
+        files: [XFile.fromData(bytes, mimeType: mimeType, name: filename)],
+      ),
     );
   }
 }

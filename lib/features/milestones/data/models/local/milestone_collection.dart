@@ -2,9 +2,11 @@
 import 'package:isar/isar.dart';
 import '../../../../../domain/entities/milestone.dart';
 import 'media_asset_embed.dart';
+import 'media_item_embed.dart';
 
 part 'milestone_collection.g.dart';
 
+// 
 enum SyncStatus { synced, pending }
 
 @Collection()
@@ -18,6 +20,8 @@ class MilestoneCollection {
   late String title;
   String? description;
   List<String> participants = [];
+  List<String> participantIds = [];
+  List<String> tags = [];
   DateTime eventDate = DateTime.fromMillisecondsSinceEpoch(0);
   String? locationName;
   double? latitude;
@@ -31,6 +35,7 @@ class MilestoneCollection {
   late SyncStatus syncStatus;
 
   List<MediaAssetEmbed> media = [];
+  List<MediaItemEmbed> mediaItems = [];
 
   static MilestoneCollection fromMilestone(
       Milestone milestone, SyncStatus status) {
@@ -40,6 +45,8 @@ class MilestoneCollection {
       ..title = milestone.title
       ..description = milestone.description
       ..participants = List<String>.from(milestone.participants)
+      ..participantIds = List<String>.from(milestone.participantIds)
+      ..tags = List<String>.from(milestone.tags)
       ..eventDate = milestone.eventDate
       ..locationName = milestone.locationName
       ..latitude = milestone.latitude
@@ -49,7 +56,8 @@ class MilestoneCollection {
       ..createdAt = milestone.createdAt
       ..driveFileId = milestone.driveFileId
       ..syncStatus = status
-      ..media = milestone.media.map(MediaAssetEmbed.fromEntity).toList();
+      ..media = milestone.media.map(MediaAssetEmbed.fromEntity).toList()
+      ..mediaItems = milestone.mediaItems.map(MediaItemEmbed.fromDomain).toList();
   }
 
   Milestone toDomain() {
@@ -59,7 +67,10 @@ class MilestoneCollection {
       title: title,
       description: description,
       participants: List<String>.from(participants),
+      participantIds: List<String>.from(participantIds),
+      tags: List<String>.from(tags),
       media: media.map((e) => e.toDomain()).toList(),
+      mediaItems: mediaItems.map((e) => e.toDomain()).toList(),
       eventDate: eventDate,
       locationName: locationName,
       latitude: latitude,

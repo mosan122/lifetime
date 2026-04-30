@@ -11,9 +11,10 @@ class CreateMilestoneInitial extends CreateMilestoneState {
 }
 
 class CreateMilestoneSubmitting extends CreateMilestoneState {
-  const CreateMilestoneSubmitting();
+  final String step;
+  const CreateMilestoneSubmitting([this.step = 'Redactando historia...']);
   @override
-  List<Object?> get props => const [];
+  List<Object?> get props => [step];
 }
 
 class CreateMilestoneSuccess extends CreateMilestoneState {
