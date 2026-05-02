@@ -6,14 +6,23 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
 
+import '../../../../core/failures/failure.dart';
 import '../../../../core/services/location_service.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../domain/entities/media_item.dart';
 import '../../../../domain/entities/milestone.dart';
+import '../../../../domain/services/face_cropper_service.dart';
 import '../../../../injection_container.dart';
 import '../../../auth/presentation/bloc/auth_cubit.dart';
 import '../bloc/create_milestone_cubit.dart';
 import '../bloc/edit_milestone_cubit.dart';
+import '../../data/datasources/isar_category_datasource.dart';
+import '../../data/datasources/isar_person_datasource.dart';
+import '../../data/models/local/category_collection.dart';
+import '../../data/models/local/media_item_embed.dart';
+import '../../data/models/local/person_collection.dart';
+import '../widgets/face_source_bottom_sheet.dart';
+import '../widgets/person_avatar_badge.dart';
 
 const _kSpanishMonths = [
   'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
@@ -54,7 +63,11 @@ class _CreateMilestoneViewState extends State<_CreateMilestoneView> {
   final _noteController = TextEditingController();
   final _locationController = TextEditingController();
   final _picker = ImagePicker();
+  final List<PersonCollection> _participants = [];
+  final _faceCropService = sl<FaceCropperService>();
+  final _personDs = sl<IsarPersonDataSource>();
   DateTime _selectedDate = DateTime.now();
+  int _categoryId = 1;
   final List<_SelectedMedia> _selectedMedia = [];
   LocationData? _locationData;
   bool _fetchingLocation = true;
@@ -118,6 +131,103 @@ class _CreateMilestoneViewState extends State<_CreateMilestoneView> {
     if (picked != null && mounted) setState(() => _selectedDate = picked);
   }
 
+  Future<void> _addParticipant() async {
+    final all = await _personDs.fetchAll();
+    final existing = {for (final p in _participants) p.id};
+    final available = all.where((p) => !existing.contains(p.id)).toList()
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+
+    if (!mounted) return;
+    if (available.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No hay más personas disponibles.')),
+      );
+      return;
+    }
+
+    final picked = await showDialog<PersonCollection>(
+      context: context,
+      builder: (dialogCtx) => SimpleDialog(
+        backgroundColor: AppTheme.cream,
+        title: const Text('Añadir persona'),
+        children: available
+            .map((p) => SimpleDialogOption(
+                  onPressed: () => Navigator.pop(dialogCtx, p),
+                  child: Text(p.name),
+                ))
+            .toList(),
+      ),
+    );
+
+    if (picked != null && mounted) {
+      setState(() => _participants.add(picked));
+    }
+  }
+
+  Future<void> _assignParticipantPhoto(PersonCollection p) async {
+    final mediaItems = _selectedMedia
+        .where((m) => m.type == MediaType.image)
+        .map((m) => MediaItemEmbed()
+          ..localPath = m.file.path
+          ..thumbnailPath = m.file.path
+          ..mediaType = MediaType.image)
+        .toList();
+
+    if (!mounted) return;
+    final selection = await showFaceSourceBottomSheet(
+      context: context,
+      milestoneMediaItems: mediaItems.isEmpty ? null : mediaItems,
+    );
+    if (selection == null || !mounted) return;
+
+    final cropResult = await _faceCropService.pickAndCrop(
+      source: selection.source,
+      milestoneImagePath: selection.milestoneImagePath,
+    );
+
+    if (!mounted) return;
+    await cropResult.fold(
+      (failure) async {
+        if (failure is! FaceCropCancelledFailure) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(failure.message),
+              backgroundColor: Colors.red.shade700,
+            ),
+          );
+        }
+      },
+      (file) async {
+        final saveResult = await _faceCropService.saveForPerson(
+          personId: p.id,
+          croppedFile: file,
+        );
+        if (!mounted) return;
+        saveResult.fold(
+          (failure) => ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(failure.message),
+              backgroundColor: Colors.red.shade700,
+            ),
+          ),
+          (updatedPerson) {
+            setState(() {
+              final idx = _participants.indexWhere((x) => x.id == p.id);
+              if (idx != -1) {
+                _participants[idx] = PersonCollection()
+                  ..isarId = p.isarId
+                  ..id = p.id
+                  ..name = p.name
+                  ..faceImagePath = updatedPerson.faceImagePath
+                  ..driveFaceFileId = p.driveFaceFileId;
+              }
+            });
+          },
+        );
+      },
+    );
+  }
+
   void _submit(BuildContext context) {
     final note = _noteController.text.trim();
     if (note.isEmpty) return;
@@ -134,12 +244,14 @@ class _CreateMilestoneViewState extends State<_CreateMilestoneView> {
           title: title.isEmpty ? null : title,
           userNote: note,
           eventDate: _selectedDate,
+          categoryId: _categoryId,
           mediaFiles: _selectedMedia.map((e) => e.file).toList(),
           mediaTypes: _selectedMedia.map((e) => e.type).toList(),
           accessToken: accessToken,
           locationName: locationText.isEmpty ? null : locationText,
           latitude: _locationData?.latitude,
           longitude: _locationData?.longitude,
+          participants: _participants.map((p) => p.id).toList(),
         );
   }
 
@@ -227,6 +339,12 @@ class _CreateMilestoneViewState extends State<_CreateMilestoneView> {
                                 ),
                               ),
                             ),
+                            const SizedBox(height: 12),
+                            _CategorySelector(
+                              value: _categoryId,
+                              enabled: !isSubmitting,
+                              onChanged: (v) => setState(() => _categoryId = v),
+                            ),
                             const SizedBox(height: 16),
                             _MediaPickerSection(
                               selected: _selectedMedia,
@@ -234,6 +352,15 @@ class _CreateMilestoneViewState extends State<_CreateMilestoneView> {
                               onPickImages: _pickImages,
                               onPickVideo: _pickVideo,
                               onRemoveAt: _removeMediaAt,
+                            ),
+                            const SizedBox(height: 8),
+                            _ParticipantsSection(
+                              participants: _participants,
+                              enabled: !isSubmitting,
+                              onAdd: _addParticipant,
+                              onAssignPhoto: _assignParticipantPhoto,
+                              onRemove: (p) =>
+                                  setState(() => _participants.remove(p)),
                             ),
                             const SizedBox(height: 8),
                             _DatePickerRow(
@@ -313,6 +440,7 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
   late final TextEditingController _descController;
   late final TextEditingController _locationController;
   late DateTime _selectedDate;
+  late int _categoryId;
 
   @override
   void initState() {
@@ -323,6 +451,7 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
     _locationController =
         TextEditingController(text: widget.milestone.locationName ?? '');
     _selectedDate = widget.milestone.eventDate;
+    _categoryId = widget.milestone.categoryId;
   }
 
   @override
@@ -352,6 +481,7 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
           id: widget.milestone.id,
           title: title,
           description: desc,
+          categoryId: _categoryId,
           eventDate: _selectedDate,
           locationName: locationText.isEmpty ? null : locationText,
           latitude: widget.milestone.latitude,
@@ -437,6 +567,12 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
                                 style: theme.textTheme.bodyLarge,
                                 decoration: _cleanMultilineDecoration(theme),
                               ),
+                            ),
+                            const SizedBox(height: 12),
+                            _CategorySelector(
+                              value: _categoryId,
+                              enabled: !isSubmitting,
+                              onChanged: (v) => setState(() => _categoryId = v),
                             ),
                             const SizedBox(height: 8),
                             _DatePickerRow(
@@ -574,6 +710,56 @@ InputDecoration _locationFieldDecoration(
       borderSide: BorderSide(color: theme.colorScheme.outline),
     ),
   );
+}
+
+class _CategorySelector extends StatelessWidget {
+  final int value;
+  final bool enabled;
+  final ValueChanged<int> onChanged;
+
+  const _CategorySelector({
+    required this.value,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final ds = sl<IsarCategoryDataSource>();
+
+    return FutureBuilder<List<CategoryCollection>>(
+      future: ds.fetchAll(),
+      builder: (context, snapshot) {
+        final items = snapshot.data ?? const <CategoryCollection>[];
+        final hasData = snapshot.hasData;
+
+        final safeValue = items.any((c) => c.id == value) ? value : 1;
+
+        return DropdownButtonFormField<int>(
+          initialValue: hasData ? safeValue : null,
+          items: items
+              .map(
+                (c) => DropdownMenuItem(
+                  value: c.id,
+                  child: Text(c.name),
+                ),
+              )
+              .toList(),
+          onChanged: !enabled || !hasData ? null : (v) => onChanged(v ?? 1),
+          decoration: InputDecoration(
+            labelText: 'Categoría',
+            filled: true,
+            fillColor: const Color(0xFFFAFAE8),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide(color: theme.colorScheme.outline),
+            ),
+          ),
+        );
+      },
+    );
+  }
 }
 
 class _SubmitButton extends StatelessWidget {
@@ -745,6 +931,56 @@ class _MediaPickerSection extends StatelessWidget {
             ),
           ),
         ],
+      ],
+    );
+  }
+}
+
+class _ParticipantsSection extends StatelessWidget {
+  final List<PersonCollection> participants;
+  final bool enabled;
+  final VoidCallback onAdd;
+  final ValueChanged<PersonCollection> onAssignPhoto;
+  final ValueChanged<PersonCollection> onRemove;
+
+  const _ParticipantsSection({
+    required this.participants,
+    required this.enabled,
+    required this.onAdd,
+    required this.onAssignPhoto,
+    required this.onRemove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Expanded(
+          child: participants.isEmpty
+              ? const SizedBox.shrink()
+              : Wrap(
+                  spacing: 10,
+                  runSpacing: 8,
+                  children: participants.map((p) {
+                    return GestureDetector(
+                      onLongPress: enabled ? () => onRemove(p) : null,
+                      child: PersonAvatarBadge(
+                        faceImagePath: p.faceImagePath,
+                        personName: p.name,
+                        onAssignPhoto:
+                            enabled ? () => onAssignPhoto(p) : () {},
+                      ),
+                    );
+                  }).toList(),
+                ),
+        ),
+        IconButton(
+          onPressed: enabled ? onAdd : null,
+          icon: const Icon(Icons.person_add_outlined),
+          color: AppTheme.navy,
+          tooltip: 'Añadir persona',
+        ),
       ],
     );
   }
