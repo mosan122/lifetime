@@ -27,27 +27,27 @@ class PersonAvatarBadge extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        SizedBox(
-          width: size,
-          height: size,
-          child: Stack(
-            children: [
-              CircleAvatar(
-                radius: size / 2,
-                backgroundColor: AppTheme.navy.withValues(alpha: 0.10),
-                backgroundImage:
-                    hasImg ? FileImage(File(faceImagePath!)) : null,
-                child: hasImg
-                    ? null
-                    : Icon(Icons.person_outline,
-                        color: AppTheme.navy, size: size * 0.5),
-              ),
-              if (!hasImg)
-                Positioned(
-                  right: 0,
-                  bottom: 0,
-                  child: GestureDetector(
-                    onTap: onAssignPhoto,
+        GestureDetector(
+          onTap: onAssignPhoto,
+          child: SizedBox(
+            width: size,
+            height: size,
+            child: Stack(
+              children: [
+                CircleAvatar(
+                  radius: size / 2,
+                  backgroundColor: AppTheme.navy.withValues(alpha: 0.10),
+                  backgroundImage:
+                      hasImg ? FileImage(File(faceImagePath!)) : null,
+                  child: hasImg
+                      ? null
+                      : Icon(Icons.person_outline,
+                          color: AppTheme.navy, size: size * 0.5),
+                ),
+                if (!hasImg)
+                  Positioned(
+                    right: 0,
+                    bottom: 0,
                     child: Container(
                       width: 18,
                       height: 18,
@@ -59,8 +59,8 @@ class PersonAvatarBadge extends StatelessWidget {
                           size: 12, color: AppTheme.cream),
                     ),
                   ),
-                ),
-            ],
+              ],
+            ),
           ),
         ),
         const SizedBox(height: 4),
