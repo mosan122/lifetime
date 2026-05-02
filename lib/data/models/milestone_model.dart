@@ -16,7 +16,7 @@ class MilestoneModel extends Milestone {
     super.locationName,
     super.latitude,
     super.longitude,
-    super.category = 'general',
+    super.categoryId = 1,
     super.isPublic = false,
     required super.createdAt,
     super.driveFileId,
@@ -52,11 +52,22 @@ class MilestoneModel extends Milestone {
       locationName: json['location_name'] as String?,
       latitude: latitude,
       longitude: longitude,
-      category: json['category'] as String? ?? 'general',
+      categoryId: _categoryIdFromLegacy(json['category'] as String?),
       isPublic: json['is_public'] as bool? ?? false,
       createdAt: DateTime.parse(json['created_at'] as String),
       driveFileId: json['drive_file_id'] as String?,
     );
+  }
+
+  static int _categoryIdFromLegacy(String? legacy) {
+    final v = (legacy ?? '').trim().toLowerCase();
+    if (v.isEmpty) return 1;
+    if (v == 'general') return 1;
+    if (v == 'cumpleaños' || v == 'cumpleanos') return 2;
+    if (v == 'boda') return 3;
+    if (v == 'nacimiento') return 4;
+    if (v == 'especial') return 5;
+    return 1;
   }
 
   // Método estático para construir el payload de inserción.
@@ -95,6 +106,7 @@ class MilestoneModel extends Milestone {
 
   static Map<String, dynamic> toUpdateMap({
     String? title,
+    String? category,
     required String description,
     DateTime? eventDate,
     String? locationName,
@@ -105,6 +117,7 @@ class MilestoneModel extends Milestone {
   }) {
     final map = <String, dynamic>{'description': description};
     if (title != null) map['title'] = title;
+    if (category != null) map['category'] = category;
     if (eventDate != null) map['event_date'] = eventDate.toIso8601String();
     if (locationName != null) map['location_name'] = locationName;
     if (latitude != null && longitude != null) {

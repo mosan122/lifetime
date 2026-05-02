@@ -12,6 +12,7 @@ abstract class MilestoneRemoteDataSource {
   });
 
   Future<MilestoneModel> insertMilestone(Map<String, dynamic> data);
+  Future<MilestoneModel> upsertMilestone(String id, Map<String, dynamic> data);
   Future<List<MilestoneModel>> fetchMilestones();
   Future<MilestoneModel> fetchMilestoneById(String id);
   Future<void> deleteMilestone(String id);
@@ -64,6 +65,19 @@ class MilestoneRemoteDataSourceImpl implements MilestoneRemoteDataSource {
     final response = await _supabase
         .from('milestones')
         .insert({...data, 'user_id': userId})
+        .select('*, media_assets(*)')
+        .single();
+    return MilestoneModel.fromJson(response);
+  }
+
+  @override
+  Future<MilestoneModel> upsertMilestone(String id, Map<String, dynamic> data) async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) throw const AuthException('No authenticated user');
+    final userId = user.id;
+    final response = await _supabase
+        .from('milestones')
+        .upsert({...data, 'id': id, 'user_id': userId})
         .select('*, media_assets(*)')
         .single();
     return MilestoneModel.fromJson(response);

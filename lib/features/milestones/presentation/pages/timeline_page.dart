@@ -7,6 +7,7 @@ import '../../../../injection_container.dart';
 import '../../../../domain/entities/media_item.dart';
 import '../../../../domain/entities/milestone.dart';
 import '../../../auth/presentation/bloc/auth_cubit.dart';
+import '../../data/datasources/isar_category_datasource.dart';
 import '../../data/datasources/isar_person_datasource.dart';
 import '../bloc/milestone_timeline_cubit.dart';
 import '../widgets/drive_thumbnail.dart';
@@ -258,7 +259,9 @@ class _LocalMediaCard extends StatelessWidget {
         '${date.day.toString().padLeft(2, '0')} / ${date.month.toString().padLeft(2, '0')} / ${date.year}';
     final title = milestone.title.trim();
     final hasTitle = title.isNotEmpty;
-    final peopleLabelFallback = _peopleLabel(milestone.participants);
+    final peopleLabelFallback = (milestone.participants.isEmpty)
+        ? null
+        : _peopleLabel(milestone.participants);
 
     final first = milestone.mediaItems.first;
     final isVideo = first.mediaType == MediaType.video;
@@ -337,7 +340,7 @@ class _LocalMediaCard extends StatelessWidget {
                   ],
                   Row(
                     children: [
-                      _CategoryBadge(category: milestone.category),
+                      _CategoryChip(categoryId: milestone.categoryId),
                       if (milestone.locationName != null) ...[
                         const SizedBox(width: 10),
                         Icon(Icons.place_outlined,
@@ -398,7 +401,9 @@ class _MediaCard extends StatelessWidget {
         '${date.day.toString().padLeft(2, '0')} / ${date.month.toString().padLeft(2, '0')} / ${date.year}';
     final title = milestone.title.trim();
     final hasTitle = title.isNotEmpty;
-    final peopleLabelFallback = _peopleLabel(milestone.participants);
+    final peopleLabelFallback = (milestone.participants.isEmpty)
+        ? null
+        : _peopleLabel(milestone.participants);
 
     return GestureDetector(
       onTap: () => _openDetail(context),
@@ -457,7 +462,7 @@ class _MediaCard extends StatelessWidget {
                 ],
                 Row(
                   children: [
-                    _CategoryBadge(category: milestone.category),
+                    _CategoryChip(categoryId: milestone.categoryId),
                     if (milestone.locationName != null) ...[
                       const SizedBox(width: 10),
                       Icon(Icons.place_outlined,
@@ -503,7 +508,9 @@ class _TextCard extends StatelessWidget {
     final hasTitle = title.isNotEmpty;
     final description = (milestone.description ?? '').trim();
     final hasDescription = description.isNotEmpty;
-    final peopleLabelFallback = _peopleLabel(milestone.participants);
+    final peopleLabelFallback = (milestone.participants.isEmpty)
+        ? null
+        : _peopleLabel(milestone.participants);
 
     return Card(
       child: InkWell(
@@ -584,7 +591,7 @@ class _TextCard extends StatelessWidget {
                 ],
               ),
             ),
-            _CategoryBadge(category: milestone.category),
+            _CategoryChip(categoryId: milestone.categoryId),
           ],
         ),
         ),    // Padding
@@ -624,7 +631,7 @@ String? _peopleLabel(List<String> people) {
   final first = cleaned.first;
   final extra = cleaned.length - 1;
   if (extra <= 0) return first;
-  return '$first +$extra';
+  return '$first y $extra más';
 }
 
 class _PeopleMentionsInline extends StatelessWidget {
@@ -679,7 +686,7 @@ Future<List<String>> _loadPeopleNames(List<String> ids) async {
   if (ids.isEmpty) return const <String>[];
   final ds = sl<IsarPersonDataSource>();
   final people = await ds.fetchByIds(ids);
-  final byId = {for (final p in people) p.id: p.displayName};
+  final byId = {for (final p in people) p.id: p.name};
   return ids
       .map((id) => byId[id])
       .whereType<String>()
@@ -688,26 +695,81 @@ Future<List<String>> _loadPeopleNames(List<String> ids) async {
       .toList();
 }
 
-class _CategoryBadge extends StatelessWidget {
-  final String category;
-  const _CategoryBadge({required this.category});
+class _CategoryChip extends StatelessWidget {
+  final int categoryId;
+  const _CategoryChip({required this.categoryId});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: AppTheme.navy.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(
-        category,
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: AppTheme.navy,
-              fontWeight: FontWeight.w600,
-            ),
-      ),
+    if (categoryId == 1) return const SizedBox.shrink(); // General
+
+    final ds = sl<IsarCategoryDataSource>();
+    final theme = Theme.of(context);
+
+    return FutureBuilder(
+      future: ds.fetchById(categoryId),
+      builder: (context, snapshot) {
+        final c = snapshot.data;
+        if (c == null) return const SizedBox.shrink();
+        if (c.name.trim().toLowerCase() == 'general') {
+          return const SizedBox.shrink();
+        }
+        final color = Color(c.colorValue);
+        final icon = _iconByName(c.iconName) ?? Icons.category_outlined;
+
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.14),
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 14, color: color),
+              const SizedBox(width: 6),
+              Text(
+                c.name,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: AppTheme.navy,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
+  }
+}
+
+IconData? _iconByName(String name) {
+  switch (name) {
+    case 'cake':
+      return Icons.cake_outlined;
+    case 'favorite':
+      return Icons.favorite_outline;
+    case 'child_care':
+      return Icons.child_care_outlined;
+    case 'star':
+      return Icons.star_outline;
+    case 'celebration':
+      return Icons.celebration_outlined;
+    case 'photo':
+      return Icons.photo_outlined;
+    case 'travel':
+      return Icons.flight_takeoff_outlined;
+    case 'home':
+      return Icons.home_outlined;
+    case 'work':
+      return Icons.work_outline;
+    case 'school':
+      return Icons.school_outlined;
+    case 'pets':
+      return Icons.pets_outlined;
+    case 'category':
+    default:
+      return Icons.category_outlined;
   }
 }
 

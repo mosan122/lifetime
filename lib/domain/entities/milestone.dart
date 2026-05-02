@@ -16,7 +16,9 @@ class Milestone extends Equatable {
   final String? locationName;
   final double? latitude;
   final double? longitude;
-  final String category;
+  /// Local category reference (Isar `CategoryCollection.id`).
+  /// 1 is reserved for the seeded "General" category.
+  final int categoryId;
   final bool isPublic;
   final DateTime createdAt;
   final String? driveFileId;
@@ -35,7 +37,7 @@ class Milestone extends Equatable {
     this.locationName,
     this.latitude,
     this.longitude,
-    this.category = 'general',
+    this.categoryId = 1,
     this.isPublic = false,
     required this.createdAt,
     this.driveFileId,
@@ -56,7 +58,7 @@ class Milestone extends Equatable {
         locationName,
         latitude,
         longitude,
-        category,
+        categoryId,
         isPublic,
         createdAt,
         driveFileId,

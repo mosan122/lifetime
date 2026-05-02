@@ -7,12 +7,16 @@ import 'package:photo_view/photo_view.dart';
 import 'package:photo_view/photo_view_gallery.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:video_player/video_player.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:googleapis/drive/v3.dart' as drive;
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../domain/entities/media_item.dart';
 import '../../../../domain/entities/milestone.dart';
 import '../../../../injection_container.dart';
+import '../../../../core/services/google_drive_service.dart';
 import '../../../auth/presentation/bloc/auth_cubit.dart';
+import '../../data/datasources/isar_category_datasource.dart';
 import '../../data/datasources/isar_person_datasource.dart';
 import '../bloc/delete_milestone_cubit.dart';
 import '../widgets/drive_thumbnail.dart';
@@ -191,7 +195,7 @@ class _DetailScaffold extends StatelessWidget {
                       const _GradientScrim(),
                     ],
                   )
-                : _NoImageHeader(category: milestone.category),
+                : const _NoImageHeader(),
       ),
     );
   }
@@ -216,10 +220,12 @@ class _DetailScaffold extends StatelessWidget {
           ),
           TextButton(
             onPressed: () => Navigator.pop(dialogCtx, true),
-            child: const Text(
+            child: Text(
               'Borrar',
               style: TextStyle(
-                  color: Colors.red, fontWeight: FontWeight.w600),
+                color: Theme.of(dialogCtx).colorScheme.error,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         ],
@@ -244,7 +250,7 @@ class _DetailScaffold extends StatelessWidget {
         children: [
           Row(
             children: [
-              _CategoryBadge(category: milestone.category),
+              _CategoryChip(categoryId: milestone.categoryId),
               const Spacer(),
               Text(formatted, style: theme.textTheme.bodySmall),
             ],
@@ -385,20 +391,7 @@ class _SemanticChips extends StatelessWidget {
         if (participantIds.isNotEmpty) ...[
           Text('Personas', style: theme.textTheme.labelLarge),
           const SizedBox(height: 8),
-          FutureBuilder<List<String>>(
-            future: _loadPeopleNames(participantIds),
-            builder: (context, snapshot) {
-              final names = snapshot.data ?? const <String>[];
-              if (names.isEmpty) return const SizedBox.shrink();
-              return Wrap(
-                spacing: 8,
-                runSpacing: 4,
-                children: names
-                    .map((name) => _Chip(label: name))
-                    .toList(),
-              );
-            },
-          ),
+          _PeopleFacesRow(participantIds: participantIds),
           const SizedBox(height: 16),
         ],
         if (tags.isNotEmpty) ...[
@@ -417,12 +410,63 @@ class _SemanticChips extends StatelessWidget {
   Future<List<String>> _loadPeopleNames(List<String> ids) async {
     final ds = sl<IsarPersonDataSource>();
     final people = await ds.fetchByIds(ids);
-    final byId = {for (final p in people) p.id: p.displayName};
+    final byId = {for (final p in people) p.id: p.name};
     return ids
         .map((id) => byId[id])
         .whereType<String>()
         .where((s) => s.trim().isNotEmpty)
         .toList();
+  }
+}
+
+class _PeopleFacesRow extends StatelessWidget {
+  final List<String> participantIds;
+  const _PeopleFacesRow({required this.participantIds});
+
+  @override
+  Widget build(BuildContext context) {
+    final ds = sl<IsarPersonDataSource>();
+    return FutureBuilder(
+      future: ds.fetchByIds(participantIds),
+      builder: (context, snapshot) {
+        final people = snapshot.data ?? const <PersonCollection>[];
+        if (people.isEmpty) return const SizedBox.shrink();
+
+        final byId = {for (final p in people) p.id: p};
+        final ordered = participantIds.map((id) => byId[id]).whereType<PersonCollection>().toList();
+
+        return Wrap(
+          spacing: 10,
+          runSpacing: 8,
+          children: ordered.map((p) {
+            final img = p.faceImagePath;
+            final hasImg = img != null && img.trim().isNotEmpty && File(img).existsSync();
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircleAvatar(
+                  radius: 18,
+                  backgroundColor: AppTheme.navy.withValues(alpha: 0.10),
+                  backgroundImage: hasImg ? FileImage(File(img!)) : null,
+                  child: hasImg ? null : const Icon(Icons.person_outline, size: 18, color: AppTheme.navy),
+                ),
+                const SizedBox(height: 4),
+                SizedBox(
+                  width: 64,
+                  child: Text(
+                    p.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+              ],
+            );
+          }).toList(),
+        );
+      },
+    );
   }
 }
 
@@ -754,15 +798,94 @@ class _VideoGalleryPage extends StatelessWidget {
   }
 }
 
-class _LocalMediaPreview extends StatelessWidget {
+class _LocalMediaPreview extends StatefulWidget {
   final MediaItem item;
   const _LocalMediaPreview({required this.item});
 
   @override
+  State<_LocalMediaPreview> createState() => _LocalMediaPreviewState();
+}
+
+class _LocalMediaPreviewState extends State<_LocalMediaPreview> {
+  var _downloading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _maybeDownload();
+  }
+
+  @override
+  void didUpdateWidget(covariant _LocalMediaPreview oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.item.localPath != widget.item.localPath ||
+        oldWidget.item.driveFileId != widget.item.driveFileId) {
+      _maybeDownload();
+    }
+  }
+
+  Future<void> _maybeDownload() async {
+    final item = widget.item;
+
+    // Only auto-download images for now (videos need thumbnail regen).
+    if (item.mediaType != MediaType.image) return;
+
+    final path = item.localPath;
+    final driveId = item.driveFileId;
+    if (driveId == null || driveId.trim().isEmpty) return;
+    if (path.trim().isEmpty) return;
+    if (File(path).existsSync()) return;
+    if (_downloading) return;
+
+    setState(() => _downloading = true);
+    try {
+      final googleSignIn = sl<GoogleSignIn>();
+      final account = await googleSignIn.attemptLightweightAuthentication() ??
+          await googleSignIn.authenticate(
+            scopeHint: const ['https://www.googleapis.com/auth/drive.file'],
+          );
+
+      final authorization = await account.authorizationClient.authorizeScopes(
+        const ['https://www.googleapis.com/auth/drive.file'],
+      );
+      final client = GoogleAuthHttpClient({
+        'Authorization': 'Bearer ${authorization.accessToken}',
+      });
+      final api = drive.DriveApi(client);
+      final service = GoogleDriveService(api);
+
+      await service.downloadFile(driveId, path);
+    } catch (_) {
+      // Best-effort. Keep placeholder on failure.
+    } finally {
+      if (mounted) setState(() => _downloading = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final path = item.mediaType == MediaType.video
-        ? item.thumbnailPath
-        : item.localPath;
+    final item = widget.item;
+    final path = item.mediaType == MediaType.video ? item.thumbnailPath : item.localPath;
+    final fileExists = File(path).existsSync();
+
+    if (!fileExists && item.driveFileId != null) {
+      return const ColoredBox(
+        color: Colors.black12,
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.cloud_download_outlined, size: 44, color: Colors.white70),
+              SizedBox(height: 10),
+              Text(
+                'Descargando de la nube…',
+                style: TextStyle(color: Colors.white70),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
     return Image.file(
       File(path),
@@ -902,8 +1025,7 @@ class _VideoPlayerPageState extends State<_VideoPlayerPage> {
 }
 
 class _NoImageHeader extends StatelessWidget {
-  final String category;
-  const _NoImageHeader({required this.category});
+  const _NoImageHeader();
 
   @override
   Widget build(BuildContext context) {
@@ -916,7 +1038,7 @@ class _NoImageHeader extends StatelessWidget {
             const Icon(Icons.menu_book_outlined, size: 52, color: Colors.white24),
             const SizedBox(height: 10),
             Text(
-              category.toUpperCase(),
+              'LIFETIME',
               style: const TextStyle(
                 color: Colors.white38,
                 fontSize: 12,
@@ -931,25 +1053,80 @@ class _NoImageHeader extends StatelessWidget {
   }
 }
 
-class _CategoryBadge extends StatelessWidget {
-  final String category;
-  const _CategoryBadge({required this.category});
+class _CategoryChip extends StatelessWidget {
+  final int categoryId;
+  const _CategoryChip({required this.categoryId});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: AppTheme.navy.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(
-        category,
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: AppTheme.navy,
-              fontWeight: FontWeight.w600,
-            ),
-      ),
+    if (categoryId == 1) return const SizedBox.shrink(); // General
+
+    final ds = sl<IsarCategoryDataSource>();
+    final theme = Theme.of(context);
+
+    return FutureBuilder(
+      future: ds.fetchById(categoryId),
+      builder: (context, snapshot) {
+        final c = snapshot.data;
+        if (c == null) return const SizedBox.shrink();
+        if (c.name.trim().toLowerCase() == 'general') {
+          return const SizedBox.shrink();
+        }
+        final color = Color(c.colorValue);
+        final icon = _iconByName(c.iconName) ?? Icons.category_outlined;
+
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.14),
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 14, color: color),
+              const SizedBox(width: 6),
+              Text(
+                c.name,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: AppTheme.navy,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
+  }
+}
+
+IconData? _iconByName(String name) {
+  switch (name) {
+    case 'cake':
+      return Icons.cake_outlined;
+    case 'favorite':
+      return Icons.favorite_outline;
+    case 'child_care':
+      return Icons.child_care_outlined;
+    case 'star':
+      return Icons.star_outline;
+    case 'celebration':
+      return Icons.celebration_outlined;
+    case 'photo':
+      return Icons.photo_outlined;
+    case 'travel':
+      return Icons.flight_takeoff_outlined;
+    case 'home':
+      return Icons.home_outlined;
+    case 'work':
+      return Icons.work_outline;
+    case 'school':
+      return Icons.school_outlined;
+    case 'pets':
+      return Icons.pets_outlined;
+    case 'category':
+    default:
+      return Icons.category_outlined;
   }
 }

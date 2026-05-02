@@ -13,12 +13,52 @@ class LocalMediaStoreImpl implements LocalMediaStore {
     final dir = await getApplicationDocumentsDirectory();
     return p.join(
       dir.path,
+      'media',
+      date.year.toString().padLeft(4, '0'),
+      date.month.toString().padLeft(2, '0'),
+      date.day.toString().padLeft(2, '0'),
+      milestoneId,
+    );
+  }
+
+  Future<String> _legacyFolderPath(DateTime date, String milestoneId) async {
+    final dir = await getApplicationDocumentsDirectory();
+    return p.join(
+      dir.path,
       'LifeTime',
       date.year.toString().padLeft(4, '0'),
       date.month.toString().padLeft(2, '0'),
       date.day.toString().padLeft(2, '0'),
       milestoneId,
     );
+  }
+
+  Future<void> _migrateLegacyFolderIfNeeded(DateTime date, String milestoneId) async {
+    try {
+      final legacy = Directory(await _legacyFolderPath(date, milestoneId));
+      if (!await legacy.exists()) return;
+
+      final destPath = await _folderPath(date, milestoneId);
+      final dest = Directory(destPath);
+      if (await dest.exists()) return;
+
+      await dest.parent.create(recursive: true);
+      try {
+        await legacy.rename(destPath);
+      } on FileSystemException {
+        await dest.create(recursive: true);
+        await for (final entity in legacy.list(recursive: false)) {
+          if (entity is File) {
+            final name = p.basename(entity.path);
+            await entity.copy(p.join(destPath, name));
+          }
+        }
+        await legacy.delete(recursive: true);
+      }
+    } catch (_) {
+      // Best-effort migration.
+      return;
+    }
   }
 
   @override
@@ -41,6 +81,7 @@ class LocalMediaStoreImpl implements LocalMediaStore {
     required String milestoneId,
   }) async {
     try {
+      await _migrateLegacyFolderIfNeeded(date, milestoneId);
       final destFolderPath = await _folderPath(date, milestoneId);
       final destFolder = Directory(destFolderPath);
       if (!await destFolder.exists()) {

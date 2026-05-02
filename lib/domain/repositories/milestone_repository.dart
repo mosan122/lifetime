@@ -11,7 +11,7 @@ abstract class MilestoneRepository {
     String? locationName,
     double? latitude,
     double? longitude,
-    String category = 'general',
+    int categoryId = 1,
     List<String> participants = const [],
     bool isPublic = false,
     String? driveFileId,
@@ -21,6 +21,10 @@ abstract class MilestoneRepository {
   });
 
   Future<Either<Failure, List<Milestone>>> getMilestones();
+
+  /// Pulls all milestones from Supabase and upserts them into Isar.
+  /// Intended for "new device" bootstrap on premium accounts.
+  Future<Either<Failure, void>> syncFromCloud();
 
   Future<Either<Failure, Milestone>> getMilestoneById(String id);
 
@@ -33,6 +37,7 @@ abstract class MilestoneRepository {
     required String id,
     required String title,
     required String description,
+    int? categoryId,
     DateTime? eventDate,
     String? locationName,
     double? latitude,

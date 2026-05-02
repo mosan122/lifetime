@@ -18,10 +18,10 @@ const MilestoneCollectionSchema = CollectionSchema(
   name: r'MilestoneCollection',
   id: 6801414828442965873,
   properties: {
-    r'category': PropertySchema(
+    r'categoryId': PropertySchema(
       id: 0,
-      name: r'category',
-      type: IsarType.string,
+      name: r'categoryId',
+      type: IsarType.long,
     ),
     r'createdAt': PropertySchema(
       id: 1,
@@ -38,52 +38,52 @@ const MilestoneCollectionSchema = CollectionSchema(
       name: r'driveFileId',
       type: IsarType.string,
     ),
-    r'eventDate': PropertySchema(
+    r'driveFolderId': PropertySchema(
       id: 4,
+      name: r'driveFolderId',
+      type: IsarType.string,
+    ),
+    r'eventDate': PropertySchema(
+      id: 5,
       name: r'eventDate',
       type: IsarType.dateTime,
     ),
     r'id': PropertySchema(
-      id: 5,
+      id: 6,
       name: r'id',
       type: IsarType.string,
     ),
     r'isPublic': PropertySchema(
-      id: 6,
+      id: 7,
       name: r'isPublic',
       type: IsarType.bool,
     ),
     r'latitude': PropertySchema(
-      id: 7,
+      id: 8,
       name: r'latitude',
       type: IsarType.double,
     ),
     r'locationName': PropertySchema(
-      id: 8,
+      id: 9,
       name: r'locationName',
       type: IsarType.string,
     ),
     r'longitude': PropertySchema(
-      id: 9,
+      id: 10,
       name: r'longitude',
       type: IsarType.double,
     ),
     r'media': PropertySchema(
-      id: 10,
+      id: 11,
       name: r'media',
       type: IsarType.objectList,
       target: r'MediaAssetEmbed',
     ),
     r'mediaItems': PropertySchema(
-      id: 11,
+      id: 12,
       name: r'mediaItems',
       type: IsarType.objectList,
       target: r'MediaItemEmbed',
-    ),
-    r'participantIds': PropertySchema(
-      id: 12,
-      name: r'participantIds',
-      type: IsarType.stringList,
     ),
     r'participants': PropertySchema(
       id: 13,
@@ -149,7 +149,6 @@ int _milestoneCollectionEstimateSize(
   Map<Type, List<int>> allOffsets,
 ) {
   var bytesCount = offsets.last;
-  bytesCount += 3 + object.category.length * 3;
   {
     final value = object.description;
     if (value != null) {
@@ -158,6 +157,12 @@ int _milestoneCollectionEstimateSize(
   }
   {
     final value = object.driveFileId;
+    if (value != null) {
+      bytesCount += 3 + value.length * 3;
+    }
+  }
+  {
+    final value = object.driveFolderId;
     if (value != null) {
       bytesCount += 3 + value.length * 3;
     }
@@ -187,13 +192,6 @@ int _milestoneCollectionEstimateSize(
           MediaItemEmbedSchema.estimateSize(value, offsets, allOffsets);
     }
   }
-  bytesCount += 3 + object.participantIds.length * 3;
-  {
-    for (var i = 0; i < object.participantIds.length; i++) {
-      final value = object.participantIds[i];
-      bytesCount += value.length * 3;
-    }
-  }
   bytesCount += 3 + object.participants.length * 3;
   {
     for (var i = 0; i < object.participants.length; i++) {
@@ -220,29 +218,29 @@ void _milestoneCollectionSerialize(
   List<int> offsets,
   Map<Type, List<int>> allOffsets,
 ) {
-  writer.writeString(offsets[0], object.category);
+  writer.writeLong(offsets[0], object.categoryId);
   writer.writeDateTime(offsets[1], object.createdAt);
   writer.writeString(offsets[2], object.description);
   writer.writeString(offsets[3], object.driveFileId);
-  writer.writeDateTime(offsets[4], object.eventDate);
-  writer.writeString(offsets[5], object.id);
-  writer.writeBool(offsets[6], object.isPublic);
-  writer.writeDouble(offsets[7], object.latitude);
-  writer.writeString(offsets[8], object.locationName);
-  writer.writeDouble(offsets[9], object.longitude);
+  writer.writeString(offsets[4], object.driveFolderId);
+  writer.writeDateTime(offsets[5], object.eventDate);
+  writer.writeString(offsets[6], object.id);
+  writer.writeBool(offsets[7], object.isPublic);
+  writer.writeDouble(offsets[8], object.latitude);
+  writer.writeString(offsets[9], object.locationName);
+  writer.writeDouble(offsets[10], object.longitude);
   writer.writeObjectList<MediaAssetEmbed>(
-    offsets[10],
+    offsets[11],
     allOffsets,
     MediaAssetEmbedSchema.serialize,
     object.media,
   );
   writer.writeObjectList<MediaItemEmbed>(
-    offsets[11],
+    offsets[12],
     allOffsets,
     MediaItemEmbedSchema.serialize,
     object.mediaItems,
   );
-  writer.writeStringList(offsets[12], object.participantIds);
   writer.writeStringList(offsets[13], object.participants);
   writer.writeString(offsets[14], object.syncStatus.name);
   writer.writeStringList(offsets[15], object.tags);
@@ -257,32 +255,32 @@ MilestoneCollection _milestoneCollectionDeserialize(
   Map<Type, List<int>> allOffsets,
 ) {
   final object = MilestoneCollection();
-  object.category = reader.readString(offsets[0]);
+  object.categoryId = reader.readLong(offsets[0]);
   object.createdAt = reader.readDateTime(offsets[1]);
   object.description = reader.readStringOrNull(offsets[2]);
   object.driveFileId = reader.readStringOrNull(offsets[3]);
-  object.eventDate = reader.readDateTime(offsets[4]);
-  object.id = reader.readString(offsets[5]);
-  object.isPublic = reader.readBool(offsets[6]);
+  object.driveFolderId = reader.readStringOrNull(offsets[4]);
+  object.eventDate = reader.readDateTime(offsets[5]);
+  object.id = reader.readString(offsets[6]);
+  object.isPublic = reader.readBool(offsets[7]);
   object.isarId = id;
-  object.latitude = reader.readDoubleOrNull(offsets[7]);
-  object.locationName = reader.readStringOrNull(offsets[8]);
-  object.longitude = reader.readDoubleOrNull(offsets[9]);
+  object.latitude = reader.readDoubleOrNull(offsets[8]);
+  object.locationName = reader.readStringOrNull(offsets[9]);
+  object.longitude = reader.readDoubleOrNull(offsets[10]);
   object.media = reader.readObjectList<MediaAssetEmbed>(
-        offsets[10],
+        offsets[11],
         MediaAssetEmbedSchema.deserialize,
         allOffsets,
         MediaAssetEmbed(),
       ) ??
       [];
   object.mediaItems = reader.readObjectList<MediaItemEmbed>(
-        offsets[11],
+        offsets[12],
         MediaItemEmbedSchema.deserialize,
         allOffsets,
         MediaItemEmbed(),
       ) ??
       [];
-  object.participantIds = reader.readStringList(offsets[12]) ?? [];
   object.participants = reader.readStringList(offsets[13]) ?? [];
   object.syncStatus = _MilestoneCollectionsyncStatusValueEnumMap[
           reader.readStringOrNull(offsets[14])] ??
@@ -301,7 +299,7 @@ P _milestoneCollectionDeserializeProp<P>(
 ) {
   switch (propertyId) {
     case 0:
-      return (reader.readString(offset)) as P;
+      return (reader.readLong(offset)) as P;
     case 1:
       return (reader.readDateTime(offset)) as P;
     case 2:
@@ -309,18 +307,20 @@ P _milestoneCollectionDeserializeProp<P>(
     case 3:
       return (reader.readStringOrNull(offset)) as P;
     case 4:
-      return (reader.readDateTime(offset)) as P;
-    case 5:
-      return (reader.readString(offset)) as P;
-    case 6:
-      return (reader.readBool(offset)) as P;
-    case 7:
-      return (reader.readDoubleOrNull(offset)) as P;
-    case 8:
       return (reader.readStringOrNull(offset)) as P;
-    case 9:
+    case 5:
+      return (reader.readDateTime(offset)) as P;
+    case 6:
+      return (reader.readString(offset)) as P;
+    case 7:
+      return (reader.readBool(offset)) as P;
+    case 8:
       return (reader.readDoubleOrNull(offset)) as P;
+    case 9:
+      return (reader.readStringOrNull(offset)) as P;
     case 10:
+      return (reader.readDoubleOrNull(offset)) as P;
+    case 11:
       return (reader.readObjectList<MediaAssetEmbed>(
             offset,
             MediaAssetEmbedSchema.deserialize,
@@ -328,7 +328,7 @@ P _milestoneCollectionDeserializeProp<P>(
             MediaAssetEmbed(),
           ) ??
           []) as P;
-    case 11:
+    case 12:
       return (reader.readObjectList<MediaItemEmbed>(
             offset,
             MediaItemEmbedSchema.deserialize,
@@ -336,8 +336,6 @@ P _milestoneCollectionDeserializeProp<P>(
             MediaItemEmbed(),
           ) ??
           []) as P;
-    case 12:
-      return (reader.readStringList(offset) ?? []) as P;
     case 13:
       return (reader.readStringList(offset) ?? []) as P;
     case 14:
@@ -562,137 +560,57 @@ extension MilestoneCollectionQueryWhere
 extension MilestoneCollectionQueryFilter on QueryBuilder<MilestoneCollection,
     MilestoneCollection, QFilterCondition> {
   QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
-      categoryEqualTo(
-    String value, {
-    bool caseSensitive = true,
-  }) {
+      categoryIdEqualTo(int value) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.equalTo(
-        property: r'category',
+        property: r'categoryId',
         value: value,
-        caseSensitive: caseSensitive,
       ));
     });
   }
 
   QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
-      categoryGreaterThan(
-    String value, {
+      categoryIdGreaterThan(
+    int value, {
     bool include = false,
-    bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.greaterThan(
         include: include,
-        property: r'category',
+        property: r'categoryId',
         value: value,
-        caseSensitive: caseSensitive,
       ));
     });
   }
 
   QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
-      categoryLessThan(
-    String value, {
+      categoryIdLessThan(
+    int value, {
     bool include = false,
-    bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.lessThan(
         include: include,
-        property: r'category',
+        property: r'categoryId',
         value: value,
-        caseSensitive: caseSensitive,
       ));
     });
   }
 
   QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
-      categoryBetween(
-    String lower,
-    String upper, {
+      categoryIdBetween(
+    int lower,
+    int upper, {
     bool includeLower = true,
     bool includeUpper = true,
-    bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.between(
-        property: r'category',
+        property: r'categoryId',
         lower: lower,
         includeLower: includeLower,
         upper: upper,
         includeUpper: includeUpper,
-        caseSensitive: caseSensitive,
-      ));
-    });
-  }
-
-  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
-      categoryStartsWith(
-    String value, {
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.startsWith(
-        property: r'category',
-        value: value,
-        caseSensitive: caseSensitive,
-      ));
-    });
-  }
-
-  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
-      categoryEndsWith(
-    String value, {
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.endsWith(
-        property: r'category',
-        value: value,
-        caseSensitive: caseSensitive,
-      ));
-    });
-  }
-
-  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
-      categoryContains(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.contains(
-        property: r'category',
-        value: value,
-        caseSensitive: caseSensitive,
-      ));
-    });
-  }
-
-  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
-      categoryMatches(String pattern, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.matches(
-        property: r'category',
-        wildcard: pattern,
-        caseSensitive: caseSensitive,
-      ));
-    });
-  }
-
-  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
-      categoryIsEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.equalTo(
-        property: r'category',
-        value: '',
-      ));
-    });
-  }
-
-  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
-      categoryIsNotEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.greaterThan(
-        property: r'category',
-        value: '',
       ));
     });
   }
@@ -1056,6 +974,160 @@ extension MilestoneCollectionQueryFilter on QueryBuilder<MilestoneCollection,
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.greaterThan(
         property: r'driveFileId',
+        value: '',
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      driveFolderIdIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNull(
+        property: r'driveFolderId',
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      driveFolderIdIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNotNull(
+        property: r'driveFolderId',
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      driveFolderIdEqualTo(
+    String? value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'driveFolderId',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      driveFolderIdGreaterThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'driveFolderId',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      driveFolderIdLessThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'driveFolderId',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      driveFolderIdBetween(
+    String? lower,
+    String? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'driveFolderId',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      driveFolderIdStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.startsWith(
+        property: r'driveFolderId',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      driveFolderIdEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.endsWith(
+        property: r'driveFolderId',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      driveFolderIdContains(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.contains(
+        property: r'driveFolderId',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      driveFolderIdMatches(String pattern, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.matches(
+        property: r'driveFolderId',
+        wildcard: pattern,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      driveFolderIdIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'driveFolderId',
+        value: '',
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      driveFolderIdIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        property: r'driveFolderId',
         value: '',
       ));
     });
@@ -1811,232 +1883,6 @@ extension MilestoneCollectionQueryFilter on QueryBuilder<MilestoneCollection,
     return QueryBuilder.apply(this, (query) {
       return query.listLength(
         r'mediaItems',
-        lower,
-        includeLower,
-        upper,
-        includeUpper,
-      );
-    });
-  }
-
-  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
-      participantIdsElementEqualTo(
-    String value, {
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.equalTo(
-        property: r'participantIds',
-        value: value,
-        caseSensitive: caseSensitive,
-      ));
-    });
-  }
-
-  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
-      participantIdsElementGreaterThan(
-    String value, {
-    bool include = false,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.greaterThan(
-        include: include,
-        property: r'participantIds',
-        value: value,
-        caseSensitive: caseSensitive,
-      ));
-    });
-  }
-
-  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
-      participantIdsElementLessThan(
-    String value, {
-    bool include = false,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.lessThan(
-        include: include,
-        property: r'participantIds',
-        value: value,
-        caseSensitive: caseSensitive,
-      ));
-    });
-  }
-
-  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
-      participantIdsElementBetween(
-    String lower,
-    String upper, {
-    bool includeLower = true,
-    bool includeUpper = true,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.between(
-        property: r'participantIds',
-        lower: lower,
-        includeLower: includeLower,
-        upper: upper,
-        includeUpper: includeUpper,
-        caseSensitive: caseSensitive,
-      ));
-    });
-  }
-
-  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
-      participantIdsElementStartsWith(
-    String value, {
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.startsWith(
-        property: r'participantIds',
-        value: value,
-        caseSensitive: caseSensitive,
-      ));
-    });
-  }
-
-  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
-      participantIdsElementEndsWith(
-    String value, {
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.endsWith(
-        property: r'participantIds',
-        value: value,
-        caseSensitive: caseSensitive,
-      ));
-    });
-  }
-
-  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
-      participantIdsElementContains(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.contains(
-        property: r'participantIds',
-        value: value,
-        caseSensitive: caseSensitive,
-      ));
-    });
-  }
-
-  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
-      participantIdsElementMatches(String pattern,
-          {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.matches(
-        property: r'participantIds',
-        wildcard: pattern,
-        caseSensitive: caseSensitive,
-      ));
-    });
-  }
-
-  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
-      participantIdsElementIsEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.equalTo(
-        property: r'participantIds',
-        value: '',
-      ));
-    });
-  }
-
-  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
-      participantIdsElementIsNotEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.greaterThan(
-        property: r'participantIds',
-        value: '',
-      ));
-    });
-  }
-
-  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
-      participantIdsLengthEqualTo(int length) {
-    return QueryBuilder.apply(this, (query) {
-      return query.listLength(
-        r'participantIds',
-        length,
-        true,
-        length,
-        true,
-      );
-    });
-  }
-
-  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
-      participantIdsIsEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.listLength(
-        r'participantIds',
-        0,
-        true,
-        0,
-        true,
-      );
-    });
-  }
-
-  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
-      participantIdsIsNotEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.listLength(
-        r'participantIds',
-        0,
-        false,
-        999999,
-        true,
-      );
-    });
-  }
-
-  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
-      participantIdsLengthLessThan(
-    int length, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.listLength(
-        r'participantIds',
-        0,
-        true,
-        length,
-        include,
-      );
-    });
-  }
-
-  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
-      participantIdsLengthGreaterThan(
-    int length, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.listLength(
-        r'participantIds',
-        length,
-        include,
-        999999,
-        true,
-      );
-    });
-  }
-
-  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
-      participantIdsLengthBetween(
-    int lower,
-    int upper, {
-    bool includeLower = true,
-    bool includeUpper = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.listLength(
-        r'participantIds',
         lower,
         includeLower,
         upper,
@@ -2927,16 +2773,16 @@ extension MilestoneCollectionQueryLinks on QueryBuilder<MilestoneCollection,
 extension MilestoneCollectionQuerySortBy
     on QueryBuilder<MilestoneCollection, MilestoneCollection, QSortBy> {
   QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterSortBy>
-      sortByCategory() {
+      sortByCategoryId() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'category', Sort.asc);
+      return query.addSortBy(r'categoryId', Sort.asc);
     });
   }
 
   QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterSortBy>
-      sortByCategoryDesc() {
+      sortByCategoryIdDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'category', Sort.desc);
+      return query.addSortBy(r'categoryId', Sort.desc);
     });
   }
 
@@ -2979,6 +2825,20 @@ extension MilestoneCollectionQuerySortBy
       sortByDriveFileIdDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'driveFileId', Sort.desc);
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterSortBy>
+      sortByDriveFolderId() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'driveFolderId', Sort.asc);
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterSortBy>
+      sortByDriveFolderIdDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'driveFolderId', Sort.desc);
     });
   }
 
@@ -3112,16 +2972,16 @@ extension MilestoneCollectionQuerySortBy
 extension MilestoneCollectionQuerySortThenBy
     on QueryBuilder<MilestoneCollection, MilestoneCollection, QSortThenBy> {
   QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterSortBy>
-      thenByCategory() {
+      thenByCategoryId() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'category', Sort.asc);
+      return query.addSortBy(r'categoryId', Sort.asc);
     });
   }
 
   QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterSortBy>
-      thenByCategoryDesc() {
+      thenByCategoryIdDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'category', Sort.desc);
+      return query.addSortBy(r'categoryId', Sort.desc);
     });
   }
 
@@ -3164,6 +3024,20 @@ extension MilestoneCollectionQuerySortThenBy
       thenByDriveFileIdDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'driveFileId', Sort.desc);
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterSortBy>
+      thenByDriveFolderId() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'driveFolderId', Sort.asc);
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterSortBy>
+      thenByDriveFolderIdDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'driveFolderId', Sort.desc);
     });
   }
 
@@ -3311,9 +3185,9 @@ extension MilestoneCollectionQuerySortThenBy
 extension MilestoneCollectionQueryWhereDistinct
     on QueryBuilder<MilestoneCollection, MilestoneCollection, QDistinct> {
   QueryBuilder<MilestoneCollection, MilestoneCollection, QDistinct>
-      distinctByCategory({bool caseSensitive = true}) {
+      distinctByCategoryId() {
     return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'category', caseSensitive: caseSensitive);
+      return query.addDistinctBy(r'categoryId');
     });
   }
 
@@ -3335,6 +3209,14 @@ extension MilestoneCollectionQueryWhereDistinct
       distinctByDriveFileId({bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'driveFileId', caseSensitive: caseSensitive);
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QDistinct>
+      distinctByDriveFolderId({bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'driveFolderId',
+          caseSensitive: caseSensitive);
     });
   }
 
@@ -3377,13 +3259,6 @@ extension MilestoneCollectionQueryWhereDistinct
       distinctByLongitude() {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'longitude');
-    });
-  }
-
-  QueryBuilder<MilestoneCollection, MilestoneCollection, QDistinct>
-      distinctByParticipantIds() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'participantIds');
     });
   }
 
@@ -3431,10 +3306,10 @@ extension MilestoneCollectionQueryProperty
     });
   }
 
-  QueryBuilder<MilestoneCollection, String, QQueryOperations>
-      categoryProperty() {
+  QueryBuilder<MilestoneCollection, int, QQueryOperations>
+      categoryIdProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'category');
+      return query.addPropertyName(r'categoryId');
     });
   }
 
@@ -3456,6 +3331,13 @@ extension MilestoneCollectionQueryProperty
       driveFileIdProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'driveFileId');
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, String?, QQueryOperations>
+      driveFolderIdProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'driveFolderId');
     });
   }
 
@@ -3510,13 +3392,6 @@ extension MilestoneCollectionQueryProperty
       mediaItemsProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'mediaItems');
-    });
-  }
-
-  QueryBuilder<MilestoneCollection, List<String>, QQueryOperations>
-      participantIdsProperty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'participantIds');
     });
   }
 

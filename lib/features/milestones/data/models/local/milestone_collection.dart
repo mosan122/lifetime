@@ -19,17 +19,18 @@ class MilestoneCollection {
   late String userId;
   late String title;
   String? description;
+  // Centralized people: store Person IDs here (was previously plain names).
   List<String> participants = [];
-  List<String> participantIds = [];
   List<String> tags = [];
   DateTime eventDate = DateTime.fromMillisecondsSinceEpoch(0);
   String? locationName;
   double? latitude;
   double? longitude;
-  late String category;
+  int categoryId = 1;
   late bool isPublic;
   DateTime createdAt = DateTime.fromMillisecondsSinceEpoch(0);
   String? driveFileId;
+  String? driveFolderId;
 
   @Enumerated(EnumType.name)
   late SyncStatus syncStatus;
@@ -44,14 +45,13 @@ class MilestoneCollection {
       ..userId = milestone.userId
       ..title = milestone.title
       ..description = milestone.description
-      ..participants = List<String>.from(milestone.participants)
-      ..participantIds = List<String>.from(milestone.participantIds)
+      ..participants = List<String>.from(milestone.participantIds)
       ..tags = List<String>.from(milestone.tags)
       ..eventDate = milestone.eventDate
       ..locationName = milestone.locationName
       ..latitude = milestone.latitude
       ..longitude = milestone.longitude
-      ..category = milestone.category
+      ..categoryId = milestone.categoryId
       ..isPublic = milestone.isPublic
       ..createdAt = milestone.createdAt
       ..driveFileId = milestone.driveFileId
@@ -66,8 +66,8 @@ class MilestoneCollection {
       userId: userId,
       title: title,
       description: description,
-      participants: List<String>.from(participants),
-      participantIds: List<String>.from(participantIds),
+      participants: const [],
+      participantIds: List<String>.from(participants),
       tags: List<String>.from(tags),
       media: media.map((e) => e.toDomain()).toList(),
       mediaItems: mediaItems.map((e) => e.toDomain()).toList(),
@@ -75,7 +75,7 @@ class MilestoneCollection {
       locationName: locationName,
       latitude: latitude,
       longitude: longitude,
-      category: category,
+      categoryId: categoryId,
       isPublic: isPublic,
       createdAt: createdAt,
       driveFileId: driveFileId,

@@ -47,7 +47,7 @@ class ExportBitacoraUseCase implements UseCase<ExportResult, NoParams> {
           'description': m.description,
           'event_date':
               '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}',
-          'category': m.category,
+          'category_id': m.categoryId,
           'location': (m.latitude != null && m.longitude != null)
               ? {
                   'name': m.locationName,
@@ -96,7 +96,7 @@ class ExportBitacoraUseCase implements UseCase<ExportResult, NoParams> {
           '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
 
       buf.writeln('## ${m.title}');
-      buf.writeln('📅 $dateStr · ${m.category}  ');
+      buf.writeln('📅 $dateStr  ');
 
       if (m.latitude != null && m.longitude != null) {
         final locName = m.locationName != null ? '${m.locationName} ' : '';

@@ -8,6 +8,7 @@ import 'package:share_plus/share_plus.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../injection_container.dart';
 import '../../../auth/presentation/bloc/auth_cubit.dart';
+import 'manage_people_page.dart';
 import '../bloc/export_cubit.dart';
 
 class SettingsPage extends StatelessWidget {
@@ -48,9 +49,29 @@ class _SettingsView extends StatelessWidget {
           children: [
             const _SectionHeader(label: 'Plan'),
             const _PremiumTile(),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Text(
+                'Tu espacio se gestiona automáticamente: los archivos de más de un año se mantienen en la nube para ahorrar espacio en tu móvil.',
+                style: TextStyle(color: Colors.black54),
+              ),
+            ),
             const Divider(height: 32, indent: 16, endIndent: 16),
             const _SectionHeader(label: 'Tus datos'),
             _ExportTile(),
+            ListTile(
+              leading: const Icon(Icons.people_outline, color: AppTheme.navy),
+              title: const Text('Gestionar personas'),
+              subtitle: const Text('Nombres y foto de perfil'),
+              trailing: const Icon(Icons.chevron_right, color: AppTheme.navy),
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const ManagePeoplePage(),
+                  ),
+                );
+              },
+            ),
             const Divider(height: 32, indent: 16, endIndent: 16),
             const _SectionHeader(label: 'Cuenta'),
             _SignOutTile(),

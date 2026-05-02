@@ -31,7 +31,7 @@ class CreateMilestoneCubit extends Cubit<CreateMilestoneState> {
     String? locationName,
     double? latitude,
     double? longitude,
-    String category = 'general',
+    int categoryId = 1,
     List<String> participants = const [],
     bool isPublic = false,
   }) async {
@@ -71,7 +71,7 @@ class CreateMilestoneCubit extends Cubit<CreateMilestoneState> {
       locationName: locationName,
       latitude: latitude,
       longitude: longitude,
-      category: category,
+      categoryId: categoryId,
       participants: participants,
       isPublic: isPublic,
       driveFileId: driveFileId,

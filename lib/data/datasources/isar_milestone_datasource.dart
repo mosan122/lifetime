@@ -8,6 +8,15 @@ abstract class IsarMilestoneDataSource {
   Future<MilestoneCollection> upsert(MilestoneCollection c);
   Future<void> deleteById(String id);
   Future<void> markSynced(String id);
+  Future<void> markMediaItemSynced({
+    required String milestoneId,
+    required String localPath,
+    required String driveFileId,
+  });
+  Future<void> setDriveFolderId({
+    required String milestoneId,
+    required String driveFolderId,
+  });
   Future<List<MilestoneCollection>> fetchPending();
 }
 
@@ -59,6 +68,33 @@ class IsarMilestoneDataSourceImpl implements IsarMilestoneDataSource {
     final item = await fetchById(id);
     if (item == null) return;
     item.syncStatus = SyncStatus.synced;
+    await _isar.writeTxn(() => _isar.milestoneCollections.put(item));
+  }
+
+  @override
+  Future<void> markMediaItemSynced({
+    required String milestoneId,
+    required String localPath,
+    required String driveFileId,
+  }) async {
+    final item = await fetchById(milestoneId);
+    if (item == null) return;
+    final idx = item.mediaItems.indexWhere((m) => m.localPath == localPath);
+    if (idx < 0) return;
+    item.mediaItems[idx]
+      ..isSynced = true
+      ..driveFileId = driveFileId;
+    await _isar.writeTxn(() => _isar.milestoneCollections.put(item));
+  }
+
+  @override
+  Future<void> setDriveFolderId({
+    required String milestoneId,
+    required String driveFolderId,
+  }) async {
+    final item = await fetchById(milestoneId);
+    if (item == null) return;
+    item.driveFolderId = driveFolderId;
     await _isar.writeTxn(() => _isar.milestoneCollections.put(item));
   }
 

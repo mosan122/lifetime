@@ -1,5 +1,5 @@
 abstract class LocalMediaStore {
-  /// Deletes LifeTime/YYYY/MM/DD/{milestoneId}/ under app documents dir.
+  /// Deletes media/YYYY/MM/DD/{milestoneId}/ under app documents dir.
   /// Missing folder is treated as a no-op.
   Future<void> deleteFolder(DateTime date, String milestoneId);
 
@@ -12,7 +12,7 @@ abstract class LocalMediaStore {
   });
 
   /// Moves an already-selected local file into:
-  /// LifeTime/YYYY/MM/DD/{milestoneId}/
+  /// media/YYYY/MM/DD/{milestoneId}/
   ///
   /// Best-effort: if the move fails (missing source, FS error, etc.) the
   /// error should not break the caller flow.

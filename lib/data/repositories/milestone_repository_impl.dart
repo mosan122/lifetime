@@ -13,6 +13,7 @@ import '../../domain/repositories/drive_repository.dart';
 import '../../domain/repositories/milestone_repository.dart';
 import '../datasources/isar_milestone_datasource.dart';
 import '../../features/milestones/data/datasources/isar_person_datasource.dart';
+import '../../features/milestones/data/datasources/isar_category_datasource.dart';
 import '../datasources/milestone_remote_datasource.dart';
 import '../models/milestone_model.dart';
 import '../../features/milestones/data/models/local/milestone_collection.dart';
@@ -27,6 +28,7 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
   final DriveRepository _drive;
   final LocalMediaStore _localMedia;
   final IsarPersonDataSource _people;
+  final IsarCategoryDataSource _categories;
 
   MilestoneRepositoryImpl(
     this._local,
@@ -36,6 +38,7 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
     this._drive,
     this._localMedia,
     this._people,
+    this._categories,
   );
 
   static const _uuid = Uuid();
@@ -59,6 +62,27 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
             MilestoneCollection.fromMilestone(model, SyncStatus.synced));
       }
       return Right(List<Milestone>.from(remoteModels));
+    } on AuthException {
+      return const Left(AuthFailure());
+    } on PostgrestException catch (e) {
+      return Left(DatabaseFailure(e.message, code: e.code));
+    } catch (e) {
+      return Left(NetworkFailure(e.toString()));
+    }
+  }
+
+  @override
+  Future<Either<Failure, void>> syncFromCloud() async {
+    if (!_premium.isPremium) return const Right(null);
+    try {
+      final remoteModels = await _remote.fetchMilestones();
+      for (final model in remoteModels) {
+        await _local.upsert(MilestoneCollection.fromMilestone(
+          model,
+          SyncStatus.synced,
+        ));
+      }
+      return const Right(null);
     } on AuthException {
       return const Left(AuthFailure());
     } on PostgrestException catch (e) {
@@ -99,7 +123,7 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
     String? locationName,
     double? latitude,
     double? longitude,
-    String category = 'general',
+    int categoryId = 1,
     List<String> participants = const [],
     bool isPublic = false,
     String? driveFileId,
@@ -108,6 +132,7 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
     List<MediaType> localMediaTypes = const [],
   }) async {
     final userId = _getUserId();
+    final categoryName = await _resolveCategoryName(categoryId) ?? 'General';
 
     final extracted = TextMetadataExtractor.extract(userNote);
     final tags = extracted.hashtags;
@@ -124,7 +149,7 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
         locationName: locationName,
         latitude: latitude,
         longitude: longitude,
-        category: category,
+        categoryId: categoryId,
         participants: participants,
         participantIds: participantIds,
         tags: tags,
@@ -162,7 +187,7 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
         locationName: locationName,
         latitude: latitude,
         longitude: longitude,
-        category: category,
+        category: categoryName,
         isPublic: isPublic,
         driveFileId: driveFileId,
       );
@@ -184,6 +209,29 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
       }
       await _local.upsert(collection);
 
+      // Post-local upsert to Supabase (premium). Best-effort.
+      try {
+        await _remote.upsertMilestone(
+          remoteModel.id,
+          MilestoneModel.toInsertMap(
+            title: remoteModel.title,
+            description: remoteModel.description,
+            participants: participants,
+            participantIds: participantIds,
+            tags: tags,
+            eventDate: eventDate,
+            locationName: locationName,
+            latitude: latitude,
+            longitude: longitude,
+            category: categoryName,
+            isPublic: isPublic,
+            driveFileId: driveFileId,
+          ),
+        );
+      } catch (_) {
+        // Best-effort upsert.
+      }
+
       return Right(remoteModel);
     } catch (_) {
       return _saveLocalOnly(
@@ -196,7 +244,7 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
         locationName: locationName,
         latitude: latitude,
         longitude: longitude,
-        category: category,
+        categoryId: categoryId,
         participants: participants,
         participantIds: participantIds,
         tags: tags,
@@ -234,15 +282,18 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
           // Best-effort Supabase delete.
         }
 
-        final driveFileId = existing?.driveFileId;
-        if (driveFileId != null && accessToken != null) {
-          try {
-            await _drive.deleteFile(
-              fileId: driveFileId,
-              accessToken: accessToken,
-            );
-          } catch (_) {
-            // Best-effort Google Drive delete.
+        if (accessToken != null && existing != null) {
+          final ids = <String>{
+            if (existing.driveFileId != null) existing.driveFileId!,
+            for (final mi in existing.mediaItems)
+              if (mi.driveFileId != null) mi.driveFileId!,
+          };
+          for (final fid in ids) {
+            try {
+              await _drive.deleteFile(fileId: fid, accessToken: accessToken);
+            } catch (_) {
+              // Best-effort Google Drive delete.
+            }
           }
         }
       }
@@ -259,6 +310,7 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
     required String id,
     required String title,
     required String description,
+    int? categoryId,
     DateTime? eventDate,
     String? locationName,
     double? latitude,
@@ -277,17 +329,21 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
       existing
         ..title = title
         ..description = description
-        ..participantIds = participantIds
+        ..participants = participantIds
         ..tags = tags
         ..syncStatus = SyncStatus.pending;
       if (eventDate != null) existing.eventDate = eventDate;
       if (locationName != null) existing.locationName = locationName;
       if (latitude != null) existing.latitude = latitude;
       if (longitude != null) existing.longitude = longitude;
+      if (categoryId != null) existing.categoryId = categoryId;
       await _local.upsert(existing);
 
       if (_premium.isPremium) {
         try {
+          final categoryName = categoryId == null
+              ? null
+              : await _resolveCategoryName(categoryId);
           final updateData = MilestoneModel.toUpdateMap(
             title: title,
             description: description,
@@ -295,8 +351,9 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
             locationName: locationName,
             latitude: latitude,
             longitude: longitude,
-            participantIds: existing.participantIds,
+            participantIds: existing.participants,
             tags: existing.tags,
+            category: categoryName,
           );
           final remoteModel = await _remote.updateMilestone(id, updateData);
           await _local.upsert(MilestoneCollection.fromMilestone(
@@ -304,6 +361,32 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
           return Right(remoteModel);
         } catch (_) {
           // Remote failed — already saved locally as pending
+        }
+      }
+
+      // Post-local upsert to Supabase (premium). Best-effort.
+      if (_premium.isPremium) {
+        try {
+          final categoryName = await _resolveCategoryName(existing.categoryId);
+          await _remote.upsertMilestone(
+            existing.id,
+            MilestoneModel.toInsertMap(
+              title: existing.title,
+              description: existing.description,
+              participants: const [],
+              participantIds: existing.participants,
+              tags: existing.tags,
+              eventDate: existing.eventDate,
+              locationName: existing.locationName,
+              latitude: existing.latitude,
+              longitude: existing.longitude,
+              category: categoryName ?? 'General',
+              isPublic: existing.isPublic,
+              driveFileId: existing.driveFileId,
+            ),
+          );
+        } catch (_) {
+          // Best-effort upsert.
         }
       }
 
@@ -323,7 +406,7 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
     required String? locationName,
     required double? latitude,
     required double? longitude,
-    required String category,
+    required int categoryId,
     required List<String> participants,
     required List<String> participantIds,
     required List<String> tags,
@@ -339,14 +422,13 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
         ..userId = userId
         ..title = title
         ..description = description
-        ..participants = List<String>.from(participants)
-        ..participantIds = List<String>.from(participantIds)
+        ..participants = List<String>.from(participantIds)
         ..tags = List<String>.from(tags)
         ..eventDate = eventDate
         ..locationName = locationName
         ..latitude = latitude
         ..longitude = longitude
-        ..category = category
+        ..categoryId = categoryId
         ..isPublic = isPublic
         ..createdAt = DateTime.now()
         ..driveFileId = driveFileId
@@ -367,6 +449,15 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
       return Right(saved.toDomain());
     } catch (e) {
       return Left(DatabaseFailure(e.toString()));
+    }
+  }
+
+  Future<String?> _resolveCategoryName(int categoryId) async {
+    try {
+      final c = await _categories.fetchById(categoryId);
+      return c?.name;
+    } catch (_) {
+      return null;
     }
   }
 
@@ -422,7 +513,7 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
     final ids = <String>[];
     for (final mention in mentions) {
       final normalized = _toTitleCase(mention);
-      final existing = await _people.fetchByDisplayName(normalized);
+      final existing = await _people.fetchByName(normalized);
       if (existing != null) {
         ids.add(existing.id);
         continue;
@@ -433,7 +524,7 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
         PersonCollection.fromEntity(
           Person(
             id: personId,
-            displayName: normalized,
+            name: normalized,
           ),
         ),
       );

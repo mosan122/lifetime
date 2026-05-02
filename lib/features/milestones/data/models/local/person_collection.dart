@@ -12,16 +12,25 @@ class PersonCollection {
   @Index(unique: true)
   late String id;
 
-  late String displayName;
+  late String name;
+  String? faceImagePath;
+  String? driveFaceFileId;
 
   static PersonCollection fromEntity(Person person) {
     return PersonCollection()
       ..id = person.id
-      ..displayName = person.displayName;
+      ..name = person.name
+      ..faceImagePath = person.faceImagePath
+      ..driveFaceFileId = person.driveFaceFileId;
   }
 
   Person toDomain() {
-    return Person(id: id, displayName: displayName);
+    return Person(
+      id: id,
+      name: name,
+      faceImagePath: faceImagePath,
+      driveFaceFileId: driveFaceFileId,
+    );
   }
 }
 
