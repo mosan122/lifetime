@@ -29,3 +29,17 @@ class BiographerFailure extends Failure {
   const BiographerFailure([String message = 'Biographer service error', String? code])
       : super(message, code: code);
 }
+
+class FaceCropCancelledFailure extends Failure {
+  const FaceCropCancelledFailure() : super('Operación cancelada');
+}
+
+class FaceCropPickFailure extends Failure {
+  const FaceCropPickFailure([String message = 'Error al seleccionar imagen'])
+      : super(message);
+}
+
+class FaceCropSaveFailure extends Failure {
+  const FaceCropSaveFailure([String message = 'Error al guardar foto de perfil'])
+      : super(message);
+}
