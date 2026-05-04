@@ -135,13 +135,17 @@ class _ManagePeoplePageState extends State<ManagePeoplePage> {
   }
 
   Future<void> _clearPhoto(PersonCollection p) async {
+    final driveId = p.driveFaceFileId;
     final updated = PersonCollection()
       ..isarId = p.isarId
       ..id = p.id
       ..name = p.name
       ..faceImagePath = null
-      ..driveFaceFileId = p.driveFaceFileId;
+      ..driveFaceFileId = null;
     await _ds.upsert(updated);
+    if (driveId != null) {
+      unawaited(sl<CloudSyncService>().deleteDriveFace(driveId));
+    }
     if (!mounted) return;
     _reload();
   }

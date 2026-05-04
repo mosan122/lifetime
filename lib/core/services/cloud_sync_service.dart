@@ -159,6 +159,33 @@ class CloudSyncService {
     }
   }
 
+  Future<void> deleteDriveFace(String fileId) async {
+    if (!_premium.isPremium) return;
+    try {
+      final account = await _googleSignIn.attemptLightweightAuthentication();
+      if (account == null) return;
+      final authorization = await account.authorizationClient.authorizeScopes(
+        const ['https://www.googleapis.com/auth/drive.file'],
+      );
+      final headers = <String, String>{
+        'Authorization': 'Bearer ${authorization.accessToken}',
+      };
+      final client = GoogleAuthHttpClient(headers);
+      final api = drive.DriveApi(client);
+      final driveService = GoogleDriveService(api);
+      await deleteFaceFromDriveWithService(driveService, fileId);
+    } catch (e) {
+      // ignore: avoid_print
+      print('deleteDriveFace failed: $e');
+    }
+  }
+
+  @visibleForTesting
+  Future<void> deleteFaceFromDriveWithService(
+      GoogleDriveService driveService, String fileId) async {
+    await driveService.deleteById(fileId);
+  }
+
   @visibleForTesting
   Future<void> restoreFacesWithService(GoogleDriveService driveService) async {
     final appDir = await getApplicationDocumentsDirectory();

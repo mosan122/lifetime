@@ -249,4 +249,25 @@ void main() {
       expect((captured.first as PersonCollection).id, 'p2');
     });
   });
+
+  group('deleteFaceFromDriveWithService', () {
+    test('calls deleteById with the given fileId', () async {
+      when(() => driveService.deleteById('drive_id_abc'))
+          .thenAnswer((_) async {});
+
+      await sut.deleteFaceFromDriveWithService(driveService, 'drive_id_abc');
+
+      verify(() => driveService.deleteById('drive_id_abc')).called(1);
+    });
+
+    test('propagates exceptions to caller (outer catch in deleteDriveFace handles them)', () async {
+      when(() => driveService.deleteById(any()))
+          .thenThrow(Exception('not found'));
+
+      expect(
+        () => sut.deleteFaceFromDriveWithService(driveService, 'bad_id'),
+        throwsA(isA<Exception>()),
+      );
+    });
+  });
 }
