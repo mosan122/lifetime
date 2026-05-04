@@ -7,20 +7,51 @@ import 'package:photo_view/photo_view.dart';
 import 'package:photo_view/photo_view_gallery.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:video_player/video_player.dart';
-import 'package:google_sign_in/google_sign_in.dart';
-import 'package:googleapis/drive/v3.dart' as drive;
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../domain/entities/media_item.dart';
 import '../../../../domain/entities/milestone.dart';
 import '../../../../injection_container.dart';
-import '../../../../core/services/google_drive_service.dart';
 import '../../../auth/presentation/bloc/auth_cubit.dart';
 import '../../data/datasources/isar_category_datasource.dart';
 import '../../data/datasources/isar_person_datasource.dart';
 import '../bloc/delete_milestone_cubit.dart';
 import '../widgets/drive_thumbnail.dart';
+import '../widgets/local_media_thumb.dart';
 import 'add_milestone_page.dart';
+import '../../data/models/local/person_collection.dart';
+
+/// Galería en el cuerpo (tras Personas): hasta 30 celdas; la última puede ser +X.
+const int _kBodyGalleryMaxCells = 30;
+const int _kBodyGalleryCrossAxisCount = 5;
+
+double _detailAppBarExpandedHeight({
+  required bool hasMediaItems,
+  required bool hasDriveHeaderImage,
+}) {
+  if (hasMediaItems) return 208;
+  if (hasDriveHeaderImage) return 300;
+  return 180;
+}
+
+Future<void> _openMilestoneMediaGallery(
+  BuildContext context, {
+  required String milestoneId,
+  required List<MediaItem> items,
+  required int initialIndex,
+}) async {
+  if (items.isEmpty) return;
+  final i = initialIndex.clamp(0, items.length - 1);
+  await showDialog<void>(
+    context: context,
+    barrierColor: Colors.black.withValues(alpha: 0.92),
+    builder: (dialogCtx) => _MediaGalleryDialog(
+      milestoneId: milestoneId,
+      items: items,
+      initialIndex: i,
+    ),
+  );
+}
 
 class MilestoneDetailPage extends StatelessWidget {
   final Milestone milestone;
@@ -124,11 +155,10 @@ class _DetailScaffold extends StatelessWidget {
         context.watch<DeleteMilestoneCubit>().state is DeleteMilestoneDeleting;
 
     final hasMediaItems = milestone.mediaItems.isNotEmpty;
-    final expandedHeight = hasMediaItems
-        ? 320.0
-        : _hasDriveHeaderImage
-            ? 300.0
-            : 180.0;
+    final expandedHeight = _detailAppBarExpandedHeight(
+      hasMediaItems: hasMediaItems,
+      hasDriveHeaderImage: _hasDriveHeaderImage,
+    );
 
     return SliverAppBar(
       expandedHeight: expandedHeight,
@@ -180,7 +210,7 @@ class _DetailScaffold extends StatelessWidget {
       flexibleSpace: FlexibleSpaceBar(
         collapseMode: CollapseMode.parallax,
         background: hasMediaItems
-            ? _MediaCarouselHeader(milestone: milestone)
+            ? _FirstLocalMediaHeader(milestone: milestone)
             : _hasDriveHeaderImage
                 ? Stack(
                     fit: StackFit.expand,
@@ -287,8 +317,10 @@ class _DetailScaffold extends StatelessWidget {
           _Narrative(description: milestone.description),
           const SizedBox(height: 18),
           _SemanticChips(
+            milestoneId: milestone.id,
             participantIds: milestone.participantIds,
             tags: milestone.tags,
+            mediaItems: milestone.mediaItems,
           ),
         ],
       ),
@@ -373,12 +405,16 @@ class _Narrative extends StatelessWidget {
 // ── Semantic chips ────────────────────────────────────────────────────────────
 
 class _SemanticChips extends StatelessWidget {
+  final String milestoneId;
   final List<String> participantIds;
   final List<String> tags;
+  final List<MediaItem> mediaItems;
 
   const _SemanticChips({
+    required this.milestoneId,
     required this.participantIds,
     required this.tags,
+    required this.mediaItems,
   });
 
   @override
@@ -394,6 +430,13 @@ class _SemanticChips extends StatelessWidget {
           _PeopleFacesRow(participantIds: participantIds),
           const SizedBox(height: 16),
         ],
+        if (mediaItems.isNotEmpty) ...[
+          _BodyMediaGallery(
+            milestoneId: milestoneId,
+            items: mediaItems,
+          ),
+          const SizedBox(height: 16),
+        ],
         if (tags.isNotEmpty) ...[
           Text('Tags', style: theme.textTheme.labelLarge),
           const SizedBox(height: 8),
@@ -405,17 +448,6 @@ class _SemanticChips extends StatelessWidget {
         ],
       ],
     );
-  }
-
-  Future<List<String>> _loadPeopleNames(List<String> ids) async {
-    final ds = sl<IsarPersonDataSource>();
-    final people = await ds.fetchByIds(ids);
-    final byId = {for (final p in people) p.id: p.name};
-    return ids
-        .map((id) => byId[id])
-        .whereType<String>()
-        .where((s) => s.trim().isNotEmpty)
-        .toList();
   }
 }
 
@@ -447,7 +479,7 @@ class _PeopleFacesRow extends StatelessWidget {
                 CircleAvatar(
                   radius: 18,
                   backgroundColor: AppTheme.navy.withValues(alpha: 0.10),
-                  backgroundImage: hasImg ? FileImage(File(img!)) : null,
+                  backgroundImage: hasImg ? FileImage(File(img)) : null,
                   child: hasImg ? null : const Icon(Icons.person_outline, size: 18, color: AppTheme.navy),
                 ),
                 const SizedBox(height: 4),
@@ -533,101 +565,92 @@ class _GradientScrim extends StatelessWidget {
   }
 }
 
-// ── Media carousel header ─────────────────────────────────────────────────────
+// ── Primer medio en el app bar (Hero) + galería en el cuerpo ─────────────────
 
-class _MediaCarouselHeader extends StatefulWidget {
+class _FirstLocalMediaHeader extends StatelessWidget {
   final Milestone milestone;
-  const _MediaCarouselHeader({required this.milestone});
-
-  @override
-  State<_MediaCarouselHeader> createState() => _MediaCarouselHeaderState();
-}
-
-class _MediaCarouselHeaderState extends State<_MediaCarouselHeader> {
-  late final PageController _controller;
-  int _index = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = PageController();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
+  const _FirstLocalMediaHeader({required this.milestone});
 
   @override
   Widget build(BuildContext context) {
-    final items = widget.milestone.mediaItems;
-    final theme = Theme.of(context);
+    final items = milestone.mediaItems;
+    if (items.isEmpty) return const SizedBox.shrink();
 
+    final first = items.first;
     return SafeArea(
       bottom: false,
-      child: Center(
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Hero(
+            tag: MilestoneDetailPage.heroTag(milestone.id),
+            child: LocalMediaThumb(item: first, fit: BoxFit.cover),
+          ),
+          const Positioned.fill(
+            child: IgnorePointer(child: _GradientScrim()),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BodyMediaGallery extends StatelessWidget {
+  final String milestoneId;
+  final List<MediaItem> items;
+
+  const _BodyMediaGallery({
+    required this.milestoneId,
+    required this.items,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final n = items.length;
+    final hasOverflow = n > _kBodyGalleryMaxCells;
+    final itemCount = hasOverflow ? _kBodyGalleryMaxCells : n;
+    final extraShown = hasOverflow ? n - (_kBodyGalleryMaxCells - 1) : 0;
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.35),
+          ),
+          borderRadius: BorderRadius.circular(12),
+        ),
         child: Padding(
-          padding: const EdgeInsets.only(top: 8),
-          child: AspectRatio(
-            aspectRatio: 16 / 9,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  PageView.builder(
-                    controller: _controller,
-                    physics: const PageScrollPhysics(),
-                    itemCount: items.length,
-                    onPageChanged: (i) => setState(() => _index = i),
-                    itemBuilder: (context, i) => _MediaCarouselItem(
-                      milestoneId: widget.milestone.id,
-                      index: i,
-                      items: items,
-                      item: items[i],
-                    ),
-                  ),
-                  const IgnorePointer(child: _GradientScrim()),
-                  Positioned(
-                    left: 14,
-                    right: 14,
-                    bottom: 12,
-                    child: IgnorePointer(
-                      child: Row(
-                        children: [
-                          _DotsIndicator(
-                            count: items.length,
-                            index: _index,
-                          ),
-                          const Spacer(),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 6,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.black38,
-                              borderRadius: BorderRadius.circular(999),
-                              border: Border.all(
-                                color: Colors.white.withValues(alpha: 0.12),
-                              ),
-                            ),
-                            child: Text(
-                              '${_index + 1}/${items.length}',
-                              style: theme.textTheme.labelSmall?.copyWith(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+          padding: const EdgeInsets.all(6),
+          child: GridView.builder(
+            padding: EdgeInsets.zero,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: _kBodyGalleryCrossAxisCount,
+              crossAxisSpacing: 6,
+              mainAxisSpacing: 6,
+              childAspectRatio: 1,
             ),
+            itemCount: itemCount,
+            itemBuilder: (context, i) {
+              if (hasOverflow && i == itemCount - 1) {
+                return _OverflowMediaGridTile(
+                  extraCount: extraShown,
+                  onTap: () => _openMilestoneMediaGallery(
+                    context,
+                    milestoneId: milestoneId,
+                    items: items,
+                    initialIndex: _kBodyGalleryMaxCells - 1,
+                  ),
+                );
+              }
+              return _MediaGridTile(
+                milestoneId: milestoneId,
+                items: items,
+                index: i,
+              );
+            },
           ),
         ),
       ),
@@ -635,59 +658,100 @@ class _MediaCarouselHeaderState extends State<_MediaCarouselHeader> {
   }
 }
 
-class _MediaCarouselItem extends StatelessWidget {
+class _MediaGridTile extends StatelessWidget {
   final String milestoneId;
-  final int index;
   final List<MediaItem> items;
-  final MediaItem item;
+  final int index;
 
-  const _MediaCarouselItem({
+  const _MediaGridTile({
     required this.milestoneId,
-    required this.index,
     required this.items,
-    required this.item,
+    required this.index,
   });
 
   @override
   Widget build(BuildContext context) {
-    final tag = MilestoneDetailPage.heroMediaTag(milestoneId, index);
+    final item = items[index];
+    final heroTag = MilestoneDetailPage.heroMediaTag(milestoneId, index);
     final isVideo = item.mediaType == MediaType.video;
+
+    final preview = ClipRRect(
+      borderRadius: BorderRadius.circular(4),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Positioned.fill(
+            child: index == 0
+                ? LocalMediaThumb(item: item)
+                : Hero(
+                    tag: heroTag,
+                    child: LocalMediaThumb(item: item),
+                  ),
+          ),
+          if (isVideo)
+            Center(
+              child: Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.play_arrow,
+                  color: Colors.white,
+                  size: 32,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
 
     return Material(
       color: Colors.black,
       child: InkWell(
-        onTap: () => _openFullScreen(context),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            Hero(
-              tag: tag,
-              child: _LocalMediaPreview(item: item),
-            ),
-            if (isVideo)
-              const Center(
-                child: Icon(
-                  Icons.play_circle_fill,
-                  size: 68,
-                  color: Colors.white70,
-                ),
-              ),
-          ],
+        onTap: () => _openMilestoneMediaGallery(
+          context,
+          milestoneId: milestoneId,
+          items: items,
+          initialIndex: index,
         ),
+        child: preview,
       ),
     );
   }
+}
 
-  Future<void> _openFullScreen(BuildContext context) async {
-    if (items.isEmpty) return;
+class _OverflowMediaGridTile extends StatelessWidget {
+  final int extraCount;
+  final VoidCallback onTap;
 
-    await showDialog<void>(
-      context: context,
-      barrierColor: Colors.black.withValues(alpha: 0.92),
-      builder: (dialogCtx) => _MediaGalleryDialog(
-        milestoneId: milestoneId,
-        items: items,
-        initialIndex: index,
+  const _OverflowMediaGridTile({
+    required this.extraCount,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.grey.shade800,
+      child: InkWell(
+        onTap: onTap,
+        child: Semantics(
+          button: true,
+          label: 'Ver $extraCount elementos más en galería',
+          child: Center(
+            child: Text(
+              '+$extraCount',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 22,
+                fontWeight: FontWeight.w700,
+                height: 1,
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -724,7 +788,7 @@ class _MediaGalleryDialog extends StatelessWidget {
                 return PhotoViewGalleryPageOptions.customChild(
                   heroAttributes: PhotoViewHeroAttributes(tag: heroTag),
                   child: _VideoGalleryPage(
-                    thumbnailPath: it.thumbnailPath,
+                    item: it,
                     onPlay: () => Navigator.push<void>(
                       context,
                       MaterialPageRoute(
@@ -761,11 +825,11 @@ class _MediaGalleryDialog extends StatelessWidget {
 }
 
 class _VideoGalleryPage extends StatelessWidget {
-  final String thumbnailPath;
+  final MediaItem item;
   final VoidCallback onPlay;
 
   const _VideoGalleryPage({
-    required this.thumbnailPath,
+    required this.item,
     required this.onPlay,
   });
 
@@ -774,14 +838,12 @@ class _VideoGalleryPage extends StatelessWidget {
     return Stack(
       fit: StackFit.expand,
       children: [
-        Image.file(
-          File(thumbnailPath),
-          fit: BoxFit.contain,
-          errorBuilder: (_, __, ___) => const ColoredBox(
-            color: Colors.black,
-            child: Center(
-              child: Icon(Icons.movie_outlined, size: 56, color: Colors.white24),
-            ),
+        ColoredBox(
+          color: Colors.black,
+          child: LocalMediaThumb(
+            item: item,
+            fit: BoxFit.contain,
+            placeholderIconColor: Colors.white38,
           ),
         ),
         Center(
@@ -794,142 +856,6 @@ class _VideoGalleryPage extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _LocalMediaPreview extends StatefulWidget {
-  final MediaItem item;
-  const _LocalMediaPreview({required this.item});
-
-  @override
-  State<_LocalMediaPreview> createState() => _LocalMediaPreviewState();
-}
-
-class _LocalMediaPreviewState extends State<_LocalMediaPreview> {
-  var _downloading = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _maybeDownload();
-  }
-
-  @override
-  void didUpdateWidget(covariant _LocalMediaPreview oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.item.localPath != widget.item.localPath ||
-        oldWidget.item.driveFileId != widget.item.driveFileId) {
-      _maybeDownload();
-    }
-  }
-
-  Future<void> _maybeDownload() async {
-    final item = widget.item;
-
-    // Only auto-download images for now (videos need thumbnail regen).
-    if (item.mediaType != MediaType.image) return;
-
-    final path = item.localPath;
-    final driveId = item.driveFileId;
-    if (driveId == null || driveId.trim().isEmpty) return;
-    if (path.trim().isEmpty) return;
-    if (File(path).existsSync()) return;
-    if (_downloading) return;
-
-    setState(() => _downloading = true);
-    try {
-      final googleSignIn = sl<GoogleSignIn>();
-      final account = await googleSignIn.attemptLightweightAuthentication() ??
-          await googleSignIn.authenticate(
-            scopeHint: const ['https://www.googleapis.com/auth/drive.file'],
-          );
-
-      final authorization = await account.authorizationClient.authorizeScopes(
-        const ['https://www.googleapis.com/auth/drive.file'],
-      );
-      final client = GoogleAuthHttpClient({
-        'Authorization': 'Bearer ${authorization.accessToken}',
-      });
-      final api = drive.DriveApi(client);
-      final service = GoogleDriveService(api);
-
-      await service.downloadFile(driveId, path);
-    } catch (_) {
-      // Best-effort. Keep placeholder on failure.
-    } finally {
-      if (mounted) setState(() => _downloading = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final item = widget.item;
-    final path = item.mediaType == MediaType.video ? item.thumbnailPath : item.localPath;
-    final fileExists = File(path).existsSync();
-
-    if (!fileExists && item.driveFileId != null) {
-      return const ColoredBox(
-        color: Colors.black12,
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.cloud_download_outlined, size: 44, color: Colors.white70),
-              SizedBox(height: 10),
-              Text(
-                'Descargando de la nube…',
-                style: TextStyle(color: Colors.white70),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    return Image.file(
-      File(path),
-      fit: BoxFit.cover,
-      errorBuilder: (_, __, ___) => ColoredBox(
-        color: Colors.black12,
-        child: Center(
-          child: Icon(
-            item.mediaType == MediaType.video
-                ? Icons.movie_outlined
-                : Icons.image_outlined,
-            size: 40,
-            color: Colors.white30,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _DotsIndicator extends StatelessWidget {
-  final int count;
-  final int index;
-
-  const _DotsIndicator({required this.count, required this.index});
-
-  @override
-  Widget build(BuildContext context) {
-    if (count <= 1) return const SizedBox.shrink();
-
-    return Row(
-      children: List.generate(count, (i) {
-        final isActive = i == index;
-        return AnimatedContainer(
-          duration: const Duration(milliseconds: 220),
-          margin: const EdgeInsets.only(right: 6),
-          width: isActive ? 18 : 7,
-          height: 7,
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: isActive ? 0.9 : 0.35),
-            borderRadius: BorderRadius.circular(999),
-          ),
-        );
-      }),
     );
   }
 }

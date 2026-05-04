@@ -1,8 +1,7 @@
 import 'dart:io';
 
 import 'package:dartz/dartz.dart';
-
-import '../failures/failure.dart';
+import '../../core/failures/failure.dart';
 import '../entities/person.dart';
 
 enum FaceImageSource { gallery, camera, milestoneImage }

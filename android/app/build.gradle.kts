@@ -42,3 +42,8 @@ android {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // UCropActivity theme (image_cropper); Ucrop.CropTheme no enlaza al R de la app con AGP actual
+    implementation("androidx.appcompat:appcompat:1.7.0")
+}

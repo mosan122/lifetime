@@ -1,16 +1,21 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:uuid/uuid.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
 
 import '../../../../core/failures/failure.dart';
+import '../../../../core/utils/milestone_title_utils.dart';
 import '../../../../core/services/location_service.dart';
+import '../../../../core/services/text_metadata_extractor.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../domain/entities/media_item.dart';
 import '../../../../domain/entities/milestone.dart';
+import '../../../../domain/entities/person.dart';
 import '../../../../domain/services/face_cropper_service.dart';
 import '../../../../injection_container.dart';
 import '../../../auth/presentation/bloc/auth_cubit.dart';
@@ -28,6 +33,53 @@ const _kSpanishMonths = [
   'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
   'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
 ];
+
+final _kMentionPersonUuid = Uuid();
+
+/// Título cuando el usuario deja el campo en blanco al editar (creación usa
+/// [milestoneFallbackTitleFromDescription] en el repositorio con la misma regla).
+String milestoneTitleFromDescription(String description) =>
+    milestoneFallbackTitleFromDescription(description);
+
+Future<PersonCollection?> showPickParticipantDialog(
+  BuildContext context,
+  List<PersonCollection> available,
+) {
+  return showDialog<PersonCollection>(
+    context: context,
+    builder: (dialogCtx) => SimpleDialog(
+      backgroundColor: AppTheme.cream,
+      title: const Text('Añadir persona'),
+      children: available
+          .map(
+            (p) => SimpleDialogOption(
+              onPressed: () => Navigator.pop(dialogCtx, p),
+              child: Row(
+                children: [
+                  PersonCircleAvatar(
+                    key: ValueKey<String>(
+                      faceImageWidgetCacheKey(p.faceImagePath),
+                    ),
+                    faceImagePath: p.faceImagePath,
+                    diameter: 40,
+                    semanticLabel: p.name,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      p.name,
+                      style: Theme.of(dialogCtx).textTheme.bodyLarge,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          )
+          .toList(),
+    ),
+  );
+}
 
 class AddMilestonePage extends StatelessWidget {
   final Milestone? initial;
@@ -71,10 +123,13 @@ class _CreateMilestoneViewState extends State<_CreateMilestoneView> {
   final List<_SelectedMedia> _selectedMedia = [];
   LocationData? _locationData;
   bool _fetchingLocation = true;
+  Timer? _mentionDebounce;
+  int _mentionSyncGen = 0;
 
   @override
   void initState() {
     super.initState();
+    _noteController.addListener(_onNoteTextChanged);
     _fetchLocationAsync();
   }
 
@@ -93,10 +148,31 @@ class _CreateMilestoneViewState extends State<_CreateMilestoneView> {
 
   @override
   void dispose() {
+    _mentionDebounce?.cancel();
+    _noteController.removeListener(_onNoteTextChanged);
     _titleController.dispose();
     _noteController.dispose();
     _locationController.dispose();
     super.dispose();
+  }
+
+  void _onNoteTextChanged() {
+    _mentionDebounce?.cancel();
+    _mentionDebounce = Timer(
+      const Duration(milliseconds: 450),
+      _applyMentionsFromNote,
+    );
+  }
+
+  Future<void> _applyMentionsFromNote() async {
+    final gen = ++_mentionSyncGen;
+    final changed = await syncParticipantsWithMentionText(
+      text: _noteController.text,
+      participants: _participants,
+      personDs: _personDs,
+    );
+    if (!mounted || gen != _mentionSyncGen) return;
+    if (changed) setState(() {});
   }
 
   Future<void> _pickImages() async {
@@ -145,19 +221,7 @@ class _CreateMilestoneViewState extends State<_CreateMilestoneView> {
       return;
     }
 
-    final picked = await showDialog<PersonCollection>(
-      context: context,
-      builder: (dialogCtx) => SimpleDialog(
-        backgroundColor: AppTheme.cream,
-        title: const Text('Añadir persona'),
-        children: available
-            .map((p) => SimpleDialogOption(
-                  onPressed: () => Navigator.pop(dialogCtx, p),
-                  child: Text(p.name),
-                ))
-            .toList(),
-      ),
-    );
+    final picked = await showPickParticipantDialog(context, available);
 
     if (picked != null && mounted) {
       setState(() => _participants.add(picked));
@@ -315,6 +379,7 @@ class _CreateMilestoneViewState extends State<_CreateMilestoneView> {
                             TextField(
                               controller: _titleController,
                               enabled: !isSubmitting,
+                              textCapitalization: TextCapitalization.sentences,
                               textInputAction: TextInputAction.next,
                               style: theme.textTheme.bodyLarge,
                               decoration: _textFieldDecoration(
@@ -331,6 +396,7 @@ class _CreateMilestoneViewState extends State<_CreateMilestoneView> {
                                 autofocus: true,
                                 enabled: !isSubmitting,
                                 keyboardType: TextInputType.multiline,
+                                textCapitalization: TextCapitalization.sentences,
                                 textAlignVertical: TextAlignVertical.top,
                                 style: theme.textTheme.bodyLarge,
                                 decoration: _cleanMultilineDecoration(
@@ -359,8 +425,10 @@ class _CreateMilestoneViewState extends State<_CreateMilestoneView> {
                               enabled: !isSubmitting,
                               onAdd: _addParticipant,
                               onAssignPhoto: _assignParticipantPhoto,
-                              onRemove: (p) =>
-                                  setState(() => _participants.remove(p)),
+                              onRemove: (p) => setState(
+                                () => _participants
+                                    .removeWhere((x) => x.id == p.id),
+                              ),
                             ),
                             const SizedBox(height: 8),
                             _DatePickerRow(
@@ -442,6 +510,15 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
   late DateTime _selectedDate;
   late int _categoryId;
 
+  final List<PersonCollection> _participants = [];
+  final List<_SelectedMedia> _newMedia = [];
+  late List<MediaItem> _existingMedia;
+  final _picker = ImagePicker();
+  final _personDs = sl<IsarPersonDataSource>();
+  final _faceCropService = sl<FaceCropperService>();
+  Timer? _mentionDebounce;
+  int _mentionSyncGen = 0;
+
   @override
   void initState() {
     super.initState();
@@ -452,14 +529,80 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
         TextEditingController(text: widget.milestone.locationName ?? '');
     _selectedDate = widget.milestone.eventDate;
     _categoryId = widget.milestone.categoryId;
+    _existingMedia = List.from(widget.milestone.mediaItems);
+    _descController.addListener(_onDescTextChanged);
+    _loadParticipants();
+  }
+
+  Future<void> _loadParticipants() async {
+    final ids = widget.milestone.participantIds;
+    if (ids.isNotEmpty) {
+      final loaded = await _personDs.fetchByIds(ids);
+      if (!mounted) return;
+      final byId = {for (final p in loaded) p.id: p};
+      setState(() {
+        _participants
+          ..clear()
+          ..addAll(ids.map((id) => byId[id]).whereType<PersonCollection>());
+      });
+    }
+    if (!mounted) return;
+    await _applyMentionsFromDesc();
   }
 
   @override
   void dispose() {
+    _mentionDebounce?.cancel();
+    _descController.removeListener(_onDescTextChanged);
     _titleController.dispose();
     _descController.dispose();
     _locationController.dispose();
     super.dispose();
+  }
+
+  void _onDescTextChanged() {
+    _mentionDebounce?.cancel();
+    _mentionDebounce = Timer(
+      const Duration(milliseconds: 450),
+      _applyMentionsFromDesc,
+    );
+  }
+
+  Future<void> _applyMentionsFromDesc() async {
+    final gen = ++_mentionSyncGen;
+    final changed = await syncParticipantsWithMentionText(
+      text: _descController.text,
+      participants: _participants,
+      personDs: _personDs,
+    );
+    if (!mounted || gen != _mentionSyncGen) return;
+    if (changed) setState(() {});
+  }
+
+  Future<void> _pickImages() async {
+    final files = await _picker.pickMultiImage(imageQuality: 85);
+    if (files.isEmpty || !mounted) return;
+    setState(() {
+      for (final x in files) {
+        _newMedia.add(_SelectedMedia(file: File(x.path), type: MediaType.image));
+      }
+    });
+  }
+
+  Future<void> _pickVideo() async {
+    final xFile = await _picker.pickVideo(source: ImageSource.gallery);
+    if (xFile == null || !mounted) return;
+    setState(() {
+      _newMedia.add(_SelectedMedia(file: File(xFile.path), type: MediaType.video));
+    });
+  }
+
+  void _removeExistingMediaAt(int index) {
+    setState(() => _existingMedia.removeAt(index));
+  }
+
+  void _removeNewMediaAt(int index) {
+    setState(() => _newMedia.removeAt(index));
   }
 
   Future<void> _pickDate(BuildContext context) async {
@@ -472,11 +615,107 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
     if (picked != null && mounted) setState(() => _selectedDate = picked);
   }
 
+  Future<void> _addParticipant() async {
+    final all = await _personDs.fetchAll();
+    final existing = {for (final p in _participants) p.id};
+    final available = all.where((p) => !existing.contains(p.id)).toList()
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+
+    if (!mounted) return;
+    if (available.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No hay más personas disponibles.')),
+      );
+      return;
+    }
+
+    final picked = await showPickParticipantDialog(context, available);
+
+    if (picked != null && mounted) {
+      setState(() => _participants.add(picked));
+    }
+  }
+
+  Future<void> _assignParticipantPhoto(PersonCollection p) async {
+    final existingEmbeds = _existingMedia
+        .where((m) => m.mediaType == MediaType.image)
+        .map((m) => MediaItemEmbed()
+          ..localPath = m.localPath
+          ..thumbnailPath = m.thumbnailPath
+          ..mediaType = MediaType.image)
+        .toList();
+    final newEmbeds = _newMedia
+        .where((m) => m.type == MediaType.image)
+        .map((m) => MediaItemEmbed()
+          ..localPath = m.file.path
+          ..thumbnailPath = m.file.path
+          ..mediaType = MediaType.image)
+        .toList();
+    final allEmbeds = [...existingEmbeds, ...newEmbeds];
+
+    if (!mounted) return;
+    final selection = await showFaceSourceBottomSheet(
+      context: context,
+      milestoneMediaItems: allEmbeds.isEmpty ? null : allEmbeds,
+    );
+    if (selection == null || !mounted) return;
+
+    final cropResult = await _faceCropService.pickAndCrop(
+      source: selection.source,
+      milestoneImagePath: selection.milestoneImagePath,
+    );
+
+    if (!mounted) return;
+    await cropResult.fold(
+      (failure) async {
+        if (failure is! FaceCropCancelledFailure) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(failure.message),
+              backgroundColor: Colors.red.shade700,
+            ),
+          );
+        }
+      },
+      (file) async {
+        final saveResult = await _faceCropService.saveForPerson(
+          personId: p.id,
+          croppedFile: file,
+        );
+        if (!mounted) return;
+        saveResult.fold(
+          (failure) => ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(failure.message),
+              backgroundColor: Colors.red.shade700,
+            ),
+          ),
+          (updatedPerson) {
+            setState(() {
+              final idx = _participants.indexWhere((x) => x.id == p.id);
+              if (idx != -1) {
+                _participants[idx] = PersonCollection()
+                  ..isarId = p.isarId
+                  ..id = p.id
+                  ..name = p.name
+                  ..faceImagePath = updatedPerson.faceImagePath
+                  ..driveFaceFileId = p.driveFaceFileId;
+              }
+            });
+          },
+        );
+      },
+    );
+  }
+
   void _submit(BuildContext context) {
     final desc = _descController.text.trim();
     if (desc.isEmpty) return;
     final locationText = _locationController.text.trim();
-    final title = _titleController.text.trim();
+    final titleInput = _titleController.text.trim();
+    final title = titleInput.isEmpty
+        ? milestoneTitleFromDescription(desc)
+        : titleInput;
     context.read<EditMilestoneCubit>().submit(
           id: widget.milestone.id,
           title: title,
@@ -486,6 +725,10 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
           locationName: locationText.isEmpty ? null : locationText,
           latitude: widget.milestone.latitude,
           longitude: widget.milestone.longitude,
+          participantIds: _participants.map((p) => p.id).toList(),
+          mediaToKeep: List.from(_existingMedia),
+          newMediaFiles: _newMedia.map((m) => m.file).toList(),
+          newMediaTypes: _newMedia.map((m) => m.type).toList(),
         );
   }
 
@@ -548,6 +791,7 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
                             TextField(
                               controller: _titleController,
                               enabled: !isSubmitting,
+                              textCapitalization: TextCapitalization.sentences,
                               textInputAction: TextInputAction.next,
                               style: theme.textTheme.bodyLarge,
                               decoration: _textFieldDecoration(
@@ -563,6 +807,7 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
                                 maxLines: null,
                                 enabled: !isSubmitting,
                                 keyboardType: TextInputType.multiline,
+                                textCapitalization: TextCapitalization.sentences,
                                 textAlignVertical: TextAlignVertical.top,
                                 style: theme.textTheme.bodyLarge,
                                 decoration: _cleanMultilineDecoration(theme),
@@ -573,6 +818,27 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
                               value: _categoryId,
                               enabled: !isSubmitting,
                               onChanged: (v) => setState(() => _categoryId = v),
+                            ),
+                            const SizedBox(height: 8),
+                            _EditMediaSection(
+                              existingMedia: _existingMedia,
+                              newMedia: _newMedia,
+                              isSubmitting: isSubmitting,
+                              onPickImages: _pickImages,
+                              onPickVideo: _pickVideo,
+                              onRemoveExisting: _removeExistingMediaAt,
+                              onRemoveNew: _removeNewMediaAt,
+                            ),
+                            const SizedBox(height: 8),
+                            _ParticipantsSection(
+                              participants: _participants,
+                              enabled: !isSubmitting,
+                              onAdd: _addParticipant,
+                              onAssignPhoto: _assignParticipantPhoto,
+                              onRemove: (p) => setState(
+                                () => _participants
+                                    .removeWhere((x) => x.id == p.id),
+                              ),
                             ),
                             const SizedBox(height: 8),
                             _DatePickerRow(
@@ -616,6 +882,51 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
       },
     );
   }
+}
+
+// ── @Menciones → participantes (misma regla que al guardar) ───────────────────
+
+/// Misma regla de nombre que al guardar el hito en [MilestoneRepositoryImpl].
+String _mentionTokenToPersonName(String raw) {
+  final s = raw.trim();
+  if (s.isEmpty) return s;
+  if (s.length == 1) return s.toUpperCase();
+  return s[0].toUpperCase() + s.substring(1).toLowerCase();
+}
+
+/// Añade a [participants] las personas de los @ de [text]; crea ficha local si no existe.
+Future<bool> syncParticipantsWithMentionText({
+  required String text,
+  required List<PersonCollection> participants,
+  required IsarPersonDataSource personDs,
+}) async {
+  final extracted = TextMetadataExtractor.extract(text);
+  if (extracted.mentions.isEmpty) return false;
+
+  final seenNames = {
+    for (final p in participants) p.name.trim().toLowerCase(),
+  };
+  var changed = false;
+
+  for (final token in extracted.mentions) {
+    final name = _mentionTokenToPersonName(token);
+    final key = name.toLowerCase();
+    if (seenNames.contains(key)) continue;
+
+    var p = await personDs.fetchByName(name);
+    if (p == null) {
+      final personId = _kMentionPersonUuid.v4();
+      p = await personDs.upsert(
+        PersonCollection.fromEntity(
+          Person(id: personId, name: name),
+        ),
+      );
+    }
+    participants.add(p);
+    seenNames.add(key);
+    changed = true;
+  }
+  return changed;
 }
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
@@ -915,19 +1226,22 @@ class _MediaPickerSection extends StatelessWidget {
           const SizedBox(height: 12),
           SizedBox(
             height: 92,
-            child: ListView.separated(
+            child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
-              itemCount: selected.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 10),
-              itemBuilder: (context, index) {
-                final item = selected[index];
-                return _MediaPreviewTile(
-                  file: item.file,
-                  type: item.type,
-                  enabled: !isSubmitting,
-                  onRemove: () => onRemoveAt(index),
-                );
-              },
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (var index = 0; index < selected.length; index++) ...[
+                    if (index > 0) const SizedBox(width: 10),
+                    _MediaPreviewTile(
+                      file: selected[index].file,
+                      type: selected[index].type,
+                      enabled: !isSubmitting,
+                      onRemove: () => onRemoveAt(index),
+                    ),
+                  ],
+                ],
+              ),
             ),
           ),
         ],
@@ -963,14 +1277,37 @@ class _ParticipantsSection extends StatelessWidget {
                   spacing: 10,
                   runSpacing: 8,
                   children: participants.map((p) {
-                    return GestureDetector(
-                      onLongPress: enabled ? () => onRemove(p) : null,
-                      child: PersonAvatarBadge(
-                        faceImagePath: p.faceImagePath,
-                        personName: p.name,
-                        onAssignPhoto:
-                            enabled ? () => onAssignPhoto(p) : () {},
-                      ),
+                    return Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        PersonAvatarBadge(
+                          faceImagePath: p.faceImagePath,
+                          personName: p.name,
+                          onAssignPhoto:
+                              enabled ? () => onAssignPhoto(p) : () {},
+                        ),
+                        if (enabled)
+                          Positioned(
+                            top: -2,
+                            right: -2,
+                            child: Material(
+                              color: Colors.black54,
+                              shape: const CircleBorder(),
+                              child: InkWell(
+                                customBorder: const CircleBorder(),
+                                onTap: () => onRemove(p),
+                                child: const Padding(
+                                  padding: EdgeInsets.all(3),
+                                  child: Icon(
+                                    Icons.close,
+                                    size: 14,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
                     );
                   }).toList(),
                 ),
@@ -981,6 +1318,214 @@ class _ParticipantsSection extends StatelessWidget {
           color: AppTheme.navy,
           tooltip: 'Añadir persona',
         ),
+      ],
+    );
+  }
+}
+
+// ── Edit mode media section ───────────────────────────────────────────────────
+
+class _EditMediaSection extends StatelessWidget {
+  final List<MediaItem> existingMedia;
+  final List<_SelectedMedia> newMedia;
+  final bool isSubmitting;
+  final VoidCallback onPickImages;
+  final VoidCallback onPickVideo;
+  final void Function(int index) onRemoveExisting;
+  final void Function(int index) onRemoveNew;
+
+  const _EditMediaSection({
+    required this.existingMedia,
+    required this.newMedia,
+    required this.isSubmitting,
+    required this.onPickImages,
+    required this.onPickVideo,
+    required this.onRemoveExisting,
+    required this.onRemoveNew,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final hasItems = existingMedia.isNotEmpty || newMedia.isNotEmpty;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: isSubmitting ? null : onPickImages,
+                icon: const Icon(Icons.photo_library_outlined, size: 18),
+                label: const Text('Fotos'),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: isSubmitting ? null : onPickVideo,
+                icon: const Icon(Icons.videocam_outlined, size: 18),
+                label: const Text('Vídeo'),
+              ),
+            ),
+          ],
+        ),
+        if (!hasItems) ...[
+          const SizedBox(height: 10),
+          Text(
+            'Puedes añadir varias fotos y vídeos (opcional).',
+            style: theme.textTheme.bodySmall
+                ?.copyWith(color: AppTheme.navy.withValues(alpha: 0.7)),
+          ),
+        ] else ...[
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 92,
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (var i = 0; i < existingMedia.length; i++) ...[
+                    if (i > 0) const SizedBox(width: 10),
+                    _ExistingMediaTile(
+                      item: existingMedia[i],
+                      enabled: !isSubmitting,
+                      onRemove: () => onRemoveExisting(i),
+                    ),
+                  ],
+                  for (var i = 0; i < newMedia.length; i++) ...[
+                    if (i > 0 || existingMedia.isNotEmpty) const SizedBox(width: 10),
+                    _MediaPreviewTile(
+                      file: newMedia[i].file,
+                      type: newMedia[i].type,
+                      enabled: !isSubmitting,
+                      onRemove: () => onRemoveNew(i),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _ExistingMediaTile extends StatelessWidget {
+  final MediaItem item;
+  final bool enabled;
+  final VoidCallback onRemove;
+
+  const _ExistingMediaTile({
+    required this.item,
+    required this.enabled,
+    required this.onRemove,
+  });
+
+  Future<Uint8List?> _videoThumbBytes() async {
+    return VideoThumbnail.thumbnailData(
+      video: item.localPath,
+      imageFormat: ImageFormat.JPEG,
+      quality: 50,
+      maxHeight: 160,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final borderRadius = BorderRadius.circular(10);
+    final file = File(item.localPath);
+
+    Widget content;
+    if (item.mediaType == MediaType.image) {
+      content = file.existsSync()
+          ? Image.file(file, fit: BoxFit.cover)
+          : Container(
+              color: const Color(0xFFFAFAE8),
+              child: const Center(
+                child: Icon(Icons.broken_image_outlined, color: AppTheme.navy),
+              ),
+            );
+    } else {
+      content = FutureBuilder<Uint8List?>(
+        future: _videoThumbBytes(),
+        builder: (context, snap) {
+          final bytes = snap.data;
+          if (bytes == null &&
+              snap.connectionState != ConnectionState.done) {
+            return const Center(
+              child: SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            );
+          }
+          if (bytes == null) {
+            return Container(
+              color: const Color(0xFFFAFAE8),
+              child: const Center(
+                child: Icon(Icons.videocam_outlined, color: AppTheme.navy),
+              ),
+            );
+          }
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              Image.memory(bytes, fit: BoxFit.cover),
+              Align(
+                alignment: Alignment.center,
+                child: Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  child: const Icon(Icons.play_arrow,
+                      color: Colors.white, size: 18),
+                ),
+              ),
+            ],
+          );
+        },
+      );
+    }
+
+    return Stack(
+      children: [
+        ClipRRect(
+          borderRadius: borderRadius,
+          child: Container(
+            width: 92,
+            height: 92,
+            decoration: BoxDecoration(
+              color: const Color(0xFFFAFAE8),
+              borderRadius: borderRadius,
+              border: Border.all(color: Theme.of(context).colorScheme.outline),
+            ),
+            child: content,
+          ),
+        ),
+        if (enabled)
+          Positioned(
+            top: 6,
+            right: 6,
+            child: Material(
+              color: Colors.black54,
+              borderRadius: BorderRadius.circular(20),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(20),
+                onTap: onRemove,
+                child: const Padding(
+                  padding: EdgeInsets.all(4),
+                  child: Icon(Icons.close, color: Colors.white, size: 16),
+                ),
+              ),
+            ),
+          ),
       ],
     );
   }

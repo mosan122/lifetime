@@ -48,6 +48,7 @@ import 'features/milestones/presentation/bloc/edit_milestone_cubit.dart';
 import 'features/milestones/presentation/bloc/map_cubit.dart';
 import 'features/milestones/presentation/bloc/milestone_timeline_cubit.dart';
 import 'features/settings/presentation/bloc/export_cubit.dart';
+import 'features/settings/presentation/bloc/people_cubit.dart';
 
 final sl = GetIt.instance;
 
@@ -206,6 +207,8 @@ Future<void> init() async {
   sl.registerFactory<EditMilestoneCubit>(() => EditMilestoneCubit(sl()));
   sl.registerFactory<DeleteMilestoneCubit>(() => DeleteMilestoneCubit(sl()));
   sl.registerFactory<ExportCubit>(() => ExportCubit(sl()));
+  sl.registerFactory<PeopleCubit>(
+      () => PeopleCubit(sl(), sl(), sl()));
   sl.registerFactory<MapCubit>(() => MapCubit(sl()));
   sl.registerFactory<AuthCubit>(() => AuthCubit(sl(), sl(), sl(), sl()));
 

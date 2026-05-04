@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:dartz/dartz.dart';
 import '../entities/media_item.dart';
 import '../entities/milestone.dart';
@@ -42,5 +44,9 @@ abstract class MilestoneRepository {
     String? locationName,
     double? latitude,
     double? longitude,
+    List<String> participantIds = const [],
+    List<MediaItem> mediaToKeep = const [],
+    List<File> newMediaFiles = const [],
+    List<MediaType> newMediaTypes = const [],
   });
 }

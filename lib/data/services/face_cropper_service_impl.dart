@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:dartz/dartz.dart';
-import 'package:flutter/painting.dart' show Color;
+import 'package:flutter/painting.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
@@ -90,6 +90,10 @@ class FaceCropperServiceImpl implements FaceCropperService {
 
       final destPath = '${facesDir.path}/$personId.jpg';
       await croppedFile.copy(destPath);
+
+      // Misma ruta de archivo al sobrescribir: Flutter sigue sirviendo el bitmap
+      // decodificado anterior si no se invalida la caché de [FileImage].
+      PaintingBinding.instance.imageCache.evict(FileImage(File(destPath)));
 
       final existing = await _personDs.fetchById(personId);
       if (existing == null) return const Left(FaceCropSaveFailure());

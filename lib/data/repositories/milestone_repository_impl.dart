@@ -1,8 +1,11 @@
 // lib/data/repositories/milestone_repository_impl.dart
+import 'dart:io';
+
 import 'package:dartz/dartz.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 import '../../core/failures/failure.dart';
+import '../../core/utils/milestone_title_utils.dart';
 import '../../core/services/local_media_store.dart';
 import '../../core/services/text_metadata_extractor.dart';
 import '../../core/services/premium_service.dart';
@@ -17,6 +20,7 @@ import '../../features/milestones/data/datasources/isar_category_datasource.dart
 import '../datasources/milestone_remote_datasource.dart';
 import '../models/milestone_model.dart';
 import '../../features/milestones/data/models/local/milestone_collection.dart';
+import '../../features/milestones/data/models/local/media_asset_embed.dart';
 import '../../features/milestones/data/models/local/media_item_embed.dart';
 import '../../features/milestones/data/models/local/person_collection.dart';
 
@@ -136,12 +140,14 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
 
     final extracted = TextMetadataExtractor.extract(userNote);
     final tags = extracted.hashtags;
-    final participantIds = await _resolveParticipantIds(extracted.mentions);
+    final fromMentions = await _resolveParticipantIds(extracted.mentions);
+    final participantIds =
+        _mergeParticipantIdLists(participants, fromMentions);
 
     if (!_premium.isPremium) {
       return _saveLocalOnly(
         title: (title == null || title.trim().isEmpty)
-            ? _dateTitle(eventDate)
+            ? milestoneFallbackTitleFromDescription(userNote)
             : title.trim(),
         description: userNote,
         userId: userId,
@@ -174,7 +180,9 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
       narrative = bio.narrative;
 
       final chosenTitle = (title == null || title.trim().isEmpty)
-          ? aiTitle
+          ? (bio.title.trim().isNotEmpty
+              ? bio.title.trim()
+              : milestoneFallbackTitleFromDescription(userNote))
           : title.trim();
 
       final insertData = MilestoneModel.toInsertMap(
@@ -236,7 +244,9 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
     } catch (_) {
       return _saveLocalOnly(
         title: (title == null || title.trim().isEmpty)
-            ? (aiTitle ?? _dateTitle(eventDate))
+            ? ((aiTitle != null && aiTitle.trim().isNotEmpty)
+                ? aiTitle.trim()
+                : milestoneFallbackTitleFromDescription(userNote))
             : title.trim(),
         description: narrative ?? userNote,
         userId: userId,
@@ -315,6 +325,10 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
     String? locationName,
     double? latitude,
     double? longitude,
+    List<String> participantIds = const [],
+    List<MediaItem> mediaToKeep = const [],
+    List<File> newMediaFiles = const [],
+    List<MediaType> newMediaTypes = const [],
   }) async {
     try {
       final existing = await _local.fetchById(id);
@@ -324,13 +338,31 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
 
       final extracted = TextMetadataExtractor.extract(description);
       final tags = extracted.hashtags;
-      final participantIds = await _resolveParticipantIds(extracted.mentions);
+      final fromMentions = await _resolveParticipantIds(extracted.mentions);
+      final resolvedIds =
+          _mergeParticipantIdLists(participantIds, fromMentions);
+
+      final dateForPaths = eventDate ?? existing.eventDate;
+      final newPersistedItems = newMediaFiles.isEmpty
+          ? <MediaItem>[]
+          : await _persistLocalMediaItems(
+              date: dateForPaths,
+              milestoneId: existing.id,
+              paths: newMediaFiles.map((f) => f.path).toList(),
+              types: newMediaTypes,
+            );
+      final newEmbeds =
+          newPersistedItems.map(MediaItemEmbed.fromDomain).toList();
 
       existing
         ..title = title
         ..description = description
-        ..participants = participantIds
+        ..participants = resolvedIds
         ..tags = tags
+        ..mediaItems = [
+          ...mediaToKeep.map(MediaItemEmbed.fromDomain),
+          ...newEmbeds,
+        ]
         ..syncStatus = SyncStatus.pending;
       if (eventDate != null) existing.eventDate = eventDate;
       if (locationName != null) existing.locationName = locationName;
@@ -356,9 +388,24 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
             category: categoryName,
           );
           final remoteModel = await _remote.updateMilestone(id, updateData);
-          await _local.upsert(MilestoneCollection.fromMilestone(
-              remoteModel, SyncStatus.synced));
-          return Right(remoteModel);
+          existing
+            ..title = remoteModel.title
+            ..description = remoteModel.description
+            ..eventDate = remoteModel.eventDate
+            ..locationName = remoteModel.locationName
+            ..latitude = remoteModel.latitude
+            ..longitude = remoteModel.longitude
+            ..categoryId = remoteModel.categoryId
+            ..participants = List<String>.from(remoteModel.participantIds)
+            ..tags = List<String>.from(remoteModel.tags)
+            ..isPublic = remoteModel.isPublic
+            ..driveFileId = remoteModel.driveFileId
+            ..media = remoteModel.media
+                .map(MediaAssetEmbed.fromEntity)
+                .toList()
+            ..syncStatus = SyncStatus.synced;
+          await _local.upsert(existing);
+          return Right(existing.toDomain());
         } catch (_) {
           // Remote failed — already saved locally as pending
         }
@@ -509,6 +556,22 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
     return out;
   }
 
+  /// Orden: primero [primary], luego ids de [secondary] que falten.
+  List<String> _mergeParticipantIdLists(
+    List<String> primary,
+    List<String> secondary,
+  ) {
+    final seen = <String>{};
+    final out = <String>[];
+    for (final id in primary) {
+      if (seen.add(id)) out.add(id);
+    }
+    for (final id in secondary) {
+      if (seen.add(id)) out.add(id);
+    }
+    return out;
+  }
+
   Future<List<String>> _resolveParticipantIds(List<String> mentions) async {
     final ids = <String>[];
     for (final mention in mentions) {
@@ -540,11 +603,4 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
     return s[0].toUpperCase() + s.substring(1).toLowerCase();
   }
 
-  static String _dateTitle(DateTime date) {
-    const months = [
-      'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
-      'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
-    ];
-    return 'Hito del ${date.day} de ${months[date.month - 1]} de ${date.year}';
-  }
 }

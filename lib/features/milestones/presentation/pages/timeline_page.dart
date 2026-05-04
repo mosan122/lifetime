@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/theme/app_theme.dart';
@@ -11,6 +9,8 @@ import '../../data/datasources/isar_category_datasource.dart';
 import '../../data/datasources/isar_person_datasource.dart';
 import '../bloc/milestone_timeline_cubit.dart';
 import '../widgets/drive_thumbnail.dart';
+import '../widgets/face_stack.dart';
+import '../widgets/local_media_thumb.dart';
 import '../../../../features/settings/presentation/pages/settings_page.dart';
 import 'add_milestone_page.dart';
 import 'map_explorer_page.dart';
@@ -101,9 +101,11 @@ class _ConnectView extends StatelessWidget {
                       shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(8)),
                     ),
-                    icon: const Icon(Icons.add_link),
-                    label: const Text('Conectar mi Bitácora con Google Drive',
-                        style: TextStyle(fontWeight: FontWeight.w600)),
+                    icon: const Icon(Icons.g_mobiledata),
+                    label: const Text(
+                      'Iniciar sesión con Google',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
                     onPressed: () =>
                         context.read<AuthCubit>().signInWithGoogle(),
                   ),
@@ -265,7 +267,6 @@ class _LocalMediaCard extends StatelessWidget {
 
     final first = milestone.mediaItems.first;
     final isVideo = first.mediaType == MediaType.video;
-    final previewPath = isVideo ? first.thumbnailPath : first.localPath;
 
     return GestureDetector(
       onTap: () => _openDetail(context),
@@ -281,21 +282,10 @@ class _LocalMediaCard extends StatelessWidget {
                 children: [
                   Hero(
                     tag: MilestoneDetailPage.heroTag(milestone.id),
-                    child: Image.file(
-                      File(previewPath),
+                    child: LocalMediaThumb(
+                      item: first,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => ColoredBox(
-                        color: Colors.black12,
-                        child: Center(
-                          child: Icon(
-                            isVideo
-                                ? Icons.movie_outlined
-                                : Icons.image_outlined,
-                            size: 40,
-                            color: Colors.white30,
-                          ),
-                        ),
-                      ),
+                      placeholderIconColor: Colors.white38,
                     ),
                   ),
                   if (isVideo)
@@ -329,12 +319,28 @@ class _LocalMediaCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (hasTitle) ...[
-                    Text(
-                      title,
-                      style: theme.textTheme.titleMedium,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+                  if (hasTitle || milestone.participantIds.isNotEmpty) ...[
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        if (hasTitle)
+                          Expanded(
+                            child: Text(
+                              title,
+                              style: theme.textTheme.titleMedium,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          )
+                        else
+                          const Spacer(),
+                        if (milestone.participantIds.isNotEmpty) ...[
+                          if (hasTitle) const SizedBox(width: 8),
+                          ParticipantFaceStack(
+                            participantIds: milestone.participantIds,
+                          ),
+                        ],
+                      ],
                     ),
                     const SizedBox(height: 6),
                   ],
@@ -354,10 +360,11 @@ class _LocalMediaCard extends StatelessWidget {
                           ),
                         ),
                       ],
-                      _PeopleMentionsInline(
-                        participantIds: milestone.participantIds,
-                        fallbackLabel: peopleLabelFallback,
-                      ),
+                      if (milestone.participantIds.isEmpty)
+                        _PeopleMentionsInline(
+                          participantIds: milestone.participantIds,
+                          fallbackLabel: peopleLabelFallback,
+                        ),
                     ],
                   ),
                 ],
@@ -451,12 +458,28 @@ class _MediaCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (hasTitle) ...[
-                  Text(
-                    title,
-                    style: theme.textTheme.titleMedium,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                if (hasTitle || milestone.participantIds.isNotEmpty) ...[
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      if (hasTitle)
+                        Expanded(
+                          child: Text(
+                            title,
+                            style: theme.textTheme.titleMedium,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        )
+                      else
+                        const Spacer(),
+                      if (milestone.participantIds.isNotEmpty) ...[
+                        if (hasTitle) const SizedBox(width: 8),
+                        ParticipantFaceStack(
+                          participantIds: milestone.participantIds,
+                        ),
+                      ],
+                    ],
                   ),
                   const SizedBox(height: 6),
                 ],
@@ -476,10 +499,11 @@ class _MediaCard extends StatelessWidget {
                         ),
                       ),
                     ],
-                    _PeopleMentionsInline(
-                      participantIds: milestone.participantIds,
-                      fallbackLabel: peopleLabelFallback,
-                    ),
+                    if (milestone.participantIds.isEmpty)
+                      _PeopleMentionsInline(
+                        participantIds: milestone.participantIds,
+                        fallbackLabel: peopleLabelFallback,
+                      ),
                   ],
                 ),
               ],
@@ -545,12 +569,28 @@ class _TextCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (hasTitle) ...[
-                    Text(
-                      title,
-                      style: theme.textTheme.titleLarge,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+                  if (hasTitle || milestone.participantIds.isNotEmpty) ...[
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        if (hasTitle)
+                          Expanded(
+                            child: Text(
+                              title,
+                              style: theme.textTheme.titleLarge,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          )
+                        else
+                          const Spacer(),
+                        if (milestone.participantIds.isNotEmpty) ...[
+                          if (hasTitle) const SizedBox(width: 8),
+                          ParticipantFaceStack(
+                            participantIds: milestone.participantIds,
+                          ),
+                        ],
+                      ],
                     ),
                     const SizedBox(height: 6),
                   ],
@@ -580,12 +620,13 @@ class _TextCard extends StatelessWidget {
                           ),
                         ),
                       ],
-                      _PeopleMentionsInline(
-                        participantIds: milestone.participantIds,
-                        fallbackLabel: peopleLabelFallback,
-                        iconSize: 14,
-                        gap: 4,
-                      ),
+                      if (milestone.participantIds.isEmpty)
+                        _PeopleMentionsInline(
+                          participantIds: milestone.participantIds,
+                          fallbackLabel: peopleLabelFallback,
+                          iconSize: 14,
+                          gap: 4,
+                        ),
                     ],
                   ),
                 ],

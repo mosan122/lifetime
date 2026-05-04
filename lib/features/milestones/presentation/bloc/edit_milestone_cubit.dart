@@ -1,6 +1,9 @@
+import 'dart:io';
+
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../../domain/entities/media_item.dart';
 import '../../../../domain/entities/milestone.dart';
 import '../../domain/usecases/update_milestone_usecase.dart';
 
@@ -20,6 +23,10 @@ class EditMilestoneCubit extends Cubit<EditMilestoneState> {
     String? locationName,
     double? latitude,
     double? longitude,
+    List<String> participantIds = const [],
+    List<MediaItem> mediaToKeep = const [],
+    List<File> newMediaFiles = const [],
+    List<MediaType> newMediaTypes = const [],
   }) async {
     emit(const EditMilestoneSubmitting());
     final result = await _updateMilestone(
@@ -32,6 +39,10 @@ class EditMilestoneCubit extends Cubit<EditMilestoneState> {
         locationName: locationName,
         latitude: latitude,
         longitude: longitude,
+        participantIds: participantIds,
+        mediaToKeep: mediaToKeep,
+        newMediaFiles: newMediaFiles,
+        newMediaTypes: newMediaTypes,
       ),
     );
     result.fold(

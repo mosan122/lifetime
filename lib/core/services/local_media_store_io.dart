@@ -147,8 +147,10 @@ class LocalMediaStoreImpl implements LocalMediaStore {
       final outPath = await VideoThumbnail.thumbnailFile(
         video: videoPath,
         thumbnailPath: destFolderPath,
-        imageFormat: ImageFormat.PNG,
-        quality: 75,
+        imageFormat: ImageFormat.JPEG,
+        quality: 80,
+        maxWidth: 720,
+        timeMs: 0,
       );
 
       return outPath;

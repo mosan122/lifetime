@@ -10,6 +10,7 @@ import '../../../../injection_container.dart';
 import '../../../auth/presentation/bloc/auth_cubit.dart';
 import 'manage_people_page.dart';
 import '../bloc/export_cubit.dart';
+import '../bloc/people_cubit.dart';
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
@@ -67,7 +68,10 @@ class _SettingsView extends StatelessWidget {
               onTap: () {
                 Navigator.of(context).push(
                   MaterialPageRoute<void>(
-                    builder: (_) => const ManagePeoplePage(),
+                    builder: (_) => BlocProvider(
+                      create: (_) => sl<PeopleCubit>()..bootstrap(),
+                      child: const ManagePeoplePage(),
+                    ),
                   ),
                 );
               },
