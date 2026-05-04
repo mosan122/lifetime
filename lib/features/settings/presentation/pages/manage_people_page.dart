@@ -23,15 +23,20 @@ class _ManagePeoplePageState extends State<ManagePeoplePage> {
   final _ds = sl<IsarPersonDataSource>();
   final _faceCropService = sl<FaceCropperService>();
 
-  Future<List<PersonCollection>> _load() async {
-    final people = await _ds.fetchAll();
+  late Future<List<PersonCollection>> _peopleFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _peopleFuture = _ds.fetchAll();
     unawaited(
       sl<CloudSyncService>().restoreMissingFaces().then((_) {
-        if (mounted) setState(() {});
+        if (mounted) setState(() { _peopleFuture = _ds.fetchAll(); });
       }),
     );
-    return people;
   }
+
+  void _reload() => setState(() { _peopleFuture = _ds.fetchAll(); });
 
   Future<void> _rename(PersonCollection p) async {
     final controller = TextEditingController(text: p.name);
@@ -86,7 +91,7 @@ class _ManagePeoplePageState extends State<ManagePeoplePage> {
       ..driveFaceFileId = p.driveFaceFileId;
     await _ds.upsert(updated);
     if (!mounted) return;
-    setState(() {});
+    _reload();
   }
 
   Future<void> _assignPhoto(PersonCollection p) async {
@@ -123,7 +128,7 @@ class _ManagePeoplePageState extends State<ManagePeoplePage> {
               backgroundColor: Colors.red.shade700,
             ),
           ),
-          (_) => setState(() {}),
+          (_) => _reload(),
         );
       },
     );
@@ -138,7 +143,7 @@ class _ManagePeoplePageState extends State<ManagePeoplePage> {
       ..driveFaceFileId = p.driveFaceFileId;
     await _ds.upsert(updated);
     if (!mounted) return;
-    setState(() {});
+    _reload();
   }
 
   @override
@@ -146,7 +151,7 @@ class _ManagePeoplePageState extends State<ManagePeoplePage> {
     return Scaffold(
       appBar: AppBar(title: const Text('Gestionar personas')),
       body: FutureBuilder<List<PersonCollection>>(
-        future: _load(),
+        future: _peopleFuture,
         builder: (context, snapshot) {
           final people = snapshot.data ?? const <PersonCollection>[];
           if (people.isEmpty) {
