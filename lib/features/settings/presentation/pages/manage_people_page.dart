@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 
 import '../../../../core/failures/failure.dart';
+import '../../../../core/services/cloud_sync_service.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../domain/services/face_cropper_service.dart';
 import '../../../../injection_container.dart';
@@ -21,7 +23,15 @@ class _ManagePeoplePageState extends State<ManagePeoplePage> {
   final _ds = sl<IsarPersonDataSource>();
   final _faceCropService = sl<FaceCropperService>();
 
-  Future<List<PersonCollection>> _load() => _ds.fetchAll();
+  Future<List<PersonCollection>> _load() async {
+    final people = await _ds.fetchAll();
+    unawaited(
+      sl<CloudSyncService>().restoreMissingFaces().then((_) {
+        if (mounted) setState(() {});
+      }),
+    );
+    return people;
+  }
 
   Future<void> _rename(PersonCollection p) async {
     final controller = TextEditingController(text: p.name);
