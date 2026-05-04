@@ -99,7 +99,7 @@ class FaceCropperServiceImpl implements FaceCropperService {
         ..id = existing.id
         ..name = existing.name
         ..faceImagePath = destPath
-        ..driveFaceFileId = existing.driveFaceFileId;
+        ..driveFaceFileId = null;
 
       final saved = await _personDs.upsert(updated);
       return Right(saved.toDomain());

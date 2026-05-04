@@ -160,6 +160,7 @@ void main() {
         (_) {},
         (person) {
           expect(person.faceImagePath, contains('p1.jpg'));
+          expect(person.driveFaceFileId, isNull);
         },
       );
 
