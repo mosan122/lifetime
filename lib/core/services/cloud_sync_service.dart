@@ -1,10 +1,14 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
+import 'package:path_provider/path_provider.dart';
 
 import '../../data/datasources/isar_milestone_datasource.dart';
 import '../../domain/entities/milestone.dart';
+import '../../features/milestones/data/datasources/isar_person_datasource.dart';
+import '../../features/milestones/data/models/local/person_collection.dart';
 import 'google_drive_service.dart';
 import 'premium_service.dart';
 
@@ -12,6 +16,7 @@ class CloudSyncService {
   final PremiumService _premium;
   final GoogleSignIn _googleSignIn;
   final IsarMilestoneDataSource _milestones;
+  final IsarPersonDataSource _people;
 
   var _running = false;
 
@@ -19,6 +24,7 @@ class CloudSyncService {
     this._premium,
     this._googleSignIn,
     this._milestones,
+    this._people,
   );
 
   Future<void> syncIfNeeded(List<Milestone> milestones) async {
@@ -27,10 +33,11 @@ class CloudSyncService {
     _running = true;
 
     try {
-      final account = await _googleSignIn.attemptLightweightAuthentication() ??
-          await _googleSignIn.authenticate(
-            scopeHint: const ['https://www.googleapis.com/auth/drive.file'],
-          );
+      final account =
+          await _googleSignIn.attemptLightweightAuthentication() ??
+              await _googleSignIn.authenticate(
+                scopeHint: const ['https://www.googleapis.com/auth/drive.file'],
+              );
       final authorization = await account.authorizationClient.authorizeScopes(
         const ['https://www.googleapis.com/auth/drive.file'],
       );
@@ -41,11 +48,9 @@ class CloudSyncService {
       final api = drive.DriveApi(client);
       final driveService = GoogleDriveService(api);
 
-      // Root folder for this app (created under user's Drive, limited by drive.file).
       final rootId = await driveService.getOrCreateFolder('LifeTime');
 
       for (final m in milestones) {
-        // One-by-one upload to avoid saturating connection.
         for (final item in m.mediaItems) {
           if (item.isSynced) continue;
           if (item.driveFileId != null) continue;
@@ -88,9 +93,94 @@ class CloudSyncService {
           );
         }
       }
+
+      await syncPendingFaces(driveService, rootId);
     } finally {
       _running = false;
     }
   }
-}
 
+  Future<void> restoreMissingFaces() async {
+    if (!_premium.isPremium) return;
+    try {
+      final account =
+          await _googleSignIn.attemptLightweightAuthentication();
+      if (account == null) return;
+      final authorization = await account.authorizationClient.authorizeScopes(
+        const ['https://www.googleapis.com/auth/drive.file'],
+      );
+      final headers = <String, String>{
+        'Authorization': 'Bearer ${authorization.accessToken}',
+      };
+      final client = GoogleAuthHttpClient(headers);
+      final api = drive.DriveApi(client);
+      final driveService = GoogleDriveService(api);
+      await restoreFacesWithService(driveService);
+    } catch (_) {}
+  }
+
+  @visibleForTesting
+  Future<void> syncPendingFaces(
+      GoogleDriveService driveService, String rootId) async {
+    final systemId =
+        await driveService.getOrCreateFolder('System', parentId: rootId);
+    final peopleId =
+        await driveService.getOrCreateFolder('People', parentId: systemId);
+
+    final people = await _people.fetchAll();
+    for (final p in people) {
+      if (p.faceImagePath == null) continue;
+      if (p.driveFaceFileId != null) continue;
+
+      final f = File(p.faceImagePath!);
+      if (!f.existsSync()) continue;
+
+      try {
+        final fileId = await driveService.uploadFile(f, peopleId);
+        final updated = PersonCollection()
+          ..isarId = p.isarId
+          ..id = p.id
+          ..name = p.name
+          ..faceImagePath = p.faceImagePath
+          ..driveFaceFileId = fileId;
+        await _people.upsert(updated);
+        // ignore: avoid_print
+        print('Cara sincronizada para ${p.id}');
+      } catch (e) {
+        // ignore: avoid_print
+        print('Error sincronizando cara para ${p.id}: $e');
+      }
+    }
+  }
+
+  @visibleForTesting
+  Future<void> restoreFacesWithService(GoogleDriveService driveService) async {
+    final appDir = await getApplicationDocumentsDirectory();
+    final people = await _people.fetchAll();
+
+    for (final p in people) {
+      if (p.driveFaceFileId == null) continue;
+
+      final pathMissing = p.faceImagePath == null ||
+          !File(p.faceImagePath!).existsSync();
+      if (!pathMissing) continue;
+
+      try {
+        final destPath = '${appDir.path}/faces/${p.id}.jpg';
+        await driveService.downloadFile(p.driveFaceFileId!, destPath);
+        final updated = PersonCollection()
+          ..isarId = p.isarId
+          ..id = p.id
+          ..name = p.name
+          ..faceImagePath = destPath
+          ..driveFaceFileId = p.driveFaceFileId;
+        await _people.upsert(updated);
+        // ignore: avoid_print
+        print('Cara restaurada para ${p.id}');
+      } catch (e) {
+        // ignore: avoid_print
+        print('Error restaurando cara para ${p.id}: $e');
+      }
+    }
+  }
+}
