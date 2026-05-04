@@ -141,7 +141,7 @@ Future<void> init() async {
   sl.registerLazySingleton<PremiumService>(() => premiumService);
   // Note: DriveApi is constructed per-sync with fresh auth headers.
   sl.registerLazySingleton<CloudSyncService>(
-    () => CloudSyncService(sl(), sl<GoogleSignIn>(), sl<IsarMilestoneDataSource>()),
+    () => CloudSyncService(sl(), sl<GoogleSignIn>(), sl<IsarMilestoneDataSource>(), sl<IsarPersonDataSource>()),
   );
   sl.registerLazySingleton<CleanupService>(
     () => CleanupService(sl<PremiumService>(), sl<IsarMilestoneDataSource>()),
