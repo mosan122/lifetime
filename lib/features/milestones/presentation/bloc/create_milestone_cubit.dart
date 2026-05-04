@@ -7,6 +7,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:image/image.dart' as img;
 
 import '../../../../core/failures/failure.dart';
+import '../../../../core/services/premium_service.dart';
 import '../../../../domain/entities/media_item.dart';
 import '../../../../domain/entities/milestone.dart';
 import '../../domain/usecases/create_milestone_usecase.dart';
@@ -17,9 +18,13 @@ part 'create_milestone_state.dart';
 class CreateMilestoneCubit extends Cubit<CreateMilestoneState> {
   final CreateMilestoneUseCase _createMilestone;
   final UploadMediaUseCase _uploadMedia;
+  final PremiumService _premium;
 
-  CreateMilestoneCubit(this._createMilestone, this._uploadMedia)
-      : super(const CreateMilestoneInitial());
+  CreateMilestoneCubit(
+    this._createMilestone,
+    this._uploadMedia,
+    this._premium,
+  ) : super(const CreateMilestoneInitial());
 
   Future<void> submit({
     String? title,
@@ -39,8 +44,9 @@ class CreateMilestoneCubit extends Cubit<CreateMilestoneState> {
     String? imageBase64;
     final primaryFile = mediaFiles.isNotEmpty ? mediaFiles.first : null;
 
-    // ── Step 1: Drive upload (requires auth) ──────────────────────────────────
-    if (primaryFile != null && accessToken != null) {
+    // ── Step 1: Drive upload (premium + auth; evita crear carpeta/archivos en Drive
+    // para usuarios gratuitos aunque tengan sesión Google por login).
+    if (primaryFile != null && accessToken != null && _premium.isPremium) {
       emit(const CreateMilestoneSubmitting('Subiendo imagen...'));
       final uploadResult = await _uploadMedia(UploadMediaParams(
         file: primaryFile,

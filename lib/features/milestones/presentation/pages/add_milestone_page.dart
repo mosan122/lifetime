@@ -1,21 +1,17 @@
-import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:uuid/uuid.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
 
 import '../../../../core/failures/failure.dart';
 import '../../../../core/utils/milestone_title_utils.dart';
 import '../../../../core/services/location_service.dart';
-import '../../../../core/services/text_metadata_extractor.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../domain/entities/media_item.dart';
 import '../../../../domain/entities/milestone.dart';
-import '../../../../domain/entities/person.dart';
 import '../../../../domain/services/face_cropper_service.dart';
 import '../../../../injection_container.dart';
 import '../../../auth/presentation/bloc/auth_cubit.dart';
@@ -27,59 +23,46 @@ import '../../data/models/local/category_collection.dart';
 import '../../data/models/local/media_item_embed.dart';
 import '../../data/models/local/person_collection.dart';
 import '../widgets/face_source_bottom_sheet.dart';
+import '../widgets/milestone_participant_picker_sheet.dart';
 import '../widgets/person_avatar_badge.dart';
+
+int _clampGalleryCoverIndexForCount(int coverIndex, int mediaCount) {
+  if (mediaCount <= 0) return 0;
+  return coverIndex.clamp(0, mediaCount - 1);
+}
+
+/// Píxeles máximos al decodificar una imagen para miniatura (~92 lógicos).
+/// Evita decodificar a tamaño completo en la UI (mucho más rápido con varias fotos).
+int mediaPreviewDecodeExtentPx(BuildContext context) {
+  final dpr = MediaQuery.devicePixelRatioOf(context);
+  return (184 * dpr).round().clamp(256, 960);
+}
+
+int _adjustGalleryCoverAfterRemove({
+  required int cover,
+  required int removedGlobalIndex,
+  required int oldTotalCount,
+}) {
+  final newLen = oldTotalCount - 1;
+  if (newLen <= 0) return 0;
+  var c = cover;
+  if (removedGlobalIndex < c) {
+    c--;
+  } else if (removedGlobalIndex == c) {
+    c = c.clamp(0, newLen - 1);
+  }
+  return c.clamp(0, newLen - 1);
+}
 
 const _kSpanishMonths = [
   'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
   'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
 ];
 
-final _kMentionPersonUuid = Uuid();
-
 /// Título cuando el usuario deja el campo en blanco al editar (creación usa
 /// [milestoneFallbackTitleFromDescription] en el repositorio con la misma regla).
 String milestoneTitleFromDescription(String description) =>
     milestoneFallbackTitleFromDescription(description);
-
-Future<PersonCollection?> showPickParticipantDialog(
-  BuildContext context,
-  List<PersonCollection> available,
-) {
-  return showDialog<PersonCollection>(
-    context: context,
-    builder: (dialogCtx) => SimpleDialog(
-      backgroundColor: AppTheme.cream,
-      title: const Text('Añadir persona'),
-      children: available
-          .map(
-            (p) => SimpleDialogOption(
-              onPressed: () => Navigator.pop(dialogCtx, p),
-              child: Row(
-                children: [
-                  PersonCircleAvatar(
-                    key: ValueKey<String>(
-                      faceImageWidgetCacheKey(p.faceImagePath),
-                    ),
-                    faceImagePath: p.faceImagePath,
-                    diameter: 40,
-                    semanticLabel: p.name,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      p.name,
-                      style: Theme.of(dialogCtx).textTheme.bodyLarge,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          )
-          .toList(),
-    ),
-  );
-}
 
 class AddMilestonePage extends StatelessWidget {
   final Milestone? initial;
@@ -123,13 +106,12 @@ class _CreateMilestoneViewState extends State<_CreateMilestoneView> {
   final List<_SelectedMedia> _selectedMedia = [];
   LocationData? _locationData;
   bool _fetchingLocation = true;
-  Timer? _mentionDebounce;
-  int _mentionSyncGen = 0;
+  int? _importingImagesTotal;
+  int _importingImagesDone = 0;
 
   @override
   void initState() {
     super.initState();
-    _noteController.addListener(_onNoteTextChanged);
     _fetchLocationAsync();
   }
 
@@ -148,41 +130,47 @@ class _CreateMilestoneViewState extends State<_CreateMilestoneView> {
 
   @override
   void dispose() {
-    _mentionDebounce?.cancel();
-    _noteController.removeListener(_onNoteTextChanged);
     _titleController.dispose();
     _noteController.dispose();
     _locationController.dispose();
     super.dispose();
   }
 
-  void _onNoteTextChanged() {
-    _mentionDebounce?.cancel();
-    _mentionDebounce = Timer(
-      const Duration(milliseconds: 450),
-      _applyMentionsFromNote,
-    );
-  }
-
-  Future<void> _applyMentionsFromNote() async {
-    final gen = ++_mentionSyncGen;
-    final changed = await syncParticipantsWithMentionText(
-      text: _noteController.text,
-      participants: _participants,
-      personDs: _personDs,
-    );
-    if (!mounted || gen != _mentionSyncGen) return;
-    if (changed) setState(() {});
-  }
-
   Future<void> _pickImages() async {
-    final files = await _picker.pickMultiImage(imageQuality: 85);
+    final files = await _picker.pickMultiImage(imageQuality: 72);
     if (files.isEmpty || !mounted) return;
+    final n = files.length;
+    if (n == 1) {
+      setState(() {
+        _selectedMedia.add(
+          _SelectedMedia(file: File(files.first.path), type: MediaType.image),
+        );
+      });
+      return;
+    }
     setState(() {
-      for (final x in files) {
-        _selectedMedia.add(_SelectedMedia(file: File(x.path), type: MediaType.image));
-      }
+      _importingImagesTotal = n;
+      _importingImagesDone = 0;
     });
+    try {
+      for (var i = 0; i < n; i++) {
+        if (!mounted) return;
+        setState(() {
+          _selectedMedia.add(
+            _SelectedMedia(file: File(files[i].path), type: MediaType.image),
+          );
+          _importingImagesDone = i + 1;
+        });
+        if (i < n - 1) await Future<void>.delayed(Duration.zero);
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _importingImagesTotal = null;
+          _importingImagesDone = 0;
+        });
+      }
+    }
   }
 
   Future<void> _pickVideo() async {
@@ -208,34 +196,30 @@ class _CreateMilestoneViewState extends State<_CreateMilestoneView> {
   }
 
   Future<void> _addParticipant() async {
-    final all = await _personDs.fetchAll();
-    final existing = {for (final p in _participants) p.id};
-    final available = all.where((p) => !existing.contains(p.id)).toList()
-      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-
     if (!mounted) return;
-    if (available.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No hay más personas disponibles.')),
-      );
-      return;
-    }
-
-    final picked = await showPickParticipantDialog(context, available);
-
+    final picked = await showMilestoneParticipantPickerSheet(
+      context: context,
+      existingParticipantIds: {for (final p in _participants) p.id},
+      personDs: _personDs,
+    );
     if (picked != null && mounted) {
+      if (_participants.any((x) => x.id == picked.id)) return;
       setState(() => _participants.add(picked));
     }
   }
 
-  Future<void> _assignParticipantPhoto(PersonCollection p) async {
-    final mediaItems = _selectedMedia
+  List<MediaItemEmbed> _milestoneImageEmbedsForFacePicker() {
+    return _selectedMedia
         .where((m) => m.type == MediaType.image)
         .map((m) => MediaItemEmbed()
           ..localPath = m.file.path
           ..thumbnailPath = m.file.path
           ..mediaType = MediaType.image)
         .toList();
+  }
+
+  Future<void> _assignParticipantPhoto(PersonCollection p) async {
+    final mediaItems = _milestoneImageEmbedsForFacePicker();
 
     if (!mounted) return;
     final selection = await showFaceSourceBottomSheet(
@@ -415,6 +399,8 @@ class _CreateMilestoneViewState extends State<_CreateMilestoneView> {
                             _MediaPickerSection(
                               selected: _selectedMedia,
                               isSubmitting: isSubmitting,
+                              importImagesTotal: _importingImagesTotal,
+                              importImagesDone: _importingImagesDone,
                               onPickImages: _pickImages,
                               onPickVideo: _pickVideo,
                               onRemoveAt: _removeMediaAt,
@@ -513,11 +499,12 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
   final List<PersonCollection> _participants = [];
   final List<_SelectedMedia> _newMedia = [];
   late List<MediaItem> _existingMedia;
+  late int _galleryCoverIndex;
+  int? _importingImagesTotal;
+  int _importingImagesDone = 0;
   final _picker = ImagePicker();
   final _personDs = sl<IsarPersonDataSource>();
   final _faceCropService = sl<FaceCropperService>();
-  Timer? _mentionDebounce;
-  int _mentionSyncGen = 0;
 
   @override
   void initState() {
@@ -530,63 +517,69 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
     _selectedDate = widget.milestone.eventDate;
     _categoryId = widget.milestone.categoryId;
     _existingMedia = List.from(widget.milestone.mediaItems);
-    _descController.addListener(_onDescTextChanged);
+    _galleryCoverIndex = _clampGalleryCoverIndexForCount(
+      widget.milestone.galleryCoverIndex,
+      _existingMedia.length,
+    );
     _loadParticipants();
   }
 
   Future<void> _loadParticipants() async {
     final ids = widget.milestone.participantIds;
-    if (ids.isNotEmpty) {
-      final loaded = await _personDs.fetchByIds(ids);
-      if (!mounted) return;
-      final byId = {for (final p in loaded) p.id: p};
-      setState(() {
-        _participants
-          ..clear()
-          ..addAll(ids.map((id) => byId[id]).whereType<PersonCollection>());
-      });
-    }
+    if (ids.isEmpty) return;
+    final loaded = await _personDs.fetchByIds(ids);
     if (!mounted) return;
-    await _applyMentionsFromDesc();
+    final byId = {for (final p in loaded) p.id: p};
+    setState(() {
+      _participants
+        ..clear()
+        ..addAll(ids.map((id) => byId[id]).whereType<PersonCollection>());
+    });
   }
 
   @override
   void dispose() {
-    _mentionDebounce?.cancel();
-    _descController.removeListener(_onDescTextChanged);
     _titleController.dispose();
     _descController.dispose();
     _locationController.dispose();
     super.dispose();
   }
 
-  void _onDescTextChanged() {
-    _mentionDebounce?.cancel();
-    _mentionDebounce = Timer(
-      const Duration(milliseconds: 450),
-      _applyMentionsFromDesc,
-    );
-  }
-
-  Future<void> _applyMentionsFromDesc() async {
-    final gen = ++_mentionSyncGen;
-    final changed = await syncParticipantsWithMentionText(
-      text: _descController.text,
-      participants: _participants,
-      personDs: _personDs,
-    );
-    if (!mounted || gen != _mentionSyncGen) return;
-    if (changed) setState(() {});
-  }
-
   Future<void> _pickImages() async {
-    final files = await _picker.pickMultiImage(imageQuality: 85);
+    final files = await _picker.pickMultiImage(imageQuality: 72);
     if (files.isEmpty || !mounted) return;
+    final n = files.length;
+    if (n == 1) {
+      setState(() {
+        _newMedia.add(
+          _SelectedMedia(file: File(files.first.path), type: MediaType.image),
+        );
+      });
+      return;
+    }
     setState(() {
-      for (final x in files) {
-        _newMedia.add(_SelectedMedia(file: File(x.path), type: MediaType.image));
-      }
+      _importingImagesTotal = n;
+      _importingImagesDone = 0;
     });
+    try {
+      for (var i = 0; i < n; i++) {
+        if (!mounted) return;
+        setState(() {
+          _newMedia.add(
+            _SelectedMedia(file: File(files[i].path), type: MediaType.image),
+          );
+          _importingImagesDone = i + 1;
+        });
+        if (i < n - 1) await Future<void>.delayed(Duration.zero);
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _importingImagesTotal = null;
+          _importingImagesDone = 0;
+        });
+      }
+    }
   }
 
   Future<void> _pickVideo() async {
@@ -597,12 +590,31 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
     });
   }
 
+  int get _totalEditMediaCount => _existingMedia.length + _newMedia.length;
+
   void _removeExistingMediaAt(int index) {
-    setState(() => _existingMedia.removeAt(index));
+    setState(() {
+      final oldTotal = _totalEditMediaCount;
+      _existingMedia.removeAt(index);
+      _galleryCoverIndex = _adjustGalleryCoverAfterRemove(
+        cover: _galleryCoverIndex,
+        removedGlobalIndex: index,
+        oldTotalCount: oldTotal,
+      );
+    });
   }
 
   void _removeNewMediaAt(int index) {
-    setState(() => _newMedia.removeAt(index));
+    setState(() {
+      final globalIndex = _existingMedia.length + index;
+      final oldTotal = _totalEditMediaCount;
+      _newMedia.removeAt(index);
+      _galleryCoverIndex = _adjustGalleryCoverAfterRemove(
+        cover: _galleryCoverIndex,
+        removedGlobalIndex: globalIndex,
+        oldTotalCount: oldTotal,
+      );
+    });
   }
 
   Future<void> _pickDate(BuildContext context) async {
@@ -616,27 +628,19 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
   }
 
   Future<void> _addParticipant() async {
-    final all = await _personDs.fetchAll();
-    final existing = {for (final p in _participants) p.id};
-    final available = all.where((p) => !existing.contains(p.id)).toList()
-      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-
     if (!mounted) return;
-    if (available.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No hay más personas disponibles.')),
-      );
-      return;
-    }
-
-    final picked = await showPickParticipantDialog(context, available);
-
+    final picked = await showMilestoneParticipantPickerSheet(
+      context: context,
+      existingParticipantIds: {for (final p in _participants) p.id},
+      personDs: _personDs,
+    );
     if (picked != null && mounted) {
+      if (_participants.any((x) => x.id == picked.id)) return;
       setState(() => _participants.add(picked));
     }
   }
 
-  Future<void> _assignParticipantPhoto(PersonCollection p) async {
+  List<MediaItemEmbed> _milestoneImageEmbedsForFacePicker() {
     final existingEmbeds = _existingMedia
         .where((m) => m.mediaType == MediaType.image)
         .map((m) => MediaItemEmbed()
@@ -651,7 +655,11 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
           ..thumbnailPath = m.file.path
           ..mediaType = MediaType.image)
         .toList();
-    final allEmbeds = [...existingEmbeds, ...newEmbeds];
+    return [...existingEmbeds, ...newEmbeds];
+  }
+
+  Future<void> _assignParticipantPhoto(PersonCollection p) async {
+    final allEmbeds = _milestoneImageEmbedsForFacePicker();
 
     if (!mounted) return;
     final selection = await showFaceSourceBottomSheet(
@@ -716,6 +724,11 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
     final title = titleInput.isEmpty
         ? milestoneTitleFromDescription(desc)
         : titleInput;
+    final totalMedia = _totalEditMediaCount;
+    final cover = _clampGalleryCoverIndexForCount(
+      _galleryCoverIndex,
+      totalMedia,
+    );
     context.read<EditMilestoneCubit>().submit(
           id: widget.milestone.id,
           title: title,
@@ -729,6 +742,7 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
           mediaToKeep: List.from(_existingMedia),
           newMediaFiles: _newMedia.map((m) => m.file).toList(),
           newMediaTypes: _newMedia.map((m) => m.type).toList(),
+          galleryCoverIndex: cover,
         );
   }
 
@@ -823,7 +837,20 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
                             _EditMediaSection(
                               existingMedia: _existingMedia,
                               newMedia: _newMedia,
+                              galleryCoverIndex: _galleryCoverIndex,
+                              onSetGalleryCover: (i) {
+                                if (isSubmitting) return;
+                                setState(() {
+                                  _galleryCoverIndex =
+                                      _clampGalleryCoverIndexForCount(
+                                    i,
+                                    _totalEditMediaCount,
+                                  );
+                                });
+                              },
                               isSubmitting: isSubmitting,
+                              importImagesTotal: _importingImagesTotal,
+                              importImagesDone: _importingImagesDone,
                               onPickImages: _pickImages,
                               onPickVideo: _pickVideo,
                               onRemoveExisting: _removeExistingMediaAt,
@@ -882,51 +909,6 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
       },
     );
   }
-}
-
-// ── @Menciones → participantes (misma regla que al guardar) ───────────────────
-
-/// Misma regla de nombre que al guardar el hito en [MilestoneRepositoryImpl].
-String _mentionTokenToPersonName(String raw) {
-  final s = raw.trim();
-  if (s.isEmpty) return s;
-  if (s.length == 1) return s.toUpperCase();
-  return s[0].toUpperCase() + s.substring(1).toLowerCase();
-}
-
-/// Añade a [participants] las personas de los @ de [text]; crea ficha local si no existe.
-Future<bool> syncParticipantsWithMentionText({
-  required String text,
-  required List<PersonCollection> participants,
-  required IsarPersonDataSource personDs,
-}) async {
-  final extracted = TextMetadataExtractor.extract(text);
-  if (extracted.mentions.isEmpty) return false;
-
-  final seenNames = {
-    for (final p in participants) p.name.trim().toLowerCase(),
-  };
-  var changed = false;
-
-  for (final token in extracted.mentions) {
-    final name = _mentionTokenToPersonName(token);
-    final key = name.toLowerCase();
-    if (seenNames.contains(key)) continue;
-
-    var p = await personDs.fetchByName(name);
-    if (p == null) {
-      final personId = _kMentionPersonUuid.v4();
-      p = await personDs.upsert(
-        PersonCollection.fromEntity(
-          Person(id: personId, name: name),
-        ),
-      );
-    }
-    participants.add(p);
-    seenNames.add(key);
-    changed = true;
-  }
-  return changed;
 }
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
@@ -1177,6 +1159,8 @@ class _SelectedMedia {
 class _MediaPickerSection extends StatelessWidget {
   final List<_SelectedMedia> selected;
   final bool isSubmitting;
+  final int? importImagesTotal;
+  final int importImagesDone;
   final VoidCallback onPickImages;
   final VoidCallback onPickVideo;
   final void Function(int index) onRemoveAt;
@@ -1184,6 +1168,8 @@ class _MediaPickerSection extends StatelessWidget {
   const _MediaPickerSection({
     required this.selected,
     required this.isSubmitting,
+    this.importImagesTotal,
+    this.importImagesDone = 0,
     required this.onPickImages,
     required this.onPickVideo,
     required this.onRemoveAt,
@@ -1192,6 +1178,8 @@ class _MediaPickerSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final importing = importImagesTotal != null;
+    final busy = isSubmitting || importing;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1200,7 +1188,7 @@ class _MediaPickerSection extends StatelessWidget {
           children: [
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: isSubmitting ? null : onPickImages,
+                onPressed: busy ? null : onPickImages,
                 icon: const Icon(Icons.photo_library_outlined, size: 18),
                 label: const Text('Fotos'),
               ),
@@ -1208,13 +1196,31 @@ class _MediaPickerSection extends StatelessWidget {
             const SizedBox(width: 12),
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: isSubmitting ? null : onPickVideo,
+                onPressed: busy ? null : onPickVideo,
                 icon: const Icon(Icons.videocam_outlined, size: 18),
                 label: const Text('Vídeo'),
               ),
             ),
           ],
         ),
+        if (importing && importImagesTotal! > 0) ...[
+          const SizedBox(height: 10),
+          Text(
+            'Preparando vistas previas '
+            '(${importImagesDone.clamp(0, importImagesTotal!)}/$importImagesTotal)…',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: AppTheme.navy.withValues(alpha: 0.75),
+            ),
+          ),
+          const SizedBox(height: 6),
+          LinearProgressIndicator(
+            value: importImagesDone / importImagesTotal!,
+            minHeight: 4,
+            borderRadius: BorderRadius.circular(2),
+            color: AppTheme.navy,
+            backgroundColor: AppTheme.navy.withValues(alpha: 0.12),
+          ),
+        ],
         if (selected.isEmpty) ...[
           const SizedBox(height: 10),
           Text(
@@ -1236,7 +1242,7 @@ class _MediaPickerSection extends StatelessWidget {
                     _MediaPreviewTile(
                       file: selected[index].file,
                       type: selected[index].type,
-                      enabled: !isSubmitting,
+                      enabled: !busy,
                       onRemove: () => onRemoveAt(index),
                     ),
                   ],
@@ -1253,7 +1259,7 @@ class _MediaPickerSection extends StatelessWidget {
 class _ParticipantsSection extends StatelessWidget {
   final List<PersonCollection> participants;
   final bool enabled;
-  final VoidCallback onAdd;
+  final Future<void> Function()? onAdd;
   final ValueChanged<PersonCollection> onAssignPhoto;
   final ValueChanged<PersonCollection> onRemove;
 
@@ -1313,7 +1319,7 @@ class _ParticipantsSection extends StatelessWidget {
                 ),
         ),
         IconButton(
-          onPressed: enabled ? onAdd : null,
+          onPressed: enabled ? () => onAdd?.call() : null,
           icon: const Icon(Icons.person_add_outlined),
           color: AppTheme.navy,
           tooltip: 'Añadir persona',
@@ -1328,7 +1334,11 @@ class _ParticipantsSection extends StatelessWidget {
 class _EditMediaSection extends StatelessWidget {
   final List<MediaItem> existingMedia;
   final List<_SelectedMedia> newMedia;
+  final int galleryCoverIndex;
+  final ValueChanged<int> onSetGalleryCover;
   final bool isSubmitting;
+  final int? importImagesTotal;
+  final int importImagesDone;
   final VoidCallback onPickImages;
   final VoidCallback onPickVideo;
   final void Function(int index) onRemoveExisting;
@@ -1337,7 +1347,11 @@ class _EditMediaSection extends StatelessWidget {
   const _EditMediaSection({
     required this.existingMedia,
     required this.newMedia,
+    required this.galleryCoverIndex,
+    required this.onSetGalleryCover,
     required this.isSubmitting,
+    this.importImagesTotal,
+    this.importImagesDone = 0,
     required this.onPickImages,
     required this.onPickVideo,
     required this.onRemoveExisting,
@@ -1348,6 +1362,8 @@ class _EditMediaSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final hasItems = existingMedia.isNotEmpty || newMedia.isNotEmpty;
+    final importing = importImagesTotal != null;
+    final busy = isSubmitting || importing;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1356,7 +1372,7 @@ class _EditMediaSection extends StatelessWidget {
           children: [
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: isSubmitting ? null : onPickImages,
+                onPressed: busy ? null : onPickImages,
                 icon: const Icon(Icons.photo_library_outlined, size: 18),
                 label: const Text('Fotos'),
               ),
@@ -1364,13 +1380,31 @@ class _EditMediaSection extends StatelessWidget {
             const SizedBox(width: 12),
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: isSubmitting ? null : onPickVideo,
+                onPressed: busy ? null : onPickVideo,
                 icon: const Icon(Icons.videocam_outlined, size: 18),
                 label: const Text('Vídeo'),
               ),
             ),
           ],
         ),
+        if (importing && importImagesTotal! > 0) ...[
+          const SizedBox(height: 10),
+          Text(
+            'Preparando vistas previas '
+            '(${importImagesDone.clamp(0, importImagesTotal!)}/$importImagesTotal)…',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: AppTheme.navy.withValues(alpha: 0.75),
+            ),
+          ),
+          const SizedBox(height: 6),
+          LinearProgressIndicator(
+            value: importImagesDone / importImagesTotal!,
+            minHeight: 4,
+            borderRadius: BorderRadius.circular(2),
+            color: AppTheme.navy,
+            backgroundColor: AppTheme.navy.withValues(alpha: 0.12),
+          ),
+        ],
         if (!hasItems) ...[
           const SizedBox(height: 10),
           Text(
@@ -1379,7 +1413,13 @@ class _EditMediaSection extends StatelessWidget {
                 ?.copyWith(color: AppTheme.navy.withValues(alpha: 0.7)),
           ),
         ] else ...[
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
+          Text(
+            'El pin indica la imagen del timeline.',
+            style: theme.textTheme.bodySmall
+                ?.copyWith(color: AppTheme.navy.withValues(alpha: 0.65)),
+          ),
+          const SizedBox(height: 8),
           SizedBox(
             height: 92,
             child: SingleChildScrollView(
@@ -1391,8 +1431,10 @@ class _EditMediaSection extends StatelessWidget {
                     if (i > 0) const SizedBox(width: 10),
                     _ExistingMediaTile(
                       item: existingMedia[i],
-                      enabled: !isSubmitting,
+                      enabled: !busy,
                       onRemove: () => onRemoveExisting(i),
+                      isGalleryCover: i == galleryCoverIndex,
+                      onPickAsGalleryCover: () => onSetGalleryCover(i),
                     ),
                   ],
                   for (var i = 0; i < newMedia.length; i++) ...[
@@ -1400,8 +1442,12 @@ class _EditMediaSection extends StatelessWidget {
                     _MediaPreviewTile(
                       file: newMedia[i].file,
                       type: newMedia[i].type,
-                      enabled: !isSubmitting,
+                      enabled: !busy,
                       onRemove: () => onRemoveNew(i),
+                      isGalleryCover:
+                          existingMedia.length + i == galleryCoverIndex,
+                      onPickAsGalleryCover: () =>
+                          onSetGalleryCover(existingMedia.length + i),
                     ),
                   ],
                 ],
@@ -1418,19 +1464,24 @@ class _ExistingMediaTile extends StatelessWidget {
   final MediaItem item;
   final bool enabled;
   final VoidCallback onRemove;
+  final bool isGalleryCover;
+  final VoidCallback? onPickAsGalleryCover;
 
   const _ExistingMediaTile({
     required this.item,
     required this.enabled,
     required this.onRemove,
+    this.isGalleryCover = false,
+    this.onPickAsGalleryCover,
   });
 
   Future<Uint8List?> _videoThumbBytes() async {
     return VideoThumbnail.thumbnailData(
       video: item.localPath,
       imageFormat: ImageFormat.JPEG,
-      quality: 50,
-      maxHeight: 160,
+      quality: 45,
+      maxWidth: 200,
+      maxHeight: 200,
     );
   }
 
@@ -1438,11 +1489,18 @@ class _ExistingMediaTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final borderRadius = BorderRadius.circular(10);
     final file = File(item.localPath);
+    final decodePx = mediaPreviewDecodeExtentPx(context);
 
     Widget content;
     if (item.mediaType == MediaType.image) {
       content = file.existsSync()
-          ? Image.file(file, fit: BoxFit.cover)
+          ? Image.file(
+              file,
+              fit: BoxFit.cover,
+              filterQuality: FilterQuality.low,
+              cacheWidth: decodePx,
+              cacheHeight: decodePx,
+            )
           : Container(
               color: const Color(0xFFFAFAE8),
               child: const Center(
@@ -1475,7 +1533,13 @@ class _ExistingMediaTile extends StatelessWidget {
           return Stack(
             fit: StackFit.expand,
             children: [
-              Image.memory(bytes, fit: BoxFit.cover),
+              Image.memory(
+                bytes,
+                fit: BoxFit.cover,
+                filterQuality: FilterQuality.low,
+                cacheWidth: decodePx,
+                cacheHeight: decodePx,
+              ),
               Align(
                 alignment: Alignment.center,
                 child: Container(
@@ -1494,6 +1558,7 @@ class _ExistingMediaTile extends StatelessWidget {
       );
     }
 
+    final theme = Theme.of(context);
     return Stack(
       children: [
         ClipRRect(
@@ -1509,6 +1574,50 @@ class _ExistingMediaTile extends StatelessWidget {
             child: content,
           ),
         ),
+        if (isGalleryCover)
+          Positioned(
+            left: 4,
+            bottom: 4,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: AppTheme.navy.withValues(alpha: 0.88),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                child: Text(
+                  'Timeline',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: AppTheme.cream,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        if (onPickAsGalleryCover != null && enabled)
+          Positioned(
+            bottom: 4,
+            right: 4,
+            child: Material(
+              color: Colors.black54,
+              shape: const CircleBorder(),
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: onPickAsGalleryCover,
+                child: Padding(
+                  padding: const EdgeInsets.all(4),
+                  child: Icon(
+                    isGalleryCover ? Icons.push_pin : Icons.push_pin_outlined,
+                    size: 16,
+                    color: isGalleryCover ? AppTheme.cream : Colors.white,
+                  ),
+                ),
+              ),
+            ),
+          ),
         if (enabled)
           Positioned(
             top: 6,
@@ -1536,26 +1645,32 @@ class _MediaPreviewTile extends StatelessWidget {
   final MediaType type;
   final bool enabled;
   final VoidCallback onRemove;
+  final bool isGalleryCover;
+  final VoidCallback? onPickAsGalleryCover;
 
   const _MediaPreviewTile({
     required this.file,
     required this.type,
     required this.enabled,
     required this.onRemove,
+    this.isGalleryCover = false,
+    this.onPickAsGalleryCover,
   });
 
   Future<Uint8List?> _videoThumbBytes() async {
     return VideoThumbnail.thumbnailData(
       video: file.path,
       imageFormat: ImageFormat.JPEG,
-      quality: 50,
-      maxHeight: 160,
+      quality: 45,
+      maxWidth: 200,
+      maxHeight: 200,
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final borderRadius = BorderRadius.circular(10);
+    final decodePx = mediaPreviewDecodeExtentPx(context);
     final base = ClipRRect(
       borderRadius: borderRadius,
       child: Container(
@@ -1567,7 +1682,13 @@ class _MediaPreviewTile extends StatelessWidget {
           border: Border.all(color: Theme.of(context).colorScheme.outline),
         ),
         child: type == MediaType.image
-            ? Image.file(file, fit: BoxFit.cover)
+            ? Image.file(
+                file,
+                fit: BoxFit.cover,
+                filterQuality: FilterQuality.low,
+                cacheWidth: decodePx,
+                cacheHeight: decodePx,
+              )
             : FutureBuilder<Uint8List?>(
                 future: _videoThumbBytes(),
                 builder: (context, snap) {
@@ -1592,7 +1713,13 @@ class _MediaPreviewTile extends StatelessWidget {
                   return Stack(
                     fit: StackFit.expand,
                     children: [
-                      Image.memory(bytes, fit: BoxFit.cover),
+                      Image.memory(
+                        bytes,
+                        fit: BoxFit.cover,
+                        filterQuality: FilterQuality.low,
+                        cacheWidth: decodePx,
+                        cacheHeight: decodePx,
+                      ),
                       Align(
                         alignment: Alignment.center,
                         child: Container(
@@ -1612,9 +1739,54 @@ class _MediaPreviewTile extends StatelessWidget {
       ),
     );
 
+    final theme = Theme.of(context);
     return Stack(
       children: [
         base,
+        if (isGalleryCover)
+          Positioned(
+            left: 4,
+            bottom: 4,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: AppTheme.navy.withValues(alpha: 0.88),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                child: Text(
+                  'Timeline',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: AppTheme.cream,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        if (onPickAsGalleryCover != null && enabled)
+          Positioned(
+            bottom: 4,
+            right: 4,
+            child: Material(
+              color: Colors.black54,
+              shape: const CircleBorder(),
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: onPickAsGalleryCover,
+                child: Padding(
+                  padding: const EdgeInsets.all(4),
+                  child: Icon(
+                    isGalleryCover ? Icons.push_pin : Icons.push_pin_outlined,
+                    size: 16,
+                    color: isGalleryCover ? AppTheme.cream : Colors.white,
+                  ),
+                ),
+              ),
+            ),
+          ),
         if (enabled)
           Positioned(
             top: 6,

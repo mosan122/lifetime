@@ -49,6 +49,8 @@ class CloudSyncService {
       final driveService = GoogleDriveService(api);
 
       final rootId = await driveService.getOrCreateFolder('LifeTime');
+      final mediaRootId =
+          await driveService.getOrCreateFolder('Media', parentId: rootId);
 
       for (final m in milestones) {
         for (final item in m.mediaItems) {
@@ -63,7 +65,7 @@ class CloudSyncService {
           final d = m.eventDate;
           final yearId = await driveService.getOrCreateFolder(
             d.year.toString().padLeft(4, '0'),
-            parentId: rootId,
+            parentId: mediaRootId,
           );
           final monthId = await driveService.getOrCreateFolder(
             d.month.toString().padLeft(2, '0'),
@@ -135,14 +137,13 @@ class CloudSyncService {
         .toList();
     if (pending.isEmpty) return;
 
-    final systemId =
-        await driveService.getOrCreateFolder('System', parentId: rootId);
     final peopleId =
-        await driveService.getOrCreateFolder('People', parentId: systemId);
+        await driveService.getOrCreateFolder('People', parentId: rootId);
 
     for (final p in pending) {
       try {
-        final fileId = await driveService.uploadFile(File(p.faceImagePath!), peopleId);
+        final fileId =
+            await driveService.uploadFile(File(p.faceImagePath!), peopleId);
         final updated = PersonCollection()
           ..isarId = p.isarId
           ..id = p.id

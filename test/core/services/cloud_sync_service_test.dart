@@ -80,9 +80,7 @@ void main() {
       );
 
       when(() => personDs.fetchAll()).thenAnswer((_) async => [person]);
-      when(() => driveService.getOrCreateFolder('System', parentId: 'root'))
-          .thenAnswer((_) async => 'sys_id');
-      when(() => driveService.getOrCreateFolder('People', parentId: 'sys_id'))
+      when(() => driveService.getOrCreateFolder('People', parentId: 'root'))
           .thenAnswer((_) async => 'people_id');
       when(() => driveService.uploadFile(any(), 'people_id'))
           .thenAnswer((_) async => 'drive_face_id');

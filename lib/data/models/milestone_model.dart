@@ -12,6 +12,7 @@ class MilestoneModel extends Milestone {
     super.tags = const [],
     super.media = const [],
     super.mediaItems = const [],
+    super.galleryCoverIndex = 0,
     required super.eventDate,
     super.locationName,
     super.latitude,
@@ -48,6 +49,8 @@ class MilestoneModel extends Milestone {
       media: (json['media_assets'] as List? ?? [])
           .map((e) => MediaAssetModel.fromJson(e as Map<String, dynamic>))
           .toList(),
+      galleryCoverIndex:
+          (json['gallery_cover_index'] as num?)?.toInt() ?? 0,
       eventDate: DateTime.parse(json['event_date'] as String),
       locationName: json['location_name'] as String?,
       latitude: latitude,

@@ -9,8 +9,8 @@ import 'package:lifetime/data/datasources/isar_milestone_datasource.dart';
 import 'package:lifetime/data/datasources/milestone_remote_datasource.dart';
 import 'package:lifetime/data/models/milestone_model.dart';
 import 'package:lifetime/data/repositories/milestone_repository_impl.dart';
-import 'package:lifetime/features/milestones/data/datasources/isar_person_datasource.dart';
 import 'package:lifetime/domain/repositories/drive_repository.dart';
+import 'package:lifetime/features/milestones/data/datasources/isar_category_datasource.dart';
 import 'package:lifetime/features/milestones/data/models/local/milestone_collection.dart';
 
 class MockIsarMilestoneDataSource extends Mock
@@ -22,7 +22,7 @@ class MockMilestoneRemoteDataSource extends Mock
 class MockPremiumService extends Mock implements PremiumService {}
 class MockDriveRepository extends Mock implements DriveRepository {}
 class MockLocalMediaStore extends Mock implements LocalMediaStore {}
-class MockIsarPersonDataSource extends Mock implements IsarPersonDataSource {}
+class MockIsarCategoryDataSource extends Mock implements IsarCategoryDataSource {}
 
 class FakeMilestoneCollection extends Fake implements MilestoneCollection {}
 
@@ -36,7 +36,7 @@ void main() {
   late MockPremiumService mockPremium;
   late MockDriveRepository mockDrive;
   late MockLocalMediaStore mockLocalMedia;
-  late MockIsarPersonDataSource mockPeople;
+  late MockIsarCategoryDataSource mockCategories;
   late MilestoneRepositoryImpl repository;
 
   final tDate = DateTime(2026, 4, 26);
@@ -51,13 +51,14 @@ void main() {
     userId: 'user-1',
     title: 'Mi 30 cumpleaños',
     description: 'Fue un día especial.',
-    participants: const ['Ana'],
+    participants: const [],
+    participantIds: const ['p-ana'],
     media: const [],
     eventDate: DateTime(2026, 4, 26),
     locationName: 'Madrid',
     latitude: 40.4168,
     longitude: -3.7038,
-    category: 'familia',
+    categoryId: 1,
     isPublic: false,
     createdAt: DateTime(2026, 4, 26, 10),
   );
@@ -77,13 +78,14 @@ void main() {
     userId: 'user-1',
     title: 'Viaje memorable',
     description: 'Un día genial',
-    participants: const ['Ana'],
+    participants: const [],
+    participantIds: const ['p-ana'],
     media: const [],
     eventDate: DateTime(2026, 4, 26),
     locationName: 'Madrid',
     latitude: 40.4168,
     longitude: -3.7038,
-    category: 'familia',
+    categoryId: 1,
     isPublic: false,
     createdAt: DateTime(2026, 4, 26, 10),
     driveFileId: 'drive-file-123',
@@ -100,7 +102,7 @@ void main() {
     mockPremium = MockPremiumService();
     mockDrive = MockDriveRepository();
     mockLocalMedia = MockLocalMediaStore();
-    mockPeople = MockIsarPersonDataSource();
+    mockCategories = MockIsarCategoryDataSource();
     repository = MilestoneRepositoryImpl(
       mockLocal,
       mockRemote,
@@ -108,7 +110,7 @@ void main() {
       () => 'user-1',
       mockDrive,
       mockLocalMedia,
-      mockPeople,
+      mockCategories,
     );
   });
 
@@ -230,7 +232,7 @@ void main() {
       expect(captured!.locationName, equals(tLocationName));
     });
 
-    test('title uses date-based fallback', () async {
+    test('title uses description fallback when empty title', () async {
       MilestoneCollection? captured;
       when(() => mockLocal.upsert(any())).thenAnswer((inv) async {
         captured = inv.positionalArguments[0] as MilestoneCollection;
@@ -242,8 +244,7 @@ void main() {
         eventDate: DateTime(2026, 4, 26),
       );
 
-      expect(captured!.title, contains('26'));
-      expect(captured!.title, contains('2026'));
+      expect(captured!.title, equals('Nota libre.'));
     });
   });
 
@@ -478,7 +479,20 @@ void main() {
         longitude: 2.1734,
       );
 
-      expect(result, Right(tMilestoneModel));
+      expect(result.isRight(), isTrue);
+      result.fold(
+        (_) => fail('expected Right'),
+        (m) {
+          expect(m.id, tMilestoneModel.id);
+          expect(m.title, tMilestoneModel.title);
+          expect(m.description, tMilestoneModel.description);
+          // Tras el remoto, dominio refleja el modelo devuelto por Supabase (stub).
+          expect(m.locationName, tMilestoneModel.locationName);
+          expect(m.latitude, tMilestoneModel.latitude);
+          expect(m.longitude, tMilestoneModel.longitude);
+          expect(m.participantIds, tMilestoneModel.participantIds);
+        },
+      );
       verify(() => mockRemote.updateMilestone('ms-1', any())).called(1);
     });
 

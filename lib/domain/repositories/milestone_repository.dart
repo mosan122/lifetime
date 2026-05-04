@@ -48,5 +48,12 @@ abstract class MilestoneRepository {
     List<MediaItem> mediaToKeep = const [],
     List<File> newMediaFiles = const [],
     List<MediaType> newMediaTypes = const [],
+    int? galleryCoverIndex,
+  });
+
+  /// Medio que se muestra en el timeline y en el encabezado del detalle.
+  Future<Either<Failure, Milestone>> setGalleryCoverIndex({
+    required String id,
+    required int index,
   });
 }

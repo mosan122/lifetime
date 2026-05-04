@@ -28,6 +28,7 @@ class UpdateMilestoneUseCase implements UseCase<Milestone, UpdateMilestoneParams
       mediaToKeep: params.mediaToKeep,
       newMediaFiles: params.newMediaFiles,
       newMediaTypes: params.newMediaTypes,
+      galleryCoverIndex: params.galleryCoverIndex,
     );
   }
 }
@@ -45,6 +46,7 @@ class UpdateMilestoneParams extends Equatable {
   final List<MediaItem> mediaToKeep;
   final List<File> newMediaFiles;
   final List<MediaType> newMediaTypes;
+  final int? galleryCoverIndex;
 
   const UpdateMilestoneParams({
     required this.id,
@@ -59,6 +61,7 @@ class UpdateMilestoneParams extends Equatable {
     this.mediaToKeep = const [],
     this.newMediaFiles = const [],
     this.newMediaTypes = const [],
+    this.galleryCoverIndex,
   });
 
   @override
@@ -66,5 +69,6 @@ class UpdateMilestoneParams extends Equatable {
         id, title, description, categoryId, eventDate,
         locationName, latitude, longitude,
         participantIds, mediaToKeep, newMediaFiles, newMediaTypes,
+        galleryCoverIndex,
       ];
 }

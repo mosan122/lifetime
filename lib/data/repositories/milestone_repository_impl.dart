@@ -9,20 +9,17 @@ import '../../core/utils/milestone_title_utils.dart';
 import '../../core/services/local_media_store.dart';
 import '../../core/services/text_metadata_extractor.dart';
 import '../../core/services/premium_service.dart';
-import '../../domain/entities/person.dart';
 import '../../domain/entities/media_item.dart';
 import '../../domain/entities/milestone.dart';
 import '../../domain/repositories/drive_repository.dart';
 import '../../domain/repositories/milestone_repository.dart';
 import '../datasources/isar_milestone_datasource.dart';
-import '../../features/milestones/data/datasources/isar_person_datasource.dart';
 import '../../features/milestones/data/datasources/isar_category_datasource.dart';
 import '../datasources/milestone_remote_datasource.dart';
 import '../models/milestone_model.dart';
 import '../../features/milestones/data/models/local/milestone_collection.dart';
 import '../../features/milestones/data/models/local/media_asset_embed.dart';
 import '../../features/milestones/data/models/local/media_item_embed.dart';
-import '../../features/milestones/data/models/local/person_collection.dart';
 
 class MilestoneRepositoryImpl implements MilestoneRepository {
   final IsarMilestoneDataSource _local;
@@ -31,7 +28,6 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
   final String Function() _getUserId;
   final DriveRepository _drive;
   final LocalMediaStore _localMedia;
-  final IsarPersonDataSource _people;
   final IsarCategoryDataSource _categories;
 
   MilestoneRepositoryImpl(
@@ -41,7 +37,6 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
     this._getUserId,
     this._drive,
     this._localMedia,
-    this._people,
     this._categories,
   );
 
@@ -140,9 +135,7 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
 
     final extracted = TextMetadataExtractor.extract(userNote);
     final tags = extracted.hashtags;
-    final fromMentions = await _resolveParticipantIds(extracted.mentions);
-    final participantIds =
-        _mergeParticipantIdLists(participants, fromMentions);
+    final participantIds = _dedupeParticipantIds(participants);
 
     if (!_premium.isPremium) {
       return _saveLocalOnly(
@@ -329,6 +322,7 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
     List<MediaItem> mediaToKeep = const [],
     List<File> newMediaFiles = const [],
     List<MediaType> newMediaTypes = const [],
+    int? galleryCoverIndex,
   }) async {
     try {
       final existing = await _local.fetchById(id);
@@ -338,9 +332,7 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
 
       final extracted = TextMetadataExtractor.extract(description);
       final tags = extracted.hashtags;
-      final fromMentions = await _resolveParticipantIds(extracted.mentions);
-      final resolvedIds =
-          _mergeParticipantIdLists(participantIds, fromMentions);
+      final resolvedIds = _dedupeParticipantIds(participantIds);
 
       final dateForPaths = eventDate ?? existing.eventDate;
       final newPersistedItems = newMediaFiles.isEmpty
@@ -364,6 +356,10 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
           ...newEmbeds,
         ]
         ..syncStatus = SyncStatus.pending;
+      if (galleryCoverIndex != null) {
+        existing.galleryCoverIndex = galleryCoverIndex;
+      }
+      _clampGalleryCoverIndex(existing);
       if (eventDate != null) existing.eventDate = eventDate;
       if (locationName != null) existing.locationName = locationName;
       if (latitude != null) existing.latitude = latitude;
@@ -440,6 +436,40 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
       return Right(existing.toDomain());
     } catch (e) {
       return Left(NetworkFailure(e.toString()));
+    }
+  }
+
+  @override
+  Future<Either<Failure, Milestone>> setGalleryCoverIndex({
+    required String id,
+    required int index,
+  }) async {
+    try {
+      final existing = await _local.fetchById(id);
+      if (existing == null) {
+        return Left(DatabaseFailure('Milestone $id not found'));
+      }
+      final n = existing.mediaItems.length;
+      if (n == 0) {
+        return Left(DatabaseFailure('El hito no tiene medios'));
+      }
+      existing.galleryCoverIndex = index.clamp(0, n - 1);
+      existing.syncStatus = SyncStatus.pending;
+      await _local.upsert(existing);
+      return Right(existing.toDomain());
+    } catch (e) {
+      return Left(NetworkFailure(e.toString()));
+    }
+  }
+
+  void _clampGalleryCoverIndex(MilestoneCollection c) {
+    final n = c.mediaItems.length;
+    if (n <= 0) {
+      c.galleryCoverIndex = 0;
+    } else if (c.galleryCoverIndex < 0) {
+      c.galleryCoverIndex = 0;
+    } else if (c.galleryCoverIndex >= n) {
+      c.galleryCoverIndex = n - 1;
     }
   }
 
@@ -556,51 +586,15 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
     return out;
   }
 
-  /// Orden: primero [primary], luego ids de [secondary] que falten.
-  List<String> _mergeParticipantIdLists(
-    List<String> primary,
-    List<String> secondary,
-  ) {
+  static List<String> _dedupeParticipantIds(List<String> ids) {
     final seen = <String>{};
     final out = <String>[];
-    for (final id in primary) {
-      if (seen.add(id)) out.add(id);
-    }
-    for (final id in secondary) {
-      if (seen.add(id)) out.add(id);
+    for (final id in ids) {
+      final t = id.trim();
+      if (t.isEmpty) continue;
+      if (seen.add(t)) out.add(t);
     }
     return out;
-  }
-
-  Future<List<String>> _resolveParticipantIds(List<String> mentions) async {
-    final ids = <String>[];
-    for (final mention in mentions) {
-      final normalized = _toTitleCase(mention);
-      final existing = await _people.fetchByName(normalized);
-      if (existing != null) {
-        ids.add(existing.id);
-        continue;
-      }
-
-      final personId = _uuid.v4();
-      await _people.upsert(
-        PersonCollection.fromEntity(
-          Person(
-            id: personId,
-            name: normalized,
-          ),
-        ),
-      );
-      ids.add(personId);
-    }
-    return ids;
-  }
-
-  static String _toTitleCase(String raw) {
-    final s = raw.trim();
-    if (s.isEmpty) return s;
-    if (s.length == 1) return s.toUpperCase();
-    return s[0].toUpperCase() + s.substring(1).toLowerCase();
   }
 
 }

@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../../../core/failures/failure.dart';
 import '../../../../core/services/cloud_sync_service.dart';
@@ -13,6 +14,7 @@ import '../../../milestones/data/datasources/isar_person_datasource.dart';
 import '../../../milestones/data/models/local/person_collection.dart';
 import '../../../milestones/presentation/widgets/face_source_bottom_sheet.dart';
 import '../../../milestones/presentation/widgets/person_avatar_badge.dart';
+import '../../../milestones/presentation/widgets/person_name_alert_dialog.dart';
 import '../bloc/people_cubit.dart';
 
 class ManagePeoplePage extends StatelessWidget {
@@ -22,6 +24,13 @@ class ManagePeoplePage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Gestionar personas')),
+      floatingActionButton: FloatingActionButton(
+        tooltip: 'Añadir persona',
+        backgroundColor: AppTheme.navy,
+        foregroundColor: AppTheme.cream,
+        onPressed: () => _addPerson(context),
+        child: const Icon(Icons.person_add_outlined),
+      ),
       body: BlocBuilder<PeopleCubit, PeopleState>(
         builder: (context, state) {
           if (state is PeopleLoading) {
@@ -29,8 +38,44 @@ class ManagePeoplePage extends StatelessWidget {
           }
           final people = (state as PeopleLoaded).people;
           if (people.isEmpty) {
-            return const Center(
-              child: Text('Aún no hay personas.'),
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.people_outline,
+                      size: 64,
+                      color: AppTheme.navy.withValues(alpha: 0.35),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Aún no hay personas.',
+                      style: Theme.of(context).textTheme.titleMedium,
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Crea una ficha para asociarla a hitos con @menciones o al añadir participantes.',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: Colors.black54,
+                          ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 24),
+                    FilledButton.icon(
+                      onPressed: () => _addPerson(context),
+                      icon: const Icon(Icons.person_add_outlined),
+                      label: const Text('Añadir persona'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppTheme.navy,
+                        foregroundColor: AppTheme.cream,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             );
           }
 
@@ -104,37 +149,49 @@ class ManagePeoplePage extends StatelessWidget {
     );
   }
 
+  Future<void> _addPerson(BuildContext context) async {
+    final ds = sl<IsarPersonDataSource>();
+    final cubit = context.read<PeopleCubit>();
+    final newName = await showPersonNameAlertDialog(
+      context: context,
+      title: 'Nueva persona',
+      hintText: 'Nombre',
+      submitLabel: 'Crear',
+      textCapitalization: TextCapitalization.words,
+    );
+
+    final v = (newName ?? '').trim();
+    if (v.isEmpty) return;
+
+    final existing = await ds.fetchByName(v);
+    if (existing != null) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Ya existe una persona con ese nombre.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    final created = PersonCollection()
+      ..id = const Uuid().v4()
+      ..name = v;
+    await ds.upsert(created);
+    if (!context.mounted) return;
+    await cubit.reload();
+  }
+
   Future<void> _rename(BuildContext context, PersonCollection p) async {
     final ds = sl<IsarPersonDataSource>();
     final cubit = context.read<PeopleCubit>();
-    final controller = TextEditingController(text: p.name);
-    final newName = await showDialog<String?>(
+    final newName = await showPersonNameAlertDialog(
       context: context,
-      builder: (dialogCtx) => AlertDialog(
-        backgroundColor: AppTheme.cream,
-        title: const Text('Cambiar nombre'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(
-            hintText: 'Nombre',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogCtx, null),
-            child: Text('Cancelar',
-                style: TextStyle(color: Colors.grey.shade600)),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(dialogCtx, controller.text.trim()),
-            child: const Text(
-              'Guardar',
-              style: TextStyle(color: AppTheme.navy, fontWeight: FontWeight.w600),
-            ),
-          ),
-        ],
-      ),
+      title: 'Cambiar nombre',
+      initialValue: p.name,
+      hintText: 'Nombre',
+      submitLabel: 'Guardar',
     );
 
     final v = (newName ?? '').trim();

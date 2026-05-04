@@ -11,6 +11,8 @@ import '../bloc/milestone_timeline_cubit.dart';
 import '../widgets/drive_thumbnail.dart';
 import '../widgets/face_stack.dart';
 import '../widgets/local_media_thumb.dart';
+import '../../../../features/settings/presentation/bloc/people_cubit.dart';
+import '../../../../features/settings/presentation/pages/manage_people_page.dart';
 import '../../../../features/settings/presentation/pages/settings_page.dart';
 import 'add_milestone_page.dart';
 import 'map_explorer_page.dart';
@@ -141,6 +143,19 @@ class _AuthenticatedTimelineView extends StatelessWidget {
             ),
           ),
           IconButton(
+            icon: const Icon(Icons.groups_outlined),
+            tooltip: 'Gestionar personas',
+            onPressed: () => Navigator.push<void>(
+              context,
+              MaterialPageRoute<void>(
+                builder: (_) => BlocProvider(
+                  create: (_) => sl<PeopleCubit>()..bootstrap(),
+                  child: const ManagePeoplePage(),
+                ),
+              ),
+            ),
+          ),
+          IconButton(
             icon: const Icon(Icons.settings_outlined),
             tooltip: 'Ajustes',
             onPressed: () => Navigator.push(
@@ -245,6 +260,7 @@ class _LocalMediaCard extends StatelessWidget {
         builder: (_) => MilestoneDetailPage(
           milestone: milestone,
           accessToken: accessToken,
+          onLocalMilestoneChanged: cubit.loadTimeline,
         ),
       ),
     );
@@ -265,8 +281,9 @@ class _LocalMediaCard extends StatelessWidget {
         ? null
         : _peopleLabel(milestone.participants);
 
-    final first = milestone.mediaItems.first;
-    final isVideo = first.mediaType == MediaType.video;
+    final coverIdx = milestoneClampedGalleryCoverIndex(milestone);
+    final cover = milestone.mediaItems[coverIdx];
+    final isVideo = cover.mediaType == MediaType.video;
 
     return GestureDetector(
       onTap: () => _openDetail(context),
@@ -283,7 +300,7 @@ class _LocalMediaCard extends StatelessWidget {
                   Hero(
                     tag: MilestoneDetailPage.heroTag(milestone.id),
                     child: LocalMediaThumb(
-                      item: first,
+                      item: cover,
                       fit: BoxFit.cover,
                       placeholderIconColor: Colors.white38,
                     ),
@@ -392,6 +409,7 @@ class _MediaCard extends StatelessWidget {
         builder: (_) => MilestoneDetailPage(
           milestone: milestone,
           accessToken: accessToken,
+          onLocalMilestoneChanged: cubit.loadTimeline,
         ),
       ),
     );
@@ -543,7 +561,10 @@ class _TextCard extends StatelessWidget {
           final result = await Navigator.push<String>(
             context,
             MaterialPageRoute(
-              builder: (_) => MilestoneDetailPage(milestone: milestone),
+              builder: (_) => MilestoneDetailPage(
+                milestone: milestone,
+                onLocalMilestoneChanged: cubit.loadTimeline,
+              ),
             ),
           );
           if (result != null) {

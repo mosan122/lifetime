@@ -23,7 +23,13 @@ import '../../data/models/local/person_collection.dart';
 
 /// Galería en el cuerpo (tras Personas): hasta 30 celdas; la última puede ser +X.
 const int _kBodyGalleryMaxCells = 30;
-const int _kBodyGalleryCrossAxisCount = 5;
+const int _kBodyGalleryCrossAxisCount = 3;
+
+int milestoneClampedGalleryCoverIndex(Milestone m) {
+  final n = m.mediaItems.length;
+  if (n <= 0) return 0;
+  return m.galleryCoverIndex.clamp(0, n - 1);
+}
 
 double _detailAppBarExpandedHeight({
   required bool hasMediaItems,
@@ -39,9 +45,11 @@ Future<void> _openMilestoneMediaGallery(
   required String milestoneId,
   required List<MediaItem> items,
   required int initialIndex,
+  required int galleryCoverIndex,
 }) async {
   if (items.isEmpty) return;
   final i = initialIndex.clamp(0, items.length - 1);
+  final cover = galleryCoverIndex.clamp(0, items.length - 1);
   await showDialog<void>(
     context: context,
     barrierColor: Colors.black.withValues(alpha: 0.92),
@@ -49,6 +57,7 @@ Future<void> _openMilestoneMediaGallery(
       milestoneId: milestoneId,
       items: items,
       initialIndex: i,
+      coverIndex: cover,
     ),
   );
 }
@@ -56,20 +65,27 @@ Future<void> _openMilestoneMediaGallery(
 class MilestoneDetailPage extends StatelessWidget {
   final Milestone milestone;
   final String? accessToken;
+  final VoidCallback? onLocalMilestoneChanged;
 
   const MilestoneDetailPage({
     super.key,
     required this.milestone,
     this.accessToken,
+    this.onLocalMilestoneChanged,
   });
 
   /// Stable Hero tag shared between source card and this page.
   static String heroTag(String milestoneId) => 'milestone-image-$milestoneId';
 
-  /// Hero tag for a specific media index. Index 0 intentionally matches
-  /// [heroTag] so the timeline can animate into the first item.
-  static String heroMediaTag(String milestoneId, int index) =>
-      index == 0 ? heroTag(milestoneId) : 'milestone-image-$milestoneId-$index';
+  /// Hero para el índice [index]; coincide con [heroTag] cuando es la portada del timeline.
+  static String heroMediaTag(
+    String milestoneId,
+    int index,
+    int galleryCoverIndex,
+  ) =>
+      index == galleryCoverIndex
+          ? heroTag(milestoneId)
+          : 'milestone-image-$milestoneId-$index';
 
   /// Plain-text share summary. Static so it can be unit-tested without
   /// constructing the widget.
@@ -101,21 +117,51 @@ class MilestoneDetailPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocProvider(
       create: (_) => sl<DeleteMilestoneCubit>(),
-      child: _DetailScaffold(milestone: milestone, accessToken: accessToken),
+      child: _DetailScaffold(
+        initialMilestone: milestone,
+        accessToken: accessToken,
+        onLocalMilestoneChanged: onLocalMilestoneChanged,
+      ),
     );
   }
 }
 
 // ── Scaffold with delete listener ────────────────────────────────────────────
 
-class _DetailScaffold extends StatelessWidget {
-  final Milestone milestone;
+class _DetailScaffold extends StatefulWidget {
+  final Milestone initialMilestone;
   final String? accessToken;
+  final VoidCallback? onLocalMilestoneChanged;
 
-  const _DetailScaffold({required this.milestone, this.accessToken});
+  const _DetailScaffold({
+    required this.initialMilestone,
+    this.accessToken,
+    this.onLocalMilestoneChanged,
+  });
+
+  @override
+  State<_DetailScaffold> createState() => _DetailScaffoldState();
+}
+
+class _DetailScaffoldState extends State<_DetailScaffold> {
+  late Milestone _milestone;
+
+  @override
+  void initState() {
+    super.initState();
+    _milestone = widget.initialMilestone;
+  }
+
+  @override
+  void didUpdateWidget(covariant _DetailScaffold oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialMilestone.id != widget.initialMilestone.id) {
+      _milestone = widget.initialMilestone;
+    }
+  }
 
   bool get _hasDriveHeaderImage =>
-      milestone.driveFileId != null && accessToken != null;
+      _milestone.driveFileId != null && widget.accessToken != null;
 
   @override
   Widget build(BuildContext context) {
@@ -150,11 +196,11 @@ class _DetailScaffold extends StatelessWidget {
     final authState = context.read<AuthCubit>().state;
     final currentUserId =
         authState is AuthAuthenticated ? authState.user.id : null;
-    final isOwner = currentUserId == milestone.userId;
+    final isOwner = currentUserId == _milestone.userId;
     final isDeleting =
         context.watch<DeleteMilestoneCubit>().state is DeleteMilestoneDeleting;
 
-    final hasMediaItems = milestone.mediaItems.isNotEmpty;
+    final hasMediaItems = _milestone.mediaItems.isNotEmpty;
     final expandedHeight = _detailAppBarExpandedHeight(
       hasMediaItems: hasMediaItems,
       hasDriveHeaderImage: _hasDriveHeaderImage,
@@ -180,7 +226,7 @@ class _DetailScaffold extends StatelessWidget {
                   final result = await Navigator.push<bool>(
                     context,
                     MaterialPageRoute(
-                      builder: (_) => AddMilestonePage(initial: milestone),
+                      builder: (_) => AddMilestonePage(initial: _milestone),
                     ),
                   );
                   if (result == true && context.mounted) {
@@ -200,8 +246,8 @@ class _DetailScaffold extends StatelessWidget {
           icon: Icons.share_outlined,
           onPressed: () => SharePlus.instance.share(
             ShareParams(
-              text: MilestoneDetailPage.formatForSharing(milestone),
-              subject: milestone.title,
+              text: MilestoneDetailPage.formatForSharing(_milestone),
+              subject: _milestone.title,
             ),
           ),
         ),
@@ -210,16 +256,16 @@ class _DetailScaffold extends StatelessWidget {
       flexibleSpace: FlexibleSpaceBar(
         collapseMode: CollapseMode.parallax,
         background: hasMediaItems
-            ? _FirstLocalMediaHeader(milestone: milestone)
+            ? _FirstLocalMediaHeader(milestone: _milestone)
             : _hasDriveHeaderImage
                 ? Stack(
                     fit: StackFit.expand,
                     children: [
                       Hero(
-                        tag: MilestoneDetailPage.heroTag(milestone.id),
+                        tag: MilestoneDetailPage.heroTag(_milestone.id),
                         child: DriveThumbnail(
-                          fileId: milestone.driveFileId!,
-                          accessToken: accessToken!,
+                          fileId: _milestone.driveFileId!,
+                          accessToken: widget.accessToken!,
                         ),
                       ),
                       const _GradientScrim(),
@@ -262,16 +308,16 @@ class _DetailScaffold extends StatelessWidget {
       ),
     );
     if (confirmed == true) {
-      cubit.delete(milestone.id, accessToken: accessToken);
+      cubit.delete(_milestone.id, accessToken: widget.accessToken);
     }
   }
 
   Widget _buildBody(BuildContext context) {
     final theme = Theme.of(context);
-    final d = milestone.eventDate;
+    final d = _milestone.eventDate;
     final formatted =
         '${d.day.toString().padLeft(2, '0')} / ${d.month.toString().padLeft(2, '0')} / ${d.year}';
-    final title = milestone.title.trim();
+    final title = _milestone.title.trim();
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(28, 28, 28, 48),
@@ -280,7 +326,7 @@ class _DetailScaffold extends StatelessWidget {
         children: [
           Row(
             children: [
-              _CategoryChip(categoryId: milestone.categoryId),
+              _CategoryChip(categoryId: _milestone.categoryId),
               const Spacer(),
               Text(formatted, style: theme.textTheme.bodySmall),
             ],
@@ -291,7 +337,7 @@ class _DetailScaffold extends StatelessWidget {
               title,
               style: theme.textTheme.headlineLarge,
             ),
-          if (milestone.locationName != null) ...[
+          if (_milestone.locationName != null) ...[
             const SizedBox(height: 8),
             Row(
               children: [
@@ -303,7 +349,7 @@ class _DetailScaffold extends StatelessWidget {
                 const SizedBox(width: 4),
                 Flexible(
                   child: Text(
-                    milestone.locationName!,
+                    _milestone.locationName!,
                     style: theme.textTheme.bodySmall,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -314,14 +360,9 @@ class _DetailScaffold extends StatelessWidget {
           const SizedBox(height: 24),
           const Divider(),
           const SizedBox(height: 24),
-          _Narrative(description: milestone.description),
+          _Narrative(description: _milestone.description),
           const SizedBox(height: 18),
-          _SemanticChips(
-            milestoneId: milestone.id,
-            participantIds: milestone.participantIds,
-            tags: milestone.tags,
-            mediaItems: milestone.mediaItems,
-          ),
+          _SemanticChips(milestone: _milestone),
         ],
       ),
     );
@@ -405,21 +446,16 @@ class _Narrative extends StatelessWidget {
 // ── Semantic chips ────────────────────────────────────────────────────────────
 
 class _SemanticChips extends StatelessWidget {
-  final String milestoneId;
-  final List<String> participantIds;
-  final List<String> tags;
-  final List<MediaItem> mediaItems;
+  final Milestone milestone;
 
-  const _SemanticChips({
-    required this.milestoneId,
-    required this.participantIds,
-    required this.tags,
-    required this.mediaItems,
-  });
+  const _SemanticChips({required this.milestone});
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final participantIds = milestone.participantIds;
+    final tags = milestone.tags;
+    final mediaItems = milestone.mediaItems;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -431,10 +467,7 @@ class _SemanticChips extends StatelessWidget {
           const SizedBox(height: 16),
         ],
         if (mediaItems.isNotEmpty) ...[
-          _BodyMediaGallery(
-            milestoneId: milestoneId,
-            items: mediaItems,
-          ),
+          _BodyMediaGallery(milestone: milestone),
           const SizedBox(height: 16),
         ],
         if (tags.isNotEmpty) ...[
@@ -576,7 +609,8 @@ class _FirstLocalMediaHeader extends StatelessWidget {
     final items = milestone.mediaItems;
     if (items.isEmpty) return const SizedBox.shrink();
 
-    final first = items.first;
+    final coverIdx = milestoneClampedGalleryCoverIndex(milestone);
+    final cover = items[coverIdx];
     return SafeArea(
       bottom: false,
       child: Stack(
@@ -584,7 +618,7 @@ class _FirstLocalMediaHeader extends StatelessWidget {
         children: [
           Hero(
             tag: MilestoneDetailPage.heroTag(milestone.id),
-            child: LocalMediaThumb(item: first, fit: BoxFit.cover),
+            child: LocalMediaThumb(item: cover, fit: BoxFit.cover),
           ),
           const Positioned.fill(
             child: IgnorePointer(child: _GradientScrim()),
@@ -596,16 +630,15 @@ class _FirstLocalMediaHeader extends StatelessWidget {
 }
 
 class _BodyMediaGallery extends StatelessWidget {
-  final String milestoneId;
-  final List<MediaItem> items;
+  final Milestone milestone;
 
-  const _BodyMediaGallery({
-    required this.milestoneId,
-    required this.items,
-  });
+  const _BodyMediaGallery({required this.milestone});
 
   @override
   Widget build(BuildContext context) {
+    final items = milestone.mediaItems;
+    final milestoneId = milestone.id;
+    final coverIdx = milestoneClampedGalleryCoverIndex(milestone);
     final n = items.length;
     final hasOverflow = n > _kBodyGalleryMaxCells;
     final itemCount = hasOverflow ? _kBodyGalleryMaxCells : n;
@@ -642,6 +675,7 @@ class _BodyMediaGallery extends StatelessWidget {
                     milestoneId: milestoneId,
                     items: items,
                     initialIndex: _kBodyGalleryMaxCells - 1,
+                    galleryCoverIndex: coverIdx,
                   ),
                 );
               }
@@ -649,6 +683,8 @@ class _BodyMediaGallery extends StatelessWidget {
                 milestoneId: milestoneId,
                 items: items,
                 index: i,
+                galleryCoverIndex: coverIdx,
+                isTimelineCover: i == coverIdx,
               );
             },
           ),
@@ -662,17 +698,26 @@ class _MediaGridTile extends StatelessWidget {
   final String milestoneId;
   final List<MediaItem> items;
   final int index;
+  final int galleryCoverIndex;
+  final bool isTimelineCover;
 
   const _MediaGridTile({
     required this.milestoneId,
     required this.items,
     required this.index,
+    required this.galleryCoverIndex,
+    required this.isTimelineCover,
   });
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final item = items[index];
-    final heroTag = MilestoneDetailPage.heroMediaTag(milestoneId, index);
+    final heroTag = MilestoneDetailPage.heroMediaTag(
+      milestoneId,
+      index,
+      galleryCoverIndex,
+    );
     final isVideo = item.mediaType == MediaType.video;
 
     final preview = ClipRRect(
@@ -681,7 +726,7 @@ class _MediaGridTile extends StatelessWidget {
         fit: StackFit.expand,
         children: [
           Positioned.fill(
-            child: index == 0
+            child: isTimelineCover
                 ? LocalMediaThumb(item: item)
                 : Hero(
                     tag: heroTag,
@@ -703,6 +748,29 @@ class _MediaGridTile extends StatelessWidget {
                 ),
               ),
             ),
+          if (isTimelineCover)
+            Positioned(
+              left: 4,
+              bottom: 4,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: AppTheme.navy.withValues(alpha: 0.88),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                  child: Text(
+                    'Timeline',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: AppTheme.cream,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -715,6 +783,7 @@ class _MediaGridTile extends StatelessWidget {
           milestoneId: milestoneId,
           items: items,
           initialIndex: index,
+          galleryCoverIndex: galleryCoverIndex,
         ),
         child: preview,
       ),
@@ -761,11 +830,13 @@ class _MediaGalleryDialog extends StatelessWidget {
   final String milestoneId;
   final List<MediaItem> items;
   final int initialIndex;
+  final int coverIndex;
 
   const _MediaGalleryDialog({
     required this.milestoneId,
     required this.items,
     required this.initialIndex,
+    required this.coverIndex,
   });
 
   @override
@@ -782,7 +853,8 @@ class _MediaGalleryDialog extends StatelessWidget {
             backgroundDecoration: const BoxDecoration(color: Colors.black),
             builder: (context, i) {
               final it = items[i];
-              final heroTag = MilestoneDetailPage.heroMediaTag(milestoneId, i);
+              final heroTag =
+                  MilestoneDetailPage.heroMediaTag(milestoneId, i, coverIndex);
 
               if (it.mediaType == MediaType.video) {
                 return PhotoViewGalleryPageOptions.customChild(

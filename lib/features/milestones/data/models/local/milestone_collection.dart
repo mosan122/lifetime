@@ -37,6 +37,7 @@ class MilestoneCollection {
 
   List<MediaAssetEmbed> media = [];
   List<MediaItemEmbed> mediaItems = [];
+  int galleryCoverIndex = 0;
 
   static MilestoneCollection fromMilestone(
       Milestone milestone, SyncStatus status) {
@@ -57,7 +58,8 @@ class MilestoneCollection {
       ..driveFileId = milestone.driveFileId
       ..syncStatus = status
       ..media = milestone.media.map(MediaAssetEmbed.fromEntity).toList()
-      ..mediaItems = milestone.mediaItems.map(MediaItemEmbed.fromDomain).toList();
+      ..mediaItems = milestone.mediaItems.map(MediaItemEmbed.fromDomain).toList()
+      ..galleryCoverIndex = milestone.galleryCoverIndex;
   }
 
   Milestone toDomain() {
@@ -71,6 +73,7 @@ class MilestoneCollection {
       tags: List<String>.from(tags),
       media: media.map((e) => e.toDomain()).toList(),
       mediaItems: mediaItems.map((e) => e.toDomain()).toList(),
+      galleryCoverIndex: galleryCoverIndex,
       eventDate: eventDate,
       locationName: locationName,
       latitude: latitude,

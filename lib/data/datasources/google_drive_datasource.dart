@@ -50,7 +50,7 @@ abstract class GoogleDriveDataSource {
 // ── Implementation ────────────────────────────────────────────────────────────
 
 class GoogleDriveDataSourceImpl implements GoogleDriveDataSource {
-  static const _folderName = 'LifeTime_App';
+  static const _folderName = 'LifeTime';
   static const _folderMime = 'application/vnd.google-apps.folder';
 
   final http.Client _httpClient;

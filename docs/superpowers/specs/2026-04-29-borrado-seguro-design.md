@@ -168,4 +168,4 @@ The test verifies "no new record is created" implicitly — `upsert` is never ca
 ## Out of Scope
 
 - Saving media to the `LifeTime/YYYY/MM/DD/{milestoneId}/` folder during creation (a future task). Deletion is best-effort today; if the folder doesn't exist the operation is a clean no-op.
-- Google Drive folder hierarchy mirroring the `LifeTime/YYYY/MM/DD` path — Drive uses a flat `LifeTime_App` folder today.
+- Google Drive folder hierarchy mirroring the `LifeTime/Media/YYYY/MM/DD` path — Drive uses a flat `LifeTime` folder today.

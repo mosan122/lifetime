@@ -60,6 +60,11 @@ class _MapViewState extends State<_MapView> {
               builder: (_) => MilestoneDetailPage(
                 milestone: milestone,
                 accessToken: accessToken,
+                onLocalMilestoneChanged: () {
+                  if (context.mounted) {
+                    context.read<MapCubit>().loadMap();
+                  }
+                },
               ),
             ),
           );

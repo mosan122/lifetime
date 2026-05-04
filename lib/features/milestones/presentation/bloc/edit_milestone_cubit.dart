@@ -27,6 +27,7 @@ class EditMilestoneCubit extends Cubit<EditMilestoneState> {
     List<MediaItem> mediaToKeep = const [],
     List<File> newMediaFiles = const [],
     List<MediaType> newMediaTypes = const [],
+    int? galleryCoverIndex,
   }) async {
     emit(const EditMilestoneSubmitting());
     final result = await _updateMilestone(
@@ -43,6 +44,7 @@ class EditMilestoneCubit extends Cubit<EditMilestoneState> {
         mediaToKeep: mediaToKeep,
         newMediaFiles: newMediaFiles,
         newMediaTypes: newMediaTypes,
+        galleryCoverIndex: galleryCoverIndex,
       ),
     );
     result.fold(

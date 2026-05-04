@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
@@ -9,16 +10,57 @@ import 'local_media_store.dart';
 LocalMediaStore createLocalMediaStore() => LocalMediaStoreImpl();
 
 class LocalMediaStoreImpl implements LocalMediaStore {
-  Future<String> _folderPath(DateTime date, String milestoneId) async {
+  static const _channel = MethodChannel('lifetime/media_scanner');
+  String? _androidRootCache;
+
+  Future<String> _androidMediaRoot() async {
+    if (_androidRootCache != null) return _androidRootCache!;
+    try {
+      final root = await _channel.invokeMethod<String>('getMediaRoot');
+      if (root != null && root.trim().isNotEmpty) {
+        _androidRootCache = root;
+        return root;
+      }
+    } catch (_) {
+      // Fall back to private storage.
+    }
     final dir = await getApplicationDocumentsDirectory();
-    return p.join(
-      dir.path,
-      'media',
-      date.year.toString().padLeft(4, '0'),
-      date.month.toString().padLeft(2, '0'),
-      date.day.toString().padLeft(2, '0'),
-      milestoneId,
-    );
+    _androidRootCache = p.join(dir.path, 'media');
+    return _androidRootCache!;
+  }
+
+  Future<void> _scanIfAndroid(String path) async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _channel.invokeMethod<void>('scanFile', {'path': path});
+    } catch (_) {
+      // Best-effort scan.
+    }
+  }
+
+  Future<String> _folderPath(DateTime date, String milestoneId) async {
+    final base = Platform.isAndroid
+        ? await _androidMediaRoot()
+        : (await getApplicationDocumentsDirectory()).path;
+
+    // Android: <external>/Android/media/<pkg>/LifeTime/Media/YYYY/MM/DD/{milestoneId}
+    // Others: <app-docs>/media/YYYY/MM/DD/{milestoneId}
+    return Platform.isAndroid
+        ? p.join(
+            base,
+            date.year.toString().padLeft(4, '0'),
+            date.month.toString().padLeft(2, '0'),
+            date.day.toString().padLeft(2, '0'),
+            milestoneId,
+          )
+        : p.join(
+            base,
+            'media',
+            date.year.toString().padLeft(4, '0'),
+            date.month.toString().padLeft(2, '0'),
+            date.day.toString().padLeft(2, '0'),
+            milestoneId,
+          );
   }
 
   Future<String> _legacyFolderPath(DateTime date, String milestoneId) async {
@@ -115,6 +157,13 @@ class LocalMediaStoreImpl implements LocalMediaStore {
         await destFile.delete();
       }
 
+      // In Android public-ish storage we prefer copy (rename may fail across volumes).
+      if (Platform.isAndroid) {
+        await sourceFile.copy(destPath);
+        await _scanIfAndroid(destPath);
+        return destPath;
+      }
+
       // Try rename first (more efficient). If it fails (cross-device),
       // fall back to copy + delete.
       try {
@@ -153,6 +202,9 @@ class LocalMediaStoreImpl implements LocalMediaStore {
         timeMs: 0,
       );
 
+      if (outPath != null) {
+        await _scanIfAndroid(outPath);
+      }
       return outPath;
     } catch (_) {
       return null;

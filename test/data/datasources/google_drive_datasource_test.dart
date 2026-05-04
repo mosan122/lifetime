@@ -80,7 +80,7 @@ void main() {
       expect(result, equals('drive-xyz'));
     });
 
-    test('creates LifeTime_App folder when not found, then uploads', () async {
+    test('creates LifeTime folder when not found, then uploads', () async {
       final sut = buildSut([
         const _FakeResponse(body: _folderEmptyPayload),  // files.list → empty
         const _FakeResponse(body: _folderCreatedPayload), // files.create (folder)

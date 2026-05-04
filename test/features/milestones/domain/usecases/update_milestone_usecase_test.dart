@@ -24,7 +24,7 @@ void main() {
     locationName: 'Sevilla',
     latitude: 37.3886,
     longitude: -5.9823,
-    category: 'familia',
+    categoryId: 2,
     isPublic: false,
     createdAt: tDate,
   );
@@ -43,9 +43,16 @@ void main() {
           id: any(named: 'id'),
           title: any(named: 'title'),
           description: any(named: 'description'),
+          categoryId: any(named: 'categoryId'),
+          eventDate: any(named: 'eventDate'),
           locationName: any(named: 'locationName'),
           latitude: any(named: 'latitude'),
           longitude: any(named: 'longitude'),
+          participantIds: any(named: 'participantIds'),
+          mediaToKeep: any(named: 'mediaToKeep'),
+          newMediaFiles: any(named: 'newMediaFiles'),
+          newMediaTypes: any(named: 'newMediaTypes'),
+          galleryCoverIndex: any(named: 'galleryCoverIndex'),
         )).thenAnswer((_) async => Right(tMilestone));
   }
 
@@ -63,9 +70,16 @@ void main() {
           id: 'ms-1',
           title: 'Mi 30 cumpleaños',
           description: 'Relato actualizado.',
+          categoryId: null,
+          eventDate: null,
           locationName: 'Sevilla',
           latitude: 37.3886,
           longitude: -5.9823,
+          participantIds: const [],
+          mediaToKeep: const [],
+          newMediaFiles: const [],
+          newMediaTypes: const [],
+          galleryCoverIndex: null,
         )).called(1);
   });
 
@@ -91,9 +105,16 @@ void main() {
           id: 'ms-2',
           title: 'Título',
           description: 'Sólo descripción.',
+          categoryId: null,
+          eventDate: null,
           locationName: null,
           latitude: null,
           longitude: null,
+          participantIds: const [],
+          mediaToKeep: const [],
+          newMediaFiles: const [],
+          newMediaTypes: const [],
+          galleryCoverIndex: null,
         )).called(1);
   });
 
@@ -102,9 +123,16 @@ void main() {
           id: any(named: 'id'),
           title: any(named: 'title'),
           description: any(named: 'description'),
+          categoryId: any(named: 'categoryId'),
+          eventDate: any(named: 'eventDate'),
           locationName: any(named: 'locationName'),
           latitude: any(named: 'latitude'),
           longitude: any(named: 'longitude'),
+          participantIds: any(named: 'participantIds'),
+          mediaToKeep: any(named: 'mediaToKeep'),
+          newMediaFiles: any(named: 'newMediaFiles'),
+          newMediaTypes: any(named: 'newMediaTypes'),
+          galleryCoverIndex: any(named: 'galleryCoverIndex'),
         )).thenAnswer((_) async => const Left(AuthFailure()));
 
     final result = await useCase(tParams);
@@ -120,9 +148,16 @@ void main() {
           id: any(named: 'id'),
           title: any(named: 'title'),
           description: any(named: 'description'),
+          categoryId: any(named: 'categoryId'),
+          eventDate: any(named: 'eventDate'),
           locationName: any(named: 'locationName'),
           latitude: any(named: 'latitude'),
           longitude: any(named: 'longitude'),
+          participantIds: any(named: 'participantIds'),
+          mediaToKeep: any(named: 'mediaToKeep'),
+          newMediaFiles: any(named: 'newMediaFiles'),
+          newMediaTypes: any(named: 'newMediaTypes'),
+          galleryCoverIndex: any(named: 'galleryCoverIndex'),
         )).thenAnswer(
       (_) async => const Left(DatabaseFailure('not found', code: 'PGRST116')),
     );

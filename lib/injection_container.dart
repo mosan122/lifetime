@@ -177,7 +177,6 @@ Future<void> init() async {
       () => Supabase.instance.client.auth.currentUser?.id ?? '',
       sl<DriveRepository>(),
       sl<LocalMediaStore>(),
-      sl<IsarPersonDataSource>(),
       sl<IsarCategoryDataSource>(),
     ),
   );
@@ -203,7 +202,8 @@ Future<void> init() async {
 
   // ─── Cubits ───────────────────────────────────────────────────────────────
   sl.registerFactory<MilestoneTimelineCubit>(() => MilestoneTimelineCubit(sl()));
-  sl.registerFactory<CreateMilestoneCubit>(() => CreateMilestoneCubit(sl(), sl()));
+  sl.registerFactory<CreateMilestoneCubit>(
+      () => CreateMilestoneCubit(sl(), sl(), sl()));
   sl.registerFactory<EditMilestoneCubit>(() => EditMilestoneCubit(sl()));
   sl.registerFactory<DeleteMilestoneCubit>(() => DeleteMilestoneCubit(sl()));
   sl.registerFactory<ExportCubit>(() => ExportCubit(sl()));

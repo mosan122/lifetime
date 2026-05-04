@@ -12,6 +12,8 @@ class Milestone extends Equatable {
   final List<String> tags;
   final List<MediaAssetEntity> media;
   final List<MediaItem> mediaItems;
+  /// Índice en [mediaItems] del medio que se muestra en el timeline y en el encabezado del detalle.
+  final int galleryCoverIndex;
   final DateTime eventDate;
   final String? locationName;
   final double? latitude;
@@ -33,6 +35,7 @@ class Milestone extends Equatable {
     this.tags = const [],
     this.media = const [],
     this.mediaItems = const [],
+    this.galleryCoverIndex = 0,
     required this.eventDate,
     this.locationName,
     this.latitude,
@@ -54,6 +57,7 @@ class Milestone extends Equatable {
         tags,
         media,
         mediaItems,
+        galleryCoverIndex,
         eventDate,
         locationName,
         latitude,
