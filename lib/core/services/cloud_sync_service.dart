@@ -102,6 +102,7 @@ class CloudSyncService {
 
   Future<void> restoreMissingFaces() async {
     if (!_premium.isPremium) return;
+    if (_running) return;
     try {
       final account =
           await _googleSignIn.attemptLightweightAuthentication();
@@ -116,27 +117,32 @@ class CloudSyncService {
       final api = drive.DriveApi(client);
       final driveService = GoogleDriveService(api);
       await restoreFacesWithService(driveService);
-    } catch (_) {}
+    } catch (e) {
+      // ignore: avoid_print
+      print('restoreMissingFaces failed: $e');
+    }
   }
 
   @visibleForTesting
   Future<void> syncPendingFaces(
       GoogleDriveService driveService, String rootId) async {
+    final people = await _people.fetchAll();
+    final pending = people
+        .where((p) =>
+            p.faceImagePath != null &&
+            p.driveFaceFileId == null &&
+            File(p.faceImagePath!).existsSync())
+        .toList();
+    if (pending.isEmpty) return;
+
     final systemId =
         await driveService.getOrCreateFolder('System', parentId: rootId);
     final peopleId =
         await driveService.getOrCreateFolder('People', parentId: systemId);
 
-    final people = await _people.fetchAll();
-    for (final p in people) {
-      if (p.faceImagePath == null) continue;
-      if (p.driveFaceFileId != null) continue;
-
-      final f = File(p.faceImagePath!);
-      if (!f.existsSync()) continue;
-
+    for (final p in pending) {
       try {
-        final fileId = await driveService.uploadFile(f, peopleId);
+        final fileId = await driveService.uploadFile(File(p.faceImagePath!), peopleId);
         final updated = PersonCollection()
           ..isarId = p.isarId
           ..id = p.id
