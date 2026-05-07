@@ -32,5 +32,24 @@ class ProfileRepositoryImpl implements ProfileRepository {
       return Left(NetworkFailure(e.toString()));
     }
   }
+
+  @override
+  Future<Either<Failure, bool>> upsertProfileAfterLogin({
+    required String userId,
+    required String email,
+  }) async {
+    try {
+      final existingPremium = await _remote.upsertProfileAfterLogin(
+        userId: userId,
+        email: email,
+        lastConnection: DateTime.now(),
+      );
+      return Right(existingPremium);
+    } on PostgrestException catch (e) {
+      return Left(DatabaseFailure(e.message, code: e.code));
+    } catch (e) {
+      return Left(NetworkFailure(e.toString()));
+    }
+  }
 }
 

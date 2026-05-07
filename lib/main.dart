@@ -53,6 +53,8 @@ class LifeTimeApp extends StatelessWidget {
           GlobalWidgetsLocalizations.delegate,
           GlobalCupertinoLocalizations.delegate,
         ],
+        // Local-first: the timeline can render immediately using cached data;
+        // auth / premium refresh happens in the background via AuthCubit.
         home: const TimelinePage(),
       ),
     );

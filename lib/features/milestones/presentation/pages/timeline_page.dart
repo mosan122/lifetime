@@ -8,6 +8,8 @@ import '../../../../domain/entities/milestone.dart';
 import '../../../auth/presentation/bloc/auth_cubit.dart';
 import '../../data/datasources/isar_person_datasource.dart';
 import '../bloc/milestone_timeline_cubit.dart';
+import '../../data/datasources/isar_category_datasource.dart';
+import '../../data/models/local/category_collection.dart';
 import '../widgets/drive_thumbnail.dart';
 import '../widgets/face_stack.dart';
 import '../widgets/local_media_thumb.dart';
@@ -424,12 +426,13 @@ class _MilestoneCard extends StatelessWidget {
     final authState = context.read<AuthCubit>().state;
     final accessToken =
         authState is AuthAuthenticated ? authState.user.accessToken : null;
+    final canUseDrive = accessToken != null && accessToken.trim().isNotEmpty;
 
     if (milestone.mediaItems.isNotEmpty) {
       return _LocalMediaCard(milestone: milestone, accessToken: accessToken);
     }
 
-    if (milestone.driveFileId != null && accessToken != null) {
+    if (milestone.driveFileId != null && canUseDrive) {
       return _MediaCard(
           milestone: milestone, accessToken: accessToken);
     }
@@ -954,37 +957,62 @@ class _CategoryChip extends StatelessWidget {
   final String? categoryId;
   const _CategoryChip({required this.categoryId});
 
+  static Future<Map<String, CategoryCollection>>? _cacheFuture;
+
+  static Future<Map<String, CategoryCollection>> _loadCategoryMap() async {
+    final ds = sl<IsarCategoryDataSource>();
+    await ds.ensureSeeded();
+    final all = await ds.fetchAll();
+    return {for (final c in all) c.id: c};
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final c = milestoneCategoryById(categoryId);
-    if (c.id == 'otros') return const SizedBox.shrink();
+    _cacheFuture ??= _loadCategoryMap();
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: c.color.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(c.icon, size: 14, color: c.color),
-          const SizedBox(width: 6),
-          Text(
-            c.name,
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: AppTheme.navy,
-              fontWeight: FontWeight.w600,
-            ),
+    return FutureBuilder<Map<String, CategoryCollection>>(
+      future: _cacheFuture,
+      builder: (context, snap) {
+        final id = (categoryId ?? '').trim().toLowerCase();
+        final db = snap.data?[id];
+        final fallback = milestoneCategoryById(categoryId);
+
+        final name = db?.name ?? fallback.name;
+        final icon = db != null
+            ? (kCategoryIconPalette[db.iconName] ?? Icons.category_outlined)
+            : fallback.icon;
+        final color = db != null ? Color(db.colorValue) : fallback.color;
+
+        if (id.isEmpty || id == 'otros') return const SizedBox.shrink();
+
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.14),
+            borderRadius: BorderRadius.circular(999),
           ),
-        ],
-      ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 14, color: color),
+              const SizedBox(width: 6),
+              Text(
+                name,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: AppTheme.navy,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
 
-// (Fixed categories: no Isar lookup needed.)
+// Categories are dynamic in Isar; keep constants as fallback.
 
 String _locationInlineLabel(Milestone m) {
   final name = (m.locationName ?? '').trim();

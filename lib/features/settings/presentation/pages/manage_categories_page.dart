@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import 'package:isar/isar.dart';
+
+import '../../../../core/constants/milestone_categories.dart';
 import '../../../milestones/data/datasources/isar_category_datasource.dart';
 import '../../../milestones/data/models/local/category_collection.dart';
 import '../../../../core/theme/app_theme.dart';
@@ -81,10 +84,13 @@ class _CategoryTile extends StatelessWidget {
 
   const _CategoryTile({required this.category, required this.onChanged});
 
+  static IconData _iconByName(String name) =>
+      kCategoryIconPalette[name] ?? Icons.category_outlined;
+
   @override
   Widget build(BuildContext context) {
     final ds = sl<IsarCategoryDataSource>();
-    final icon = _iconByName(category.iconName) ?? Icons.category_outlined;
+    final icon = _iconByName(category.iconName);
     final color = Color(category.colorValue);
 
     return Card(
@@ -100,9 +106,6 @@ class _CategoryTile extends StatelessWidget {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
-        subtitle: category.isSystem
-            ? const Text('Sistema')
-            : const Text('Personalizada'),
         trailing: PopupMenuButton<String>(
           tooltip: 'Opciones',
           onSelected: (value) async {
@@ -141,15 +144,14 @@ class _CategoryTile extends StatelessWidget {
                 ),
               );
               if (ok == true) {
-                await ds.deleteById(category.id);
+                await ds.deleteByCategoryId(category.id);
                 await onChanged();
               }
             }
           },
           itemBuilder: (_) => [
             const PopupMenuItem(value: 'edit', child: Text('Editar')),
-            if (!category.isSystem)
-              const PopupMenuItem(value: 'delete', child: Text('Borrar')),
+            const PopupMenuItem(value: 'delete', child: Text('Borrar')),
           ],
         ),
       ),
@@ -171,7 +173,6 @@ class _CategoryEditorSheetState extends State<_CategoryEditorSheet> {
   late int _colorValue;
 
   bool get _isEdit => widget.initial != null;
-  bool get _isSystem => widget.initial?.isSystem == true;
 
   @override
   void initState() {
@@ -196,74 +197,90 @@ class _CategoryEditorSheetState extends State<_CategoryEditorSheet> {
     return Padding(
       padding: EdgeInsets.only(bottom: bottom),
       child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                _isEdit ? 'Editar categoría' : 'Nueva categoría',
-                style: theme.textTheme.titleLarge,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _name,
-                enabled: !_isSystem,
-                decoration: InputDecoration(
-                  labelText: 'Nombre',
-                  filled: true,
-                  fillColor: const Color(0xFFFAFAE8),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(color: theme.colorScheme.outline),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                child: IntrinsicHeight(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _isEdit ? 'Editar categoría' : 'Nueva categoría',
+                        style: theme.textTheme.titleLarge,
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _name,
+                        textInputAction: TextInputAction.next,
+                        decoration: InputDecoration(
+                          labelText: 'Nombre',
+                          filled: true,
+                          fillColor: const Color(0xFFFAFAE8),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide:
+                                BorderSide(color: theme.colorScheme.outline),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text('Icono', style: theme.textTheme.labelLarge),
+                      const SizedBox(height: 8),
+                      _IconPicker(
+                        value: _iconName,
+                        onChanged: (v) => setState(() => _iconName = v),
+                      ),
+                      const SizedBox(height: 12),
+                      Text('Color', style: theme.textTheme.labelLarge),
+                      const SizedBox(height: 8),
+                      _ColorPalette(
+                        value: _colorValue,
+                        onChanged: (v) => setState(() => _colorValue = v),
+                      ),
+                      const Spacer(),
+                      const SizedBox(height: 16),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 52,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.navy,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          onPressed: () async {
+                            final name = _name.text.trim();
+                            if (name.isEmpty) return;
+                            final id = _slug(name);
+                            final c = CategoryCollection()
+                              ..isarId =
+                                  widget.initial?.isarId ?? Isar.autoIncrement
+                              ..id = widget.initial?.id ?? id
+                              ..name = name
+                              ..iconName = _iconName
+                              ..colorValue = _colorValue;
+                            if (widget.initial != null) {
+                              c.isarId = widget.initial!.isarId;
+                              c.id = widget.initial!.id;
+                            }
+                            await ds.upsert(c);
+                            if (!context.mounted) return;
+                            Navigator.pop(context, true);
+                          },
+                          child: Text(_isEdit ? 'Guardar' : 'Crear'),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
-              const SizedBox(height: 12),
-              Text('Icono', style: theme.textTheme.labelLarge),
-              const SizedBox(height: 8),
-              _IconPicker(
-                value: _iconName,
-                onChanged: (v) => setState(() => _iconName = v),
-              ),
-              const SizedBox(height: 12),
-              Text('Color', style: theme.textTheme.labelLarge),
-              const SizedBox(height: 8),
-              _ColorPalette(
-                value: _colorValue,
-                onChanged: (v) => setState(() => _colorValue = v),
-              ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                height: 52,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppTheme.navy,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                  onPressed: () async {
-                    final name = _name.text.trim();
-                    if (name.isEmpty) return;
-                    final c = CategoryCollection()
-                      ..id = widget.initial?.id ?? 0
-                      ..name = name
-                      ..iconName = _iconName
-                      ..colorValue = _colorValue
-                      ..isSystem = widget.initial?.isSystem ?? false;
-                    await ds.upsert(c);
-                    if (!context.mounted) return;
-                    Navigator.pop(context, true);
-                  },
-                  child: Text(_isEdit ? 'Guardar' : 'Crear'),
-                ),
-              ),
-            ],
-          ),
+            );
+          },
         ),
       ),
     );
@@ -276,18 +293,25 @@ class _IconPicker extends StatelessWidget {
   const _IconPicker({required this.value, required this.onChanged});
 
   static const _icons = <String, IconData>{
+    // Keep in sync with `kCategoryIconPalette`.
     'category': Icons.category_outlined,
-    'cake': Icons.cake_outlined,
-    'favorite': Icons.favorite_outline,
-    'child_care': Icons.child_care_outlined,
-    'star': Icons.star_outline,
-    'celebration': Icons.celebration_outlined,
-    'photo': Icons.photo_outlined,
-    'travel': Icons.flight_takeoff_outlined,
-    'home': Icons.home_outlined,
-    'work': Icons.work_outline,
-    'school': Icons.school_outlined,
-    'pets': Icons.pets_outlined,
+    'family_restroom': Icons.family_restroom,
+    'group': Icons.group,
+    'favorite': Icons.favorite,
+    'pets': Icons.pets,
+    'flight': Icons.flight,
+    'eco': Icons.eco,
+    'theater_comedy': Icons.theater_comedy,
+    'business_center': Icons.business_center,
+    'school': Icons.school,
+    'account_balance_wallet': Icons.account_balance_wallet,
+    'monitor_heart': Icons.monitor_heart,
+    'fitness_center': Icons.fitness_center,
+    'home': Icons.home,
+    'restaurant': Icons.restaurant,
+    'handyman': Icons.handyman,
+    'child_care': Icons.child_care,
+    'local_florist': Icons.local_florist,
   };
 
   @override
@@ -313,8 +337,6 @@ class _IconPicker extends StatelessWidget {
       }).toList(),
     );
   }
-
-  static IconData? iconByName(String name) => _icons[name];
 }
 
 class _ColorPalette extends StatelessWidget {
@@ -365,5 +387,19 @@ class _ColorPalette extends StatelessWidget {
   }
 }
 
-IconData? _iconByName(String name) => _IconPicker.iconByName(name);
+String _slug(String raw) {
+  var s = raw.trim().toLowerCase();
+  s = s
+      .replaceAll(RegExp(r'\s+'), '-')
+      .replaceAll(RegExp(r'[^a-z0-9\\-áéíóúñü]'), '');
+  s = s
+      .replaceAll('á', 'a')
+      .replaceAll('é', 'e')
+      .replaceAll('í', 'i')
+      .replaceAll('ó', 'o')
+      .replaceAll('ú', 'u')
+      .replaceAll('ñ', 'n')
+      .replaceAll('ü', 'u');
+  return s.isEmpty ? 'categoria' : s;
+}
 

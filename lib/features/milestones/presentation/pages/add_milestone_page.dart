@@ -7,26 +7,31 @@ import 'package:image_picker/image_picker.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
 
 import '../../../../core/failures/failure.dart';
-import '../../../../core/constants/milestone_categories.dart';
 import '../../../../core/services/place_autocomplete_service.dart';
 import '../../../../core/models/milestone_location_data.dart';
 import '../../../../core/utils/milestone_title_utils.dart';
 import '../../../../core/services/location_service.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/constants/milestone_categories.dart';
 import '../../../../domain/entities/media_item.dart';
 import '../../../../domain/entities/milestone.dart';
 import '../../../../domain/services/face_cropper_service.dart';
 import '../../../../injection_container.dart';
 import '../../../../data/datasources/isar_milestone_datasource.dart';
+import '../../../milestones/data/datasources/isar_category_datasource.dart';
+import '../../../milestones/data/datasources/isar_saved_location_datasource.dart';
 import '../../../auth/presentation/bloc/auth_cubit.dart';
 import '../bloc/create_milestone_cubit.dart';
 import '../bloc/edit_milestone_cubit.dart';
 import '../../data/datasources/isar_person_datasource.dart';
 import '../../data/models/local/media_item_embed.dart';
 import '../../data/models/local/person_collection.dart';
+import '../../data/models/local/category_collection.dart';
+import '../../data/models/local/saved_location_collection.dart';
 import '../widgets/face_source_bottom_sheet.dart';
 import '../widgets/milestone_participant_picker_sheet.dart';
 import '../widgets/person_avatar_badge.dart';
+import '../widgets/person_name_alert_dialog.dart';
 import 'location_picker_page.dart';
 
 int _clampGalleryCoverIndexForCount(int coverIndex, int mediaCount) {
@@ -99,7 +104,6 @@ class _CreateMilestoneView extends StatefulWidget {
 class _CreateMilestoneViewState extends State<_CreateMilestoneView> {
   final _titleController = TextEditingController();
   final _noteController = TextEditingController();
-  final _locationController = TextEditingController();
   final _picker = ImagePicker();
   final List<PersonCollection> _participants = [];
   final _faceCropService = sl<FaceCropperService>();
@@ -107,10 +111,12 @@ class _CreateMilestoneViewState extends State<_CreateMilestoneView> {
   final _placeAutocomplete = PlaceAutocompleteService();
   DateTime _selectedDate = DateTime.now();
   String _categoryId = 'otros';
+  List<CategoryCollection> _categories = const [];
+  bool _loadingCategories = true;
   final List<_SelectedMedia> _selectedMedia = [];
-  LocationData? _locationData;
   MilestoneLocationData? _pickedPlace;
-  bool _fetchingLocation = true;
+  int? _savedLocationId;
+  bool _savePlaceToMyPlaces = false;
   int? _importingImagesTotal;
   int _importingImagesDone = 0;
 
@@ -118,18 +124,39 @@ class _CreateMilestoneViewState extends State<_CreateMilestoneView> {
   void initState() {
     super.initState();
     _fetchLocationAsync();
+    _loadCategories();
+  }
+
+  Future<void> _loadCategories() async {
+    try {
+      final ds = sl<IsarCategoryDataSource>();
+      await ds.ensureSeeded();
+      final cats = await ds.fetchAll();
+      if (!mounted) return;
+      setState(() {
+        _categories = cats;
+        _loadingCategories = false;
+      });
+      // Ensure selected id exists.
+      if (_categories.isNotEmpty &&
+          !_categories.any((c) => c.id == _categoryId)) {
+        setState(() => _categoryId = _categories.first.id);
+      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loadingCategories = false);
+    }
+  }
+
+  Future<void> _maybeSavePickedPlace() async {
+    // Legacy safety: favorite saving is now handled in the picker.
   }
 
   Future<void> _fetchLocationAsync() async {
     final data = await sl<LocationService>().fetchLocation();
     if (mounted) {
       setState(() {
-        _locationData = data;
-        _fetchingLocation = false;
-        if (data?.placeName != null) {
-          if (_locationController.text.trim().isEmpty) {
-            _locationController.text = data!.placeName!;
-          }
+        if (data?.placeName != null && _pickedPlace == null) {
           _pickedPlace = MilestoneLocationData(
             name: data!.placeName!,
             latitude: data.latitude,
@@ -144,7 +171,6 @@ class _CreateMilestoneViewState extends State<_CreateMilestoneView> {
   void dispose() {
     _titleController.dispose();
     _noteController.dispose();
-    _locationController.dispose();
     super.dispose();
   }
 
@@ -299,7 +325,6 @@ class _CreateMilestoneViewState extends State<_CreateMilestoneView> {
     }
 
     final title = _titleController.text.trim();
-    final locationText = _locationController.text.trim();
     final picked = _pickedPlace;
     final usePicked = picked != null;
     final coordsLat = usePicked ? picked.latitude : null;
@@ -312,7 +337,8 @@ class _CreateMilestoneViewState extends State<_CreateMilestoneView> {
           mediaFiles: _selectedMedia.map((e) => e.file).toList(),
           mediaTypes: _selectedMedia.map((e) => e.type).toList(),
           accessToken: accessToken,
-          locationName: locationText.isEmpty ? null : locationText,
+          savedLocationId: _savedLocationId,
+          locationName: usePicked ? picked.name.trim() : null,
           locationCity: usePicked ? picked.city : null,
           locationCountry: usePicked ? picked.country : null,
           latitude: coordsLat,
@@ -328,6 +354,7 @@ class _CreateMilestoneViewState extends State<_CreateMilestoneView> {
     return BlocConsumer<CreateMilestoneCubit, CreateMilestoneState>(
       listener: (context, state) {
         if (state is CreateMilestoneSuccess) {
+          _maybeSavePickedPlace();
           Navigator.pop(context, true);
         }
         if (state is CreateMilestoneError) {
@@ -418,9 +445,10 @@ class _CreateMilestoneViewState extends State<_CreateMilestoneView> {
                               onRemoveAt: _removeMediaAt,
                             ),
                             const SizedBox(height: 14),
-                            _FixedCategorySelector(
+                            _CategorySelector(
+                              categories: _categories,
                               value: _categoryId,
-                              enabled: !isSubmitting,
+                              enabled: !isSubmitting && !_loadingCategories,
                               onChanged: (v) => setState(() => _categoryId = v),
                             ),
                             const SizedBox(height: 8),
@@ -434,22 +462,38 @@ class _CreateMilestoneViewState extends State<_CreateMilestoneView> {
                                     .removeWhere((x) => x.id == p.id),
                               ),
                             ),
+                            const SizedBox(height: 10),
+                            _MilestoneLocationRow(
+                              value: _pickedPlace,
+                              enabled: !isSubmitting,
+                              onTap: () async {
+                                final initialQuery =
+                                    _pickedPlace?.name.trim() ?? '';
+                                final result = await showPlacePickerSheet(
+                                  context: context,
+                                  initialQuery: initialQuery,
+                                  service: _placeAutocomplete,
+                                );
+                                if (!context.mounted) return;
+                                if (result != null) {
+                                  setState(() {
+                                    _pickedPlace = result.place;
+                                    _savedLocationId = result.savedLocationId;
+                                    _savePlaceToMyPlaces = false;
+                                  });
+                                }
+                              },
+                              onClear: () => setState(() {
+                                _pickedPlace = null;
+                                _savedLocationId = null;
+                                _savePlaceToMyPlaces = false;
+                              }),
+                            ),
                             const SizedBox(height: 8),
                             _DatePickerRow(
                               selectedDate: _selectedDate,
                               enabled: !isSubmitting,
                               onTap: () => _pickDate(context),
-                            ),
-                            const SizedBox(height: 8),
-                            _PlacePickerField(
-                              controller: _locationController,
-                              enabled: !isSubmitting,
-                              isFetchingLocation: _fetchingLocation,
-                              placeAutocomplete: _placeAutocomplete,
-                              pickedPlace: _pickedPlace,
-                              clearOnTextChange: true,
-                              onPickedPlaceChanged: (p) =>
-                                  setState(() => _pickedPlace = p),
                             ),
                             const SizedBox(height: 4),
                             if (step != null)
@@ -509,10 +553,13 @@ class _EditMilestoneView extends StatefulWidget {
 class _EditMilestoneViewState extends State<_EditMilestoneView> {
   late final TextEditingController _titleController;
   late final TextEditingController _descController;
-  late final TextEditingController _locationController;
   late DateTime _selectedDate;
   late String _categoryId;
+  List<CategoryCollection> _categories = const [];
+  bool _loadingCategories = true;
   MilestoneLocationData? _pickedPlace;
+  int? _savedLocationId;
+  bool _savePlaceToMyPlaces = false;
   final _placeAutocomplete = PlaceAutocompleteService();
   late final String _initialLocationText;
   late final double? _initialLat;
@@ -536,9 +583,8 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
     _titleController = TextEditingController(text: widget.milestone.title);
     _descController =
         TextEditingController(text: widget.milestone.description ?? '');
-    _locationController =
-        TextEditingController(text: widget.milestone.locationName ?? '');
     _initialLocationText = (widget.milestone.locationName ?? '').trim();
+    _savedLocationId = widget.milestone.savedLocationId;
     _initialLat = widget.milestone.latitude;
     _initialLon = widget.milestone.longitude;
     _initialCity = widget.milestone.locationCity;
@@ -552,6 +598,7 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
       widget.milestone.galleryCoverIndex,
       _existingMedia.length,
     );
+    _loadCategories();
     _loadParticipants();
 
     final existingName = (widget.milestone.locationName ?? '').trim();
@@ -564,6 +611,30 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
         longitude: widget.milestone.longitude,
       );
     }
+  }
+
+  Future<void> _loadCategories() async {
+    try {
+      final ds = sl<IsarCategoryDataSource>();
+      await ds.ensureSeeded();
+      final cats = await ds.fetchAll();
+      if (!mounted) return;
+      setState(() {
+        _categories = cats;
+        _loadingCategories = false;
+      });
+      if (_categories.isNotEmpty &&
+          !_categories.any((c) => c.id == _categoryId)) {
+        setState(() => _categoryId = _categories.first.id);
+      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loadingCategories = false);
+    }
+  }
+
+  Future<void> _maybeSavePickedPlace() async {
+    // Legacy safety: favorite saving is now handled in the picker.
   }
 
   Future<void> _loadParticipants() async {
@@ -583,7 +654,6 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
   void dispose() {
     _titleController.dispose();
     _descController.dispose();
-    _locationController.dispose();
     super.dispose();
   }
 
@@ -761,20 +831,16 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
   void _submit(BuildContext context) {
     final desc = _descController.text.trim();
     if (desc.isEmpty) return;
-    final locationText = _locationController.text.trim();
     final picked = _pickedPlace;
     final usePicked = picked != null;
-    final keepExistingLink = picked == null && _initialLat != null && _initialLon != null && locationText.isNotEmpty;
-    final coordsLat = usePicked
-        ? picked!.latitude
-        : keepExistingLink
-            ? _initialLat
-            : null;
-    final coordsLon = usePicked
-        ? picked!.longitude
-        : keepExistingLink
-            ? _initialLon
-            : null;
+    final keepExistingLink = picked == null &&
+        _initialLat != null &&
+        _initialLon != null &&
+        _initialLocationText.isNotEmpty;
+    final coordsLat =
+        usePicked ? picked.latitude : (keepExistingLink ? _initialLat : null);
+    final coordsLon =
+        usePicked ? picked.longitude : (keepExistingLink ? _initialLon : null);
     final titleInput = _titleController.text.trim();
     final title = titleInput.isEmpty
         ? milestoneTitleFromDescription(desc)
@@ -790,14 +856,19 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
           description: desc,
           categoryId: _categoryId,
           eventDate: _selectedDate,
-          locationName: locationText.isEmpty ? null : locationText,
+          savedLocationId: _savedLocationId,
+          locationName: usePicked
+              ? picked.name.trim()
+              : keepExistingLink
+                  ? _initialLocationText
+                  : null,
           locationCity: usePicked
-              ? picked!.city
+              ? picked.city
               : keepExistingLink
                   ? _initialCity
                   : null,
           locationCountry: usePicked
-              ? picked!.country
+              ? picked.country
               : keepExistingLink
                   ? _initialCountry
                   : null,
@@ -818,6 +889,7 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
     return BlocConsumer<EditMilestoneCubit, EditMilestoneState>(
       listener: (context, state) {
         if (state is EditMilestoneSuccess) {
+          _maybeSavePickedPlace();
           Navigator.pop(context, true);
         }
         if (state is EditMilestoneError) {
@@ -916,9 +988,10 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
                               onRemoveNew: _removeNewMediaAt,
                             ),
                             const SizedBox(height: 14),
-                            _FixedCategorySelector(
+                            _CategorySelector(
+                              categories: _categories,
                               value: _categoryId,
-                              enabled: !isSubmitting,
+                              enabled: !isSubmitting && !_loadingCategories,
                               onChanged: (v) => setState(() => _categoryId = v),
                             ),
                             const SizedBox(height: 8),
@@ -932,22 +1005,48 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
                                     .removeWhere((x) => x.id == p.id),
                               ),
                             ),
+                            const SizedBox(height: 10),
+                            _MilestoneLocationRow(
+                              value: _pickedPlace ??
+                                  (_initialLocationText.isNotEmpty
+                                      ? MilestoneLocationData(
+                                          name: _initialLocationText,
+                                          city: _initialCity,
+                                          country: _initialCountry,
+                                          latitude: _initialLat,
+                                          longitude: _initialLon,
+                                        )
+                                      : null),
+                              enabled: !isSubmitting,
+                              onTap: () async {
+                                final initialQuery = (_pickedPlace?.name ??
+                                        _initialLocationText)
+                                    .trim();
+                                final result = await showPlacePickerSheet(
+                                  context: context,
+                                  initialQuery: initialQuery,
+                                  service: _placeAutocomplete,
+                                );
+                                if (!context.mounted) return;
+                                if (result != null) {
+                                  setState(() {
+                                    _pickedPlace = result.place;
+                                    _savedLocationId = result.savedLocationId;
+                                    _savePlaceToMyPlaces = false;
+                                  });
+                                }
+                              },
+                              onClear: () => setState(() {
+                                _pickedPlace = null;
+                                _savedLocationId = null;
+                                _savePlaceToMyPlaces = false;
+                              }),
+                            ),
                             const SizedBox(height: 8),
                             _DatePickerRow(
                               selectedDate: _selectedDate,
                               enabled: !isSubmitting,
                               onTap: () => _pickDate(context),
-                            ),
-                            const SizedBox(height: 8),
-                            _PlacePickerField(
-                              controller: _locationController,
-                              enabled: !isSubmitting,
-                              isFetchingLocation: false,
-                              placeAutocomplete: _placeAutocomplete,
-                              pickedPlace: _pickedPlace,
-                              clearOnTextChange: false,
-                              onPickedPlaceChanged: (p) =>
-                                  setState(() => _pickedPlace = p),
                             ),
                             const SizedBox(height: 12),
                             ValueListenableBuilder<TextEditingValue>(
@@ -1038,140 +1137,21 @@ InputDecoration _cleanMultilineDecoration(
   );
 }
 
-InputDecoration _locationFieldDecoration(
-  ThemeData theme, {
-  required String hintText,
-  Widget? suffixIcon,
-}) {
-  return InputDecoration(
-    hintText: hintText,
-    hintStyle:
-        theme.textTheme.bodyMedium?.copyWith(color: const Color(0xFFAAAAAA)),
-    prefixIcon:
-        const Icon(Icons.location_on_outlined, color: AppTheme.navy, size: 20),
-    suffixIcon: suffixIcon,
-    filled: true,
-    fillColor: const Color(0xFFFAFAE8),
-    contentPadding:
-        const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-    border: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(8),
-      borderSide: BorderSide(color: theme.colorScheme.outline),
-    ),
-    enabledBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(8),
-      borderSide: BorderSide(color: theme.colorScheme.outline),
-    ),
-    focusedBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(8),
-      borderSide: const BorderSide(color: AppTheme.navy, width: 2),
-    ),
-    disabledBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(8),
-      borderSide: BorderSide(color: theme.colorScheme.outline),
-    ),
-  );
+// Nota: el “Lugar” ya no se edita con TextField en el formulario principal.
+// Se gestiona con el icono de ubicación (junto a personas) + chip bajo el título.
+
+class PlacePickerResult {
+  final MilestoneLocationData place;
+  final int? savedLocationId;
+  const PlacePickerResult({required this.place, this.savedLocationId});
 }
 
-class _PlacePickerField extends StatelessWidget {
-  final TextEditingController controller;
-  final bool enabled;
-  final bool isFetchingLocation;
-  final PlaceAutocompleteService placeAutocomplete;
-  final MilestoneLocationData? pickedPlace;
-  final bool clearOnTextChange;
-  final ValueChanged<MilestoneLocationData?> onPickedPlaceChanged;
-
-  const _PlacePickerField({
-    required this.controller,
-    required this.enabled,
-    required this.isFetchingLocation,
-    required this.placeAutocomplete,
-    required this.pickedPlace,
-    required this.clearOnTextChange,
-    required this.onPickedPlaceChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return TextField(
-      controller: controller,
-      enabled: enabled,
-      style: theme.textTheme.bodyMedium,
-      onChanged: (_) {
-        if (clearOnTextChange) onPickedPlaceChanged(null);
-      },
-      decoration: _locationFieldDecoration(
-        theme,
-        hintText: isFetchingLocation ? 'Detectando ubicación...' : 'Lugar (opcional)',
-        suffixIcon: _PlacePickerSuffixIcons(
-          enabled: enabled,
-          onOpenPicker: () async {
-            final picked = await showPlacePickerSheet(
-              context: context,
-              initialQuery: controller.text,
-              service: placeAutocomplete,
-            );
-            if (picked == null) return;
-            final current = controller.text.trim();
-            if (current.isEmpty) {
-              controller.text = picked.name;
-              controller.selection =
-                  TextSelection.collapsed(offset: controller.text.length);
-            } else if (context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Ubicación actualizada (se mantiene tu nombre).'),
-                  duration: Duration(milliseconds: 1400),
-                ),
-              );
-            }
-            onPickedPlaceChanged(picked);
-            FocusManager.instance.primaryFocus?.unfocus();
-          },
-        ),
-      ),
-    );
-  }
-}
-
-class _PlacePickerSuffixIcons extends StatelessWidget {
-  final bool enabled;
-  final VoidCallback onOpenPicker;
-
-  const _PlacePickerSuffixIcons({
-    required this.enabled,
-    required this.onOpenPicker,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final color = AppTheme.navy.withValues(alpha: enabled ? 0.75 : 0.35);
-    return ConstrainedBox(
-      constraints: const BoxConstraints(minWidth: 48, maxWidth: 92),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            onPressed: enabled ? onOpenPicker : null,
-            icon: const Icon(Icons.search),
-            tooltip: 'Buscar lugar',
-            color: color,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-Future<MilestoneLocationData?> showPlacePickerSheet({
+Future<PlacePickerResult?> showPlacePickerSheet({
   required BuildContext context,
   required String initialQuery,
   required PlaceAutocompleteService service,
 }) {
-  return showModalBottomSheet<MilestoneLocationData>(
+  return showModalBottomSheet<PlacePickerResult>(
     context: context,
     useSafeArea: true,
     isScrollControlled: true,
@@ -1201,19 +1181,65 @@ class _PlacePickerSheet extends StatefulWidget {
 class _PlacePickerSheetState extends State<_PlacePickerSheet> {
   late final TextEditingController _ctrl;
   List<MilestoneLocationData> _items = const [];
+  List<SavedLocationCollection> _saved = const [];
   List<MilestoneLocationData> _recents = const [];
   bool _loading = false;
   String? _error;
   int _reqId = 0;
   String _lastQuery = '';
+  bool _saveToMyPlaces = false;
+  MilestoneLocationData? _selected;
+  int? _selectedSavedLocationId;
+  bool _savedExpanded = false;
+
+  Future<int?> _maybePersistToMyPlaces(
+    MilestoneLocationData picked, {
+    int? existingIsarId,
+  }) async {
+    if (!_saveToMyPlaces) return null;
+    final name = picked.name.trim();
+    if (name.isEmpty) return null;
+    try {
+      final ds = sl<IsarSavedLocationDataSource>();
+      final c = SavedLocationCollection()
+        ..name = name
+        ..city = (picked.city ?? '').trim().isEmpty ? null : picked.city!.trim()
+        ..country = (picked.country ?? '').trim().isEmpty
+            ? null
+            : picked.country!.trim()
+        ..latitude = picked.latitude
+        ..longitude = picked.longitude;
+      if (existingIsarId != null) c.isarId = existingIsarId;
+      final saved = await ds.upsert(c);
+      await _loadSaved();
+      return saved.isarId;
+    } catch (_) {
+      // Best-effort.
+    }
+    return null;
+  }
 
   @override
   void initState() {
     super.initState();
     _ctrl = TextEditingController(text: widget.initialQuery);
+    _loadSaved();
     _loadRecents();
     _search(widget.initialQuery);
     _ctrl.addListener(() => _search(_ctrl.text));
+  }
+
+  Future<void> _loadSaved() async {
+    try {
+      final ds = sl<IsarSavedLocationDataSource>();
+      final items = await ds.fetchAll();
+      if (!mounted) return;
+      setState(() {
+        _saved = items.where((e) => e.name.trim().isNotEmpty).toList();
+      });
+    } catch (_) {
+      // Ignore: saved places are best-effort.
+    }
   }
 
   Future<void> _loadRecents() async {
@@ -1249,7 +1275,7 @@ class _PlacePickerSheetState extends State<_PlacePickerSheet> {
   void _search(String q) {
     final query = q.trim();
     _lastQuery = query;
-    if (query.length < 3) {
+    if (query.isEmpty) {
       _reqId++;
       setState(() {
         _items = const [];
@@ -1295,6 +1321,33 @@ class _PlacePickerSheetState extends State<_PlacePickerSheet> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    final q = _ctrl.text.trim();
+    final qLower = q.toLowerCase();
+
+    bool matchesQuerySaved(SavedLocationCollection l) {
+      if (qLower.isEmpty) return true;
+      final hay = <String>[
+        l.name,
+        l.city ?? '',
+        l.country ?? '',
+      ].join(' ').toLowerCase();
+      return hay.contains(qLower);
+    }
+
+    bool matchesQuery(MilestoneLocationData l) {
+      if (qLower.isEmpty) return true;
+      final hay = <String>[
+        l.name,
+        l.city ?? '',
+        l.country ?? '',
+      ].join(' ').toLowerCase();
+      return hay.contains(qLower);
+    }
+
+    final savedFiltered = _saved.where(matchesQuerySaved).toList();
+    final recentsFiltered = _recents.where(matchesQuery).toList();
+    final showSaved = savedFiltered.isNotEmpty;
+    final savedExpandedEffective = qLower.isNotEmpty || _savedExpanded;
 
     return Padding(
       padding: EdgeInsets.fromLTRB(16, 12, 16, 16 + bottomInset),
@@ -1325,6 +1378,52 @@ class _PlacePickerSheetState extends State<_PlacePickerSheet> {
             decoration: InputDecoration(
               hintText: 'Escribe una ciudad, lugar o dirección…',
               prefixIcon: const Icon(Icons.search),
+              suffixIcon: IconButton(
+                tooltip: 'Aceptar',
+                icon: const Icon(Icons.check),
+                onPressed: (_selected == null && q.isEmpty)
+                    ? null
+                    : () async {
+                        var picked = _selected ?? MilestoneLocationData(name: q);
+
+                        // If saving as favorite, ask for a friendly name.
+                        if (_saveToMyPlaces) {
+                          final friendly = await showPersonNameAlertDialog(
+                            context: context,
+                            title: 'Nombre del lugar',
+                            initialValue: picked.name,
+                            hintText: 'Nombre amigable',
+                            submitLabel: 'Guardar',
+                            textCapitalization: TextCapitalization.sentences,
+                            useRootNavigator: true,
+                          );
+                          final name = (friendly ?? '').trim();
+                          if (name.isNotEmpty) {
+                            picked = MilestoneLocationData(
+                              name: name,
+                              city: picked.city,
+                              country: picked.country,
+                              latitude: picked.latitude,
+                              longitude: picked.longitude,
+                            );
+                          }
+                        }
+
+                        final savedId = await _maybePersistToMyPlaces(
+                          picked,
+                          existingIsarId: _selectedSavedLocationId,
+                        );
+                        if (!context.mounted) return;
+                        Navigator.pop(
+                          context,
+                          PlacePickerResult(
+                            place: picked,
+                            savedLocationId:
+                                _selectedSavedLocationId ?? savedId,
+                          ),
+                        );
+                      },
+              ),
               filled: true,
               fillColor: const Color(0xFFFAFAE8),
               border: OutlineInputBorder(
@@ -1334,64 +1433,217 @@ class _PlacePickerSheetState extends State<_PlacePickerSheet> {
             ),
           ),
           const SizedBox(height: 10),
-          Flexible(
-            child: ListView.separated(
-              itemCount: 1 /* mapa */ +
-                  (_recents.isEmpty ? 0 : (1 + _recents.length)) +
-                  (_items.isEmpty ? 1 : _items.length),
-              separatorBuilder: (_, __) => Divider(
-                height: 1,
-                color: theme.colorScheme.outline.withValues(alpha: 0.6),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: () async {
+                final picked = await Navigator.push<MilestoneLocationData>(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => LocationPickerPage(
+                      placeService: widget.service,
+                    ),
+                  ),
+                );
+                if (!context.mounted) return;
+                if (picked != null) {
+                  setState(() {
+                    _selected = picked;
+                    _ctrl.text = picked.name;
+                    _ctrl.selection =
+                        TextSelection.collapsed(offset: _ctrl.text.length);
+                  });
+                }
+              },
+              icon: const Icon(Icons.map_outlined, size: 18),
+              label: const Text('Seleccionar en el mapa'),
+              style: TextButton.styleFrom(
+                foregroundColor: AppTheme.navy,
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                textStyle: theme.textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
               ),
+            ),
+          ),
+          const SizedBox(height: 2),
+          Row(
+            children: [
+              Expanded(
+                child: TextButton(
+                  onPressed: _ctrl.text.trim().isEmpty
+                      ? null
+                      : () async {
+                          setState(() {
+                            _selected = MilestoneLocationData(name: q);
+                            _selectedSavedLocationId = null;
+                          });
+                        },
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppTheme.navy,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 10),
+                    textStyle: theme.textTheme.bodySmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      q.isEmpty ? 'Usar solo texto' : 'Usar solo texto: $q',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              TextButton.icon(
+                onPressed: () => setState(() => _saveToMyPlaces = !_saveToMyPlaces),
+                icon: Icon(_saveToMyPlaces ? Icons.star : Icons.star_border),
+                label: const Text('Guardar'),
+                style: TextButton.styleFrom(
+                  foregroundColor: AppTheme.navy,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                  textStyle: theme.textTheme.bodySmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Flexible(
+            child: ListView.builder(
+              padding: const EdgeInsets.only(top: 2),
+              itemCount: (showSaved
+                      ? (1 + (savedExpandedEffective ? savedFiltered.length : 0))
+                      : 0) +
+                  (recentsFiltered.isEmpty ? 0 : (1 + recentsFiltered.length)) +
+                  (_items.isEmpty ? 1 : _items.length),
               itemBuilder: (context, index) {
-                if (index == 0) {
-                  return InkWell(
-                    onTap: () async {
-                      final picked = await Navigator.push<MilestoneLocationData>(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => LocationPickerPage(
-                            placeService: widget.service,
+                var cursor = 0;
+                if (showSaved) {
+                  if (index == cursor) {
+                    return InkWell(
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: qLower.isNotEmpty
+                          ? null
+                          : () => setState(
+                                () => _savedExpanded = !_savedExpanded,
+                              ),
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(4, 10, 4, 6),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                'MIS LUGARES GUARDADOS',
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  color: AppTheme.navy.withValues(alpha: 0.45),
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 0.6,
+                                ),
+                              ),
+                            ),
+                            Icon(
+                              savedExpandedEffective
+                                  ? Icons.expand_less
+                                  : Icons.expand_more,
+                              size: 18,
+                              color: AppTheme.navy.withValues(alpha: 0.45),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }
+                  cursor += 1;
+                  if (savedExpandedEffective) {
+                    final endSaved = cursor + savedFiltered.length;
+                    if (index >= cursor && index < endSaved) {
+                      final s = savedFiltered[index - cursor];
+                      final subtitle = (s.city ?? '').trim();
+                      final loc = MilestoneLocationData(
+                        name: s.name.trim(),
+                        city: s.city,
+                        country: s.country,
+                        latitude: s.latitude,
+                        longitude: s.longitude,
+                      );
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(12),
+                          onTap: () => setState(() {
+                            _selected = loc;
+                            _selectedSavedLocationId = s.isarId;
+                            _ctrl.text = s.name;
+                            _ctrl.selection = TextSelection.collapsed(
+                              offset: _ctrl.text.length,
+                            );
+                          }),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 10),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 2),
+                                  child: Icon(
+                                    Icons.star,
+                                    size: 18,
+                                    color:
+                                        AppTheme.navy.withValues(alpha: 0.75),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        s.name,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: theme.textTheme.bodyMedium
+                                            ?.copyWith(
+                                          fontWeight: FontWeight.w800,
+                                          height: 1.15,
+                                        ),
+                                      ),
+                                      if (subtitle.isNotEmpty) ...[
+                                        const SizedBox(height: 3),
+                                        Text(
+                                          subtitle,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(
+                                            color: AppTheme.navy.withValues(
+                                                alpha: 0.55),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       );
-                      if (!context.mounted) return;
-                      if (picked != null) {
-                        Navigator.pop(context, picked);
-                      }
-                    },
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 12),
-                      child: Row(
-                        children: [
-                          Icon(Icons.map_outlined,
-                              size: 18,
-                              color: AppTheme.navy.withValues(alpha: 0.75)),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              'Seleccionar en el mapa',
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                fontWeight: FontWeight.w800,
-                                color: AppTheme.navy,
-                              ),
-                            ),
-                          ),
-                          Icon(Icons.chevron_right,
-                              size: 18,
-                              color: AppTheme.navy.withValues(alpha: 0.45)),
-                        ],
-                      ),
-                    ),
-                  );
+                    }
+                    cursor = endSaved;
+                  }
                 }
-
-                var cursor = 1;
-                if (_recents.isNotEmpty) {
+                if (recentsFiltered.isNotEmpty) {
                   if (index == cursor) {
                     return Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+                      padding: const EdgeInsets.fromLTRB(4, 10, 4, 6),
                       child: Text(
                         'Sitios recientes',
                         style: theme.textTheme.labelLarge?.copyWith(
@@ -1402,9 +1654,9 @@ class _PlacePickerSheetState extends State<_PlacePickerSheet> {
                     );
                   }
                   cursor += 1;
-                  final endRecents = cursor + _recents.length;
+                  final endRecents = cursor + recentsFiltered.length;
                   if (index >= cursor && index < endRecents) {
-                    final s = _recents[index - cursor];
+                    final s = recentsFiltered[index - cursor];
                     final subtitleParts = <String>[
                       if (s.city != null && s.city!.trim().isNotEmpty) s.city!.trim(),
                       if (s.country != null && s.country!.trim().isNotEmpty)
@@ -1412,7 +1664,15 @@ class _PlacePickerSheetState extends State<_PlacePickerSheet> {
                     ];
                     final subtitle = subtitleParts.join(', ');
                     return InkWell(
-                      onTap: () => Navigator.pop(context, s),
+                      onTap: () async {
+                        setState(() {
+                          _selected = s;
+                          _selectedSavedLocationId = null;
+                          _ctrl.text = s.name;
+                          _ctrl.selection =
+                              TextSelection.collapsed(offset: _ctrl.text.length);
+                        });
+                      },
                       child: Padding(
                         padding:
                             const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
@@ -1498,9 +1758,7 @@ class _PlacePickerSheetState extends State<_PlacePickerSheet> {
                   return Padding(
                     padding: const EdgeInsets.all(16),
                     child: Text(
-                      _lastQuery.length < 3
-                          ? 'Escribe al menos 3 letras para ver sugerencias.'
-                          : 'Sin resultados.',
+                      _lastQuery.isEmpty ? 'Escribe para ver sugerencias.' : 'Sin resultados.',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: AppTheme.navy.withValues(alpha: 0.65),
                       ),
@@ -1516,7 +1774,15 @@ class _PlacePickerSheetState extends State<_PlacePickerSheet> {
                 ];
                 final subtitle = subtitleParts.join(' · ');
                 return InkWell(
-                  onTap: () => Navigator.pop(context, s),
+                  onTap: () async {
+                    setState(() {
+                      _selected = s;
+                      _selectedSavedLocationId = null;
+                      _ctrl.text = s.name;
+                      _ctrl.selection =
+                          TextSelection.collapsed(offset: _ctrl.text.length);
+                    });
+                  },
                   child: Padding(
                     padding:
                         const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
@@ -1572,16 +1838,28 @@ class _PlacePickerSheetState extends State<_PlacePickerSheet> {
   }
 }
 
-class _FixedCategorySelector extends StatelessWidget {
+class _CategorySelector extends StatelessWidget {
+  final List<CategoryCollection> categories;
   final String value;
   final bool enabled;
   final ValueChanged<String> onChanged;
 
-  const _FixedCategorySelector({
+  const _CategorySelector({
+    required this.categories,
     required this.value,
     required this.enabled,
     required this.onChanged,
   });
+
+  CategoryCollection? _findSelected() {
+    final v = value.trim().toLowerCase();
+    if (v.isEmpty) return categories.firstOrNull;
+    return categories.where((c) => c.id == v).firstOrNull ??
+        categories.firstOrNull;
+  }
+
+  IconData _iconByName(String name) =>
+      kCategoryIconPalette[name] ?? Icons.category_outlined;
 
   Future<void> _openPicker(BuildContext context) async {
     if (!enabled) return;
@@ -1594,7 +1872,8 @@ class _FixedCategorySelector extends StatelessWidget {
         borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
       ),
       builder: (_) => _CategoryPickerSheet(
-        selectedId: milestoneCategoryById(value).id,
+        categories: categories,
+        selectedId: value.trim().toLowerCase(),
       ),
     );
     if (picked != null && picked.trim().isNotEmpty) {
@@ -1605,7 +1884,10 @@ class _FixedCategorySelector extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final selected = milestoneCategoryById(value);
+    final selected = _findSelected();
+    final name = selected?.name ?? value;
+    final color = Color(selected?.colorValue ?? 0xFF9E9E9E);
+    final icon = _iconByName(selected?.iconName ?? 'category');
 
     return InkWell(
       onTap: enabled ? () => _openPicker(context) : null,
@@ -1634,15 +1916,15 @@ class _FixedCategorySelector extends StatelessWidget {
               width: 28,
               height: 28,
               decoration: BoxDecoration(
-                color: selected.color.withValues(alpha: 0.16),
+                color: color.withValues(alpha: 0.16),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: Icon(selected.icon, size: 16, color: selected.color),
+              child: Icon(icon, size: 16, color: color),
             ),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                selected.name,
+                name,
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: AppTheme.navy,
                   fontWeight: FontWeight.w600,
@@ -1662,8 +1944,12 @@ class _FixedCategorySelector extends StatelessWidget {
 }
 
 class _CategoryPickerSheet extends StatelessWidget {
+  final List<CategoryCollection> categories;
   final String selectedId;
-  const _CategoryPickerSheet({required this.selectedId});
+  const _CategoryPickerSheet({
+    required this.categories,
+    required this.selectedId,
+  });
 
   String _label(String raw) {
     final v = raw.trim();
@@ -1707,10 +1993,13 @@ class _CategoryPickerSheet extends StatelessWidget {
                 crossAxisSpacing: 10,
                 childAspectRatio: 3.6,
               ),
-              itemCount: defaultCategories.length,
+              itemCount: categories.length,
               itemBuilder: (context, index) {
-                final c = defaultCategories[index];
+                final c = categories[index];
                 final selected = c.id == selectedId;
+                final color = Color(c.colorValue);
+                final icon =
+                    kCategoryIconPalette[c.iconName] ?? Icons.category_outlined;
                 return InkWell(
                   onTap: () => Navigator.pop(context, c.id),
                   borderRadius: BorderRadius.circular(12),
@@ -1718,19 +2007,19 @@ class _CategoryPickerSheet extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(horizontal: 12),
                     decoration: BoxDecoration(
                       color: selected
-                          ? c.color.withValues(alpha: 0.18)
+                          ? color.withValues(alpha: 0.18)
                           : const Color(0xFFFAFAE8),
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
                         color: selected
-                            ? c.color.withValues(alpha: 0.85)
+                            ? color.withValues(alpha: 0.85)
                             : theme.colorScheme.outline,
                         width: selected ? 1.4 : 1,
                       ),
                     ),
                     child: Row(
                       children: [
-                        Icon(c.icon, size: 18, color: c.color),
+                        Icon(icon, size: 18, color: color),
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
@@ -1745,7 +2034,8 @@ class _CategoryPickerSheet extends StatelessWidget {
                         ),
                         if (selected)
                           Icon(Icons.check,
-                              size: 18, color: c.color.withValues(alpha: 0.95)),
+                              size: 18,
+                              color: color.withValues(alpha: 0.95)),
                       ],
                     ),
                   ),
@@ -1755,6 +2045,93 @@ class _CategoryPickerSheet extends StatelessWidget {
           ),
           const SizedBox(height: 8),
         ],
+      ),
+    );
+  }
+}
+
+class _MilestoneLocationRow extends StatelessWidget {
+  final MilestoneLocationData? value;
+  final bool enabled;
+  final VoidCallback onTap;
+  final VoidCallback onClear;
+
+  const _MilestoneLocationRow({
+    required this.value,
+    required this.enabled,
+    required this.onTap,
+    required this.onClear,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final v = value;
+    final theme = Theme.of(context);
+    final hasValue = v != null && v.name.trim().isNotEmpty;
+
+    final subtitle = hasValue && (v!.city ?? '').trim().isNotEmpty
+        ? v.city!.trim()
+        : null;
+
+    return InkWell(
+      onTap: enabled ? onTap : null,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: AppTheme.navy.withValues(alpha: 0.04),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppTheme.navy.withValues(alpha: 0.12)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Icon(
+                Icons.location_on_outlined,
+                size: 18,
+                color: AppTheme.navy.withValues(alpha: enabled ? 0.85 : 0.35),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    hasValue ? v!.name : 'Añadir ubicación',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: AppTheme.navy.withValues(alpha: hasValue ? 0.95 : 0.55),
+                      height: 1.15,
+                    ),
+                  ),
+                  if (subtitle != null) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: AppTheme.navy.withValues(alpha: 0.55),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            if (hasValue)
+              IconButton(
+                onPressed: enabled ? onClear : null,
+                icon: const Icon(Icons.close, size: 20),
+                tooltip: 'Quitar ubicación',
+                color: AppTheme.navy.withValues(alpha: enabled ? 0.7 : 0.3),
+              ),
+          ],
+        ),
       ),
     );
   }

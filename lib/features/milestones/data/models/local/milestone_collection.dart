@@ -32,6 +32,9 @@ class MilestoneCollection {
   List<String> participants = [];
   List<String> tags = [];
   DateTime eventDate = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// Link to a saved favorite location (Isar `SavedLocationCollection.isarId`).
+  int? savedLocationId;
   /// New location structure (preferred).
   MilestoneLocationDataEmbed? location;
 
@@ -62,6 +65,7 @@ class MilestoneCollection {
       ..participants = List<String>.from(milestone.participantIds)
       ..tags = List<String>.from(milestone.tags)
       ..eventDate = milestone.eventDate
+      ..savedLocationId = milestone.savedLocationId
       ..location = (() {
         final name = milestone.locationName;
         final lat = milestone.latitude;
@@ -71,6 +75,8 @@ class MilestoneCollection {
         }
         return MilestoneLocationDataEmbed()
           ..name = name
+          ..city = milestone.locationCity
+          ..country = milestone.locationCountry
           ..latitude = lat
           ..longitude = lon;
       })()
@@ -110,6 +116,7 @@ class MilestoneCollection {
       mediaItems: mediaItems.map((e) => e.toDomain()).toList(),
       galleryCoverIndex: galleryCoverIndex,
       eventDate: eventDate,
+      savedLocationId: savedLocationId,
       locationName: name,
       locationCity: (loc?.city?.trim().isNotEmpty ?? false) ? loc!.city!.trim() : null,
       locationCountry:

@@ -16,6 +16,9 @@ import 'core/services/cloud_sync_service.dart';
 import 'core/services/cleanup_service.dart';
 import 'core/services/space_cleanup_service.dart';
 import 'core/services/premium_service.dart';
+import 'core/services/milestone_location_resolver.dart';
+import 'core/constants/milestone_categories.dart';
+import 'core/services/local_user_settings_service.dart';
 import 'data/datasources/google_drive_datasource.dart';
 import 'data/datasources/isar_milestone_datasource.dart';
 import 'data/datasources/milestone_remote_datasource.dart';
@@ -29,9 +32,11 @@ import 'features/auth/domain/repositories/auth_repository.dart';
 import 'features/auth/presentation/bloc/auth_cubit.dart';
 import 'features/milestones/data/datasources/isar_person_datasource.dart';
 import 'features/milestones/data/datasources/isar_category_datasource.dart';
+import 'features/milestones/data/datasources/isar_saved_location_datasource.dart';
 import 'features/milestones/data/models/local/milestone_collection.dart';
 import 'features/milestones/data/models/local/category_collection.dart';
 import 'features/milestones/data/models/local/person_collection.dart';
+import 'features/milestones/data/models/local/saved_location_collection.dart';
 import 'features/profile/data/datasources/profile_remote_datasource.dart';
 import 'features/profile/data/repositories/profile_repository_impl.dart';
 import 'features/profile/domain/repositories/profile_repository.dart';
@@ -77,7 +82,12 @@ Future<void> init() async {
     var peopleEnabled = true;
     try {
       isar = await Isar.open(
-        [MilestoneCollectionSchema, PersonCollectionSchema, CategoryCollectionSchema],
+        [
+          MilestoneCollectionSchema,
+          PersonCollectionSchema,
+          CategoryCollectionSchema,
+          SavedLocationCollectionSchema,
+        ],
         name: 'lifetime',
         directory: dir.path,
       );
@@ -90,7 +100,11 @@ Future<void> init() async {
       await existing?.close();
       try {
         isar = await Isar.open(
-          [MilestoneCollectionSchema, CategoryCollectionSchema],
+          [
+            MilestoneCollectionSchema,
+            CategoryCollectionSchema,
+            SavedLocationCollectionSchema,
+          ],
           name: 'lifetime',
           directory: dir.path,
         );
@@ -113,6 +127,9 @@ Future<void> init() async {
       sl.registerLazySingleton<IsarCategoryDataSource>(
         () => IsarCategoryDataSourceImpl(sl()),
       );
+      sl.registerLazySingleton<IsarSavedLocationDataSource>(
+        () => IsarSavedLocationDataSourceImpl(sl()),
+      );
     } else {
       sl.registerLazySingleton<IsarMilestoneDataSource>(
         () => _WebMilestoneDataSource(),
@@ -122,6 +139,9 @@ Future<void> init() async {
       );
       sl.registerLazySingleton<IsarCategoryDataSource>(
         () => _WebCategoryDataSource(),
+      );
+      sl.registerLazySingleton<IsarSavedLocationDataSource>(
+        () => _WebSavedLocationDataSource(),
       );
     }
   } else {
@@ -134,12 +154,25 @@ Future<void> init() async {
     sl.registerLazySingleton<IsarCategoryDataSource>(
       () => _WebCategoryDataSource(),
     );
+    sl.registerLazySingleton<IsarSavedLocationDataSource>(
+      () => _WebSavedLocationDataSource(),
+    );
+  }
+
+  // ─── Local seeds ──────────────────────────────────────────────────────────
+  try {
+    await sl<IsarCategoryDataSource>().ensureSeeded();
+  } catch (_) {
+    // Best-effort seed; app remains usable without it.
   }
 
   // ─── Services ─────────────────────────────────────────────────────────────
   final premiumService = PremiumService();
   await premiumService.init();
   sl.registerLazySingleton<PremiumService>(() => premiumService);
+  sl.registerLazySingleton<LocalUserSettingsService>(
+    () => LocalUserSettingsService(),
+  );
   // Note: DriveApi is constructed per-sync with fresh auth headers.
   sl.registerLazySingleton<CloudSyncService>(
     () => CloudSyncService(sl(), sl<GoogleSignIn>(), sl<IsarMilestoneDataSource>(), sl<IsarPersonDataSource>()),
@@ -152,6 +185,9 @@ Future<void> init() async {
   );
   sl.registerLazySingleton<FaceCropperService>(
     () => FaceCropperServiceImpl(personDs: sl<IsarPersonDataSource>()),
+  );
+  sl.registerLazySingleton<MilestoneLocationResolver>(
+    () => const MilestoneLocationResolver(),
   );
 
   // ─── Data Sources ─────────────────────────────────────────────────────────
@@ -209,7 +245,9 @@ Future<void> init() async {
   sl.registerFactory<PeopleCubit>(
       () => PeopleCubit(sl(), sl(), sl()));
   sl.registerFactory<MapCubit>(() => MapCubit(sl()));
-  sl.registerFactory<AuthCubit>(() => AuthCubit(sl(), sl(), sl(), sl()));
+  sl.registerFactory<AuthCubit>(
+    () => AuthCubit(sl(), sl(), sl(), sl(), sl()),
+  );
 
   // ─── Local seeds ──────────────────────────────────────────────────────────
   // (No category seeding: categories are now fixed constants.)
@@ -329,6 +367,62 @@ class _WebMilestoneDataSource implements IsarMilestoneDataSource {
   @override
   Future<List<MilestoneCollection>> fetchPending() async =>
       _store.where((c) => c.syncStatus == SyncStatus.pending).toList();
+
+  @override
+  Future<void> renameLocationForCoordinates({
+    required double latitude,
+    required double longitude,
+    required String newName,
+  }) async {
+    final name = newName.trim();
+    if (name.isEmpty) return;
+    final latKey = latitude.toStringAsFixed(5);
+    final lonKey = longitude.toStringAsFixed(5);
+
+    for (final m in _store) {
+      final loc = m.location;
+      final lat = loc?.latitude ?? m.latitude;
+      final lon = loc?.longitude ?? m.longitude;
+      if (lat == null || lon == null) continue;
+      if (lat.toStringAsFixed(5) != latKey) continue;
+      if (lon.toStringAsFixed(5) != lonKey) continue;
+
+      final currentName = (loc?.name ?? m.locationName ?? '').trim();
+      if (currentName.isEmpty) continue;
+      if (currentName == name) continue;
+
+      (m.location ??= MilestoneLocationDataEmbed())
+        ..name = name
+        ..latitude = lat
+        ..longitude = lon;
+      m.locationName = name;
+    }
+  }
+
+  @override
+  Future<void> syncSavedLocationToMilestones({
+    required int savedLocationId,
+    required String name,
+    required String? city,
+    required String? country,
+    required double? latitude,
+    required double? longitude,
+  }) async {
+    final n = name.trim();
+    if (n.isEmpty) return;
+    for (final m in _store) {
+      if (m.savedLocationId != savedLocationId) continue;
+      (m.location ??= MilestoneLocationDataEmbed())
+        ..name = n
+        ..city = (city ?? '').trim().isEmpty ? null : city!.trim()
+        ..country = (country ?? '').trim().isEmpty ? null : country!.trim()
+        ..latitude = latitude
+        ..longitude = longitude;
+      m.locationName = n;
+      m.latitude = latitude;
+      m.longitude = longitude;
+    }
+  }
 }
 
 class _WebPersonDataSource implements IsarPersonDataSource {
@@ -381,13 +475,15 @@ class _WebCategoryDataSource implements IsarCategoryDataSource {
     if (_seeded) return;
     _seeded = true;
     if (_store.isNotEmpty) return;
-    _store.addAll([
-      _seed(name: 'General', iconName: 'category', colorValue: 0xFF9E9E9E),
-      _seed(name: 'Cumpleaños', iconName: 'cake', colorValue: 0xFFFFC1CC),
-      _seed(name: 'Boda', iconName: 'favorite', colorValue: 0xFFF48FB1),
-      _seed(name: 'Nacimiento', iconName: 'child_care', colorValue: 0xFF4DB6AC),
-      _seed(name: 'Especial', iconName: 'star', colorValue: 0xFFFFD54F),
-    ]);
+    _store.addAll(
+      defaultCategories.map(
+        (c) => CategoryCollection()
+          ..id = c.id
+          ..name = c.name
+          ..iconName = iconNameForDefaultCategory(c)
+          ..colorValue = c.color.value,
+      ),
+    );
   }
 
   @override
@@ -398,56 +494,58 @@ class _WebCategoryDataSource implements IsarCategoryDataSource {
   }
 
   @override
-  Future<CategoryCollection?> fetchById(int id) async {
+  Future<CategoryCollection?> fetchByCategoryId(String id) async {
     await ensureSeeded();
-    return _store.where((c) => c.id == id).firstOrNull;
-  }
-
-  @override
-  Future<CategoryCollection?> fetchByName(String name) async {
-    await ensureSeeded();
-    return _store
-        .where((c) => c.name.toLowerCase() == name.toLowerCase())
-        .firstOrNull;
+    final v = id.trim().toLowerCase();
+    return _store.where((c) => c.id.toLowerCase() == v).firstOrNull;
   }
 
   @override
   Future<CategoryCollection> upsert(CategoryCollection c) async {
     await ensureSeeded();
-    final existing = await fetchByName(c.name);
-    if (existing != null) {
-      c.id = existing.id;
-      c.isSystem = existing.isSystem;
-      _store.remove(existing);
-      _store.add(c);
-      return c;
-    }
-    c.id = (_store.map((e) => e.id).fold<int>(0, (a, b) => a > b ? a : b)) + 1;
+    final existing = await fetchByCategoryId(c.id);
+    if (existing != null) _store.remove(existing);
     _store.add(c);
     return c;
   }
 
   @override
-  Future<void> deleteById(int id) async {
+  Future<void> deleteByCategoryId(String id) async {
     await ensureSeeded();
-    final existing = await fetchById(id);
-    if (existing == null) return;
-    if (existing.isSystem) return;
-    _store.remove(existing);
-  }
-
-  static CategoryCollection _seed({
-    required String name,
-    required String iconName,
-    required int colorValue,
-  }) {
-    return CategoryCollection()
-      ..id = (_tmpId++)
-      ..name = name
-      ..iconName = iconName
-      ..colorValue = colorValue
-      ..isSystem = true;
+    final existing = await fetchByCategoryId(id);
+    if (existing != null) _store.remove(existing);
   }
 }
 
-int _tmpId = 1;
+class _WebSavedLocationDataSource implements IsarSavedLocationDataSource {
+  final List<SavedLocationCollection> _store = [];
+  int _nextId = 1;
+
+  @override
+  Future<List<SavedLocationCollection>> fetchAll() async {
+    final sorted = [..._store]..sort((a, b) => a.name.compareTo(b.name));
+    return sorted;
+  }
+
+  @override
+  Future<SavedLocationCollection?> fetchById(Id isarId) async =>
+      _store.where((e) => e.isarId == isarId).firstOrNull;
+
+  @override
+  Future<SavedLocationCollection> upsert(SavedLocationCollection c) async {
+    _store.removeWhere((e) => e.isarId == c.isarId);
+    if (c.isarId == Isar.autoIncrement) {
+      c.isarId = _nextId++;
+    } else {
+      _nextId = (_nextId <= c.isarId) ? (c.isarId + 1) : _nextId;
+    }
+    _store.add(c);
+    return c;
+  }
+
+  @override
+  Future<void> deleteById(Id isarId) async =>
+      _store.removeWhere((e) => e.isarId == isarId);
+}
+
+// (Local user settings are stored via SharedPreferences, not Isar.)

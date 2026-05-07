@@ -22,6 +22,21 @@ abstract class IsarMilestoneDataSource {
     required String driveFolderId,
   });
   Future<List<MilestoneCollection>> fetchPending();
+
+  Future<void> renameLocationForCoordinates({
+    required double latitude,
+    required double longitude,
+    required String newName,
+  });
+
+  Future<void> syncSavedLocationToMilestones({
+    required int savedLocationId,
+    required String name,
+    required String? city,
+    required String? country,
+    required double? latitude,
+    required double? longitude,
+  });
 }
 
 class IsarMilestoneDataSourceImpl implements IsarMilestoneDataSource {
@@ -155,4 +170,80 @@ class IsarMilestoneDataSourceImpl implements IsarMilestoneDataSource {
           .filter()
           .syncStatusEqualTo(SyncStatus.pending)
           .findAll();
+
+  @override
+  Future<void> renameLocationForCoordinates({
+    required double latitude,
+    required double longitude,
+    required String newName,
+  }) async {
+    final name = newName.trim();
+    if (name.isEmpty) return;
+    final latKey = latitude.toStringAsFixed(5);
+    final lonKey = longitude.toStringAsFixed(5);
+
+    final all = await _isar.milestoneCollections.where().findAll();
+    final toUpdate = <MilestoneCollection>[];
+
+    for (final m in all) {
+      final loc = m.location;
+      final lat = loc?.latitude ?? m.latitude;
+      final lon = loc?.longitude ?? m.longitude;
+      if (lat == null || lon == null) continue;
+      if (lat.toStringAsFixed(5) != latKey) continue;
+      if (lon.toStringAsFixed(5) != lonKey) continue;
+
+      final currentName = (loc?.name ?? m.locationName ?? '').trim();
+      if (currentName.isEmpty) continue;
+      if (currentName == name) continue;
+
+      (m.location ??= MilestoneLocationDataEmbed())
+        ..name = name
+        ..latitude = lat
+        ..longitude = lon;
+      m.locationName = name;
+      toUpdate.add(m);
+    }
+
+    if (toUpdate.isEmpty) return;
+    await _isar.writeTxn(() async {
+      await _isar.milestoneCollections.putAll(toUpdate);
+    });
+  }
+
+  @override
+  Future<void> syncSavedLocationToMilestones({
+    required int savedLocationId,
+    required String name,
+    required String? city,
+    required String? country,
+    required double? latitude,
+    required double? longitude,
+  }) async {
+    final n = name.trim();
+    if (n.isEmpty) return;
+    final all = await _isar.milestoneCollections.where().findAll();
+    final toUpdate = <MilestoneCollection>[];
+
+    for (final m in all) {
+      if (m.savedLocationId != savedLocationId) continue;
+
+      (m.location ??= MilestoneLocationDataEmbed())
+        ..name = n
+        ..city = (city ?? '').trim().isEmpty ? null : city!.trim()
+        ..country = (country ?? '').trim().isEmpty ? null : country!.trim()
+        ..latitude = latitude
+        ..longitude = longitude;
+
+      m.locationName = n;
+      m.latitude = latitude;
+      m.longitude = longitude;
+      toUpdate.add(m);
+    }
+
+    if (toUpdate.isEmpty) return;
+    await _isar.writeTxn(() async {
+      await _isar.milestoneCollections.putAll(toUpdate);
+    });
+  }
 }

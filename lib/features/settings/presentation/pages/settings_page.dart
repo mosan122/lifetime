@@ -9,6 +9,8 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../../injection_container.dart';
 import '../../../auth/presentation/bloc/auth_cubit.dart';
 import 'manage_people_page.dart';
+import 'manage_categories_page.dart';
+import 'manage_locations_page.dart';
 import '../bloc/export_cubit.dart';
 import '../bloc/people_cubit.dart';
 
@@ -62,7 +64,7 @@ class _SettingsView extends StatelessWidget {
             _ExportTile(),
             ListTile(
               leading: const Icon(Icons.people_outline, color: AppTheme.navy),
-              title: const Text('Gestionar personas'),
+              title: const Text('Personas'),
               subtitle: const Text('Nombres y foto de perfil'),
               trailing: const Icon(Icons.chevron_right, color: AppTheme.navy),
               onTap: () {
@@ -75,6 +77,28 @@ class _SettingsView extends StatelessWidget {
                   ),
                 );
               },
+            ),
+            ListTile(
+              leading: const Icon(Icons.place_outlined, color: AppTheme.navy),
+              title: const Text('Lugares'),
+              subtitle: const Text('Tus lugares guardados'),
+              trailing: const Icon(Icons.chevron_right, color: AppTheme.navy),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const ManageLocationsPage(),
+                ),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.category_outlined, color: AppTheme.navy),
+              title: const Text('Categorías'),
+              subtitle: const Text('Crea y personaliza categorías'),
+              trailing: const Icon(Icons.chevron_right, color: AppTheme.navy),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const ManageCategoriesPage(),
+                ),
+              ),
             ),
             const Divider(height: 32, indent: 16, endIndent: 16),
             const _SectionHeader(label: 'Cuenta'),

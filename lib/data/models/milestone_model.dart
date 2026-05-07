@@ -14,6 +14,7 @@ class MilestoneModel extends Milestone {
     super.mediaItems = const [],
     super.galleryCoverIndex = 0,
     required super.eventDate,
+    super.savedLocationId,
     super.locationName,
     super.locationCity,
     super.locationCountry,
@@ -54,6 +55,8 @@ class MilestoneModel extends Milestone {
       galleryCoverIndex:
           (json['gallery_cover_index'] as num?)?.toInt() ?? 0,
       eventDate: DateTime.parse(json['event_date'] as String),
+      // Backend does not persist this (yet). It remains local-only.
+      savedLocationId: null,
       locationName: json['location_name'] as String?,
       // Backend does not persist these (yet). They remain local-only.
       locationCity: null,

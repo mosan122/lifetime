@@ -5,7 +5,7 @@ class AuthUser extends Equatable {
   final String email;
   final String? displayName;
   final String? photoUrl;
-  final String accessToken;
+  final String? accessToken;
 
   const AuthUser({
     required this.id,

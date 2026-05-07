@@ -17,6 +17,7 @@ class CreateMilestoneUseCase implements UseCase<Milestone, CreateMilestoneParams
       title: params.title,
       userNote: params.userNote,
       eventDate: params.eventDate,
+      savedLocationId: params.savedLocationId,
       locationName: params.locationName,
       locationCity: params.locationCity,
       locationCountry: params.locationCountry,
@@ -37,6 +38,7 @@ class CreateMilestoneParams extends Equatable {
   final String? title;
   final String userNote;
   final DateTime eventDate;
+  final int? savedLocationId;
   final String? locationName;
   final String? locationCity;
   final String? locationCountry;
@@ -54,6 +56,7 @@ class CreateMilestoneParams extends Equatable {
     this.title,
     required this.userNote,
     required this.eventDate,
+    this.savedLocationId,
     this.locationName,
     this.locationCity,
     this.locationCountry,
@@ -73,6 +76,7 @@ class CreateMilestoneParams extends Equatable {
         title,
         userNote,
         eventDate,
+        savedLocationId,
         locationName,
         locationCity,
         locationCountry,

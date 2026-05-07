@@ -15,6 +15,9 @@ class Milestone extends Equatable {
   /// Índice en [mediaItems] del medio que se muestra en el timeline y en el encabezado del detalle.
   final int galleryCoverIndex;
   final DateTime eventDate;
+  /// Enlace al favorito en Isar (Mis lugares). Si se borra el favorito, el hito sigue teniendo
+  /// `locationName`/coords como copia de seguridad.
+  final int? savedLocationId;
   final String? locationName;
   final String? locationCity;
   final String? locationCountry;
@@ -39,6 +42,7 @@ class Milestone extends Equatable {
     this.mediaItems = const [],
     this.galleryCoverIndex = 0,
     required this.eventDate,
+    this.savedLocationId,
     this.locationName,
     this.locationCity,
     this.locationCountry,
@@ -63,6 +67,7 @@ class Milestone extends Equatable {
         mediaItems,
         galleryCoverIndex,
         eventDate,
+        savedLocationId,
         locationName,
         locationCity,
         locationCountry,

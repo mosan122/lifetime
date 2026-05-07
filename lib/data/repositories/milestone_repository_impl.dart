@@ -116,6 +116,7 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
     String? title,
     required String userNote,
     required DateTime eventDate,
+    int? savedLocationId,
     String? locationName,
     String? locationCity,
     String? locationCountry,
@@ -146,6 +147,7 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
         description: userNote,
         userId: userId,
         eventDate: eventDate,
+        savedLocationId: savedLocationId,
         locationName: locationName,
         locationCity: locationCity,
         locationCountry: locationCountry,
@@ -272,6 +274,7 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
         description: narrative ?? userNote,
         userId: userId,
         eventDate: eventDate,
+        savedLocationId: savedLocationId,
         locationName: locationName,
         locationCity: locationCity,
         locationCountry: locationCountry,
@@ -345,6 +348,7 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
     required String description,
     String? categoryId,
     DateTime? eventDate,
+    int? savedLocationId,
     String? locationName,
     String? locationCity,
     String? locationCountry,
@@ -393,6 +397,7 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
       }
       _clampGalleryCoverIndex(existing);
       if (eventDate != null) existing.eventDate = eventDate;
+      existing.savedLocationId = savedLocationId;
       if (locationName != null) existing.locationName = locationName;
       if (latitude != null) existing.latitude = latitude;
       if (longitude != null) existing.longitude = longitude;
@@ -548,6 +553,7 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
     required String? description,
     required String userId,
     required DateTime eventDate,
+    required int? savedLocationId,
     required String? locationName,
     required String? locationCity,
     required String? locationCountry,
@@ -572,6 +578,7 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
         ..participants = List<String>.from(participantIds)
         ..tags = List<String>.from(tags)
         ..eventDate = eventDate
+        ..savedLocationId = savedLocationId
         ..location = (() {
           final name = locationName;
           final lat = latitude;

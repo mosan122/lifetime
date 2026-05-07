@@ -5,5 +5,9 @@ import '../entities/profile.dart';
 
 abstract class ProfileRepository {
   Future<Either<Failure, Profile>> fetchProfile(String userId);
+  Future<Either<Failure, bool>> upsertProfileAfterLogin({
+    required String userId,
+    required String email,
+  });
 }
 

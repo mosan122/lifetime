@@ -55,6 +55,7 @@ class _MilestonesMapPageState extends State<MilestonesMapPage> {
     final authState = context.read<AuthCubit>().state;
     final accessToken =
         authState is AuthAuthenticated ? authState.user.accessToken : null;
+    final canUseDrive = accessToken != null && accessToken.trim().isNotEmpty;
 
     return Scaffold(
       appBar: AppBar(
@@ -113,7 +114,7 @@ class _MilestonesMapPageState extends State<MilestonesMapPage> {
                               point: entry.point,
                               child: _MilestoneMarker(
                                 milestone: entry.milestone,
-                                accessToken: accessToken,
+                                accessToken: canUseDrive ? accessToken : null,
                                 onTap: () => _onMarkerTap(
                                   entry.milestone,
                                   entry.point,
@@ -143,9 +144,9 @@ class _MilestonesMapPageState extends State<MilestonesMapPage> {
                       padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                       child: _MilestonePreviewCard(
                         milestone: _selected!,
-                        accessToken: accessToken,
+                        accessToken: canUseDrive ? accessToken : null,
                         onViewDetail: () => _openDetail(context, _selected!,
-                            accessToken: accessToken),
+                            accessToken: canUseDrive ? accessToken : null),
                         onClose: () => setState(() => _selected = null),
                       ),
                     ),
@@ -313,7 +314,9 @@ class _MilestoneMarker extends StatelessWidget {
     final border = category.color;
 
     final hasLocalCover = milestone.mediaItems.isNotEmpty;
-    final hasDriveCover = milestone.driveFileId != null && accessToken != null;
+    final hasDriveCover = milestone.driveFileId != null &&
+        accessToken != null &&
+        accessToken?.trim().isNotEmpty == true;
 
     Widget thumb;
     if (hasLocalCover) {
@@ -411,7 +414,9 @@ class _MilestonePreviewCard extends StatelessWidget {
         '${d.day.toString().padLeft(2, '0')} / ${d.month.toString().padLeft(2, '0')} / ${d.year}';
 
     final hasLocal = milestone.mediaItems.isNotEmpty;
-    final hasDrive = milestone.driveFileId != null && accessToken != null;
+    final hasDrive = milestone.driveFileId != null &&
+        accessToken != null &&
+        accessToken?.trim().isNotEmpty == true;
 
     Widget? header;
     if (hasLocal) {

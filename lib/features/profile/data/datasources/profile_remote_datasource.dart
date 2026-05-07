@@ -6,6 +6,11 @@ class ProfileNotFoundException implements Exception {
 
 abstract class ProfileRemoteDataSource {
   Future<bool> fetchIsPremium(String userId);
+  Future<bool> upsertProfileAfterLogin({
+    required String userId,
+    required String email,
+    required DateTime lastConnection,
+  });
 }
 
 class ProfileRemoteDataSourceImpl implements ProfileRemoteDataSource {
@@ -31,6 +36,32 @@ class ProfileRemoteDataSourceImpl implements ProfileRemoteDataSource {
       }
       rethrow;
     }
+  }
+
+  @override
+  Future<bool> upsertProfileAfterLogin({
+    required String userId,
+    required String email,
+    required DateTime lastConnection,
+  }) async {
+    bool existingPremium = false;
+    try {
+      existingPremium = await fetchIsPremium(userId);
+    } on ProfileNotFoundException {
+      existingPremium = false;
+    }
+
+    await _supabase.from('profiles').upsert(
+      {
+        'id': userId,
+        'email': email,
+        'last_connection': lastConnection.toIso8601String(),
+        'is_premium': existingPremium,
+      },
+      onConflict: 'id',
+    );
+
+    return existingPremium;
   }
 }
 
