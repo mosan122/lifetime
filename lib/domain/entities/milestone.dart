@@ -16,11 +16,13 @@ class Milestone extends Equatable {
   final int galleryCoverIndex;
   final DateTime eventDate;
   final String? locationName;
+  final String? locationCity;
+  final String? locationCountry;
   final double? latitude;
   final double? longitude;
-  /// Local category reference (Isar `CategoryCollection.id`).
-  /// 1 is reserved for the seeded "General" category.
-  final int categoryId;
+  /// Category id from a fixed, closed list (see `defaultCategories`).
+  /// If null/unknown, UI should fall back to `otros`.
+  final String? categoryId;
   final bool isPublic;
   final DateTime createdAt;
   final String? driveFileId;
@@ -38,9 +40,11 @@ class Milestone extends Equatable {
     this.galleryCoverIndex = 0,
     required this.eventDate,
     this.locationName,
+    this.locationCity,
+    this.locationCountry,
     this.latitude,
     this.longitude,
-    this.categoryId = 1,
+    this.categoryId,
     this.isPublic = false,
     required this.createdAt,
     this.driveFileId,
@@ -60,6 +64,8 @@ class Milestone extends Equatable {
         galleryCoverIndex,
         eventDate,
         locationName,
+        locationCity,
+        locationCountry,
         latitude,
         longitude,
         categoryId,

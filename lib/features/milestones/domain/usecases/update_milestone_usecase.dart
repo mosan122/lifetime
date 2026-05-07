@@ -22,6 +22,8 @@ class UpdateMilestoneUseCase implements UseCase<Milestone, UpdateMilestoneParams
       categoryId: params.categoryId,
       eventDate: params.eventDate,
       locationName: params.locationName,
+      locationCity: params.locationCity,
+      locationCountry: params.locationCountry,
       latitude: params.latitude,
       longitude: params.longitude,
       participantIds: params.participantIds,
@@ -37,9 +39,11 @@ class UpdateMilestoneParams extends Equatable {
   final String id;
   final String title;
   final String description;
-  final int? categoryId;
+  final String? categoryId;
   final DateTime? eventDate;
   final String? locationName;
+  final String? locationCity;
+  final String? locationCountry;
   final double? latitude;
   final double? longitude;
   final List<String> participantIds;
@@ -55,6 +59,8 @@ class UpdateMilestoneParams extends Equatable {
     this.categoryId,
     this.eventDate,
     this.locationName,
+    this.locationCity,
+    this.locationCountry,
     this.latitude,
     this.longitude,
     this.participantIds = const [],
@@ -67,7 +73,7 @@ class UpdateMilestoneParams extends Equatable {
   @override
   List<Object?> get props => [
         id, title, description, categoryId, eventDate,
-        locationName, latitude, longitude,
+        locationName, locationCity, locationCountry, latitude, longitude,
         participantIds, mediaToKeep, newMediaFiles, newMediaTypes,
         galleryCoverIndex,
       ];

@@ -8,12 +8,12 @@ import 'package:photo_view/photo_view_gallery.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../../../core/constants/milestone_categories.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../domain/entities/media_item.dart';
 import '../../../../domain/entities/milestone.dart';
 import '../../../../injection_container.dart';
 import '../../../auth/presentation/bloc/auth_cubit.dart';
-import '../../data/datasources/isar_category_datasource.dart';
 import '../../data/datasources/isar_person_datasource.dart';
 import '../bloc/delete_milestone_cubit.dart';
 import '../widgets/drive_thumbnail.dart';
@@ -1052,79 +1052,37 @@ class _NoImageHeader extends StatelessWidget {
 }
 
 class _CategoryChip extends StatelessWidget {
-  final int categoryId;
+  final String? categoryId;
   const _CategoryChip({required this.categoryId});
 
   @override
   Widget build(BuildContext context) {
-    if (categoryId == 1) return const SizedBox.shrink(); // General
-
-    final ds = sl<IsarCategoryDataSource>();
     final theme = Theme.of(context);
+    final c = milestoneCategoryById(categoryId);
+    if (c.id == 'otros') return const SizedBox.shrink();
 
-    return FutureBuilder(
-      future: ds.fetchById(categoryId),
-      builder: (context, snapshot) {
-        final c = snapshot.data;
-        if (c == null) return const SizedBox.shrink();
-        if (c.name.trim().toLowerCase() == 'general') {
-          return const SizedBox.shrink();
-        }
-        final color = Color(c.colorValue);
-        final icon = _iconByName(c.iconName) ?? Icons.category_outlined;
-
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.14),
-            borderRadius: BorderRadius.circular(999),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: c.color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(c.icon, size: 14, color: c.color),
+          const SizedBox(width: 6),
+          Text(
+            c.name,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: AppTheme.navy,
+              fontWeight: FontWeight.w600,
+            ),
           ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 14, color: color),
-              const SizedBox(width: 6),
-              Text(
-                c.name,
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: AppTheme.navy,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-        );
-      },
+        ],
+      ),
     );
   }
 }
 
-IconData? _iconByName(String name) {
-  switch (name) {
-    case 'cake':
-      return Icons.cake_outlined;
-    case 'favorite':
-      return Icons.favorite_outline;
-    case 'child_care':
-      return Icons.child_care_outlined;
-    case 'star':
-      return Icons.star_outline;
-    case 'celebration':
-      return Icons.celebration_outlined;
-    case 'photo':
-      return Icons.photo_outlined;
-    case 'travel':
-      return Icons.flight_takeoff_outlined;
-    case 'home':
-      return Icons.home_outlined;
-    case 'work':
-      return Icons.work_outline;
-    case 'school':
-      return Icons.school_outlined;
-    case 'pets':
-      return Icons.pets_outlined;
-    case 'category':
-    default:
-      return Icons.category_outlined;
-  }
-}
+// (Fixed categories: no Isar lookup needed.)

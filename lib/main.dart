@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'core/theme/app_theme.dart';
 import 'features/auth/presentation/bloc/auth_cubit.dart';
@@ -43,6 +44,15 @@ class LifeTimeApp extends StatelessWidget {
         title: 'LifeTime',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.light,
+        locale: const Locale('es', 'ES'),
+        supportedLocales: const [
+          Locale('es', 'ES'),
+        ],
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
         home: const TimelinePage(),
       ),
     );

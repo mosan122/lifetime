@@ -9,6 +9,15 @@ part 'milestone_collection.g.dart';
 // 
 enum SyncStatus { synced, pending }
 
+@embedded
+class MilestoneLocationDataEmbed {
+  String? name;
+  String? city;
+  String? country;
+  double? latitude;
+  double? longitude;
+}
+
 @Collection()
 class MilestoneCollection {
   Id isarId = Isar.autoIncrement;
@@ -23,10 +32,14 @@ class MilestoneCollection {
   List<String> participants = [];
   List<String> tags = [];
   DateTime eventDate = DateTime.fromMillisecondsSinceEpoch(0);
+  /// New location structure (preferred).
+  MilestoneLocationDataEmbed? location;
+
+  /// Legacy fields (kept for backward compatibility with older local DB data).
   String? locationName;
   double? latitude;
   double? longitude;
-  int categoryId = 1;
+  String? categoryId;
   late bool isPublic;
   DateTime createdAt = DateTime.fromMillisecondsSinceEpoch(0);
   String? driveFileId;
@@ -49,6 +62,18 @@ class MilestoneCollection {
       ..participants = List<String>.from(milestone.participantIds)
       ..tags = List<String>.from(milestone.tags)
       ..eventDate = milestone.eventDate
+      ..location = (() {
+        final name = milestone.locationName;
+        final lat = milestone.latitude;
+        final lon = milestone.longitude;
+        if ((name == null || name.trim().isEmpty) && lat == null && lon == null) {
+          return null;
+        }
+        return MilestoneLocationDataEmbed()
+          ..name = name
+          ..latitude = lat
+          ..longitude = lon;
+      })()
       ..locationName = milestone.locationName
       ..latitude = milestone.latitude
       ..longitude = milestone.longitude
@@ -63,6 +88,16 @@ class MilestoneCollection {
   }
 
   Milestone toDomain() {
+    final loc = location;
+    final legacyName = locationName;
+    final name = (loc?.name?.trim().isNotEmpty ?? false)
+        ? loc!.name!.trim()
+        : (legacyName?.trim().isNotEmpty ?? false)
+            ? legacyName!.trim()
+            : null;
+    final lat = loc?.latitude ?? latitude;
+    final lon = loc?.longitude ?? longitude;
+
     return Milestone(
       id: id,
       userId: userId,
@@ -75,9 +110,12 @@ class MilestoneCollection {
       mediaItems: mediaItems.map((e) => e.toDomain()).toList(),
       galleryCoverIndex: galleryCoverIndex,
       eventDate: eventDate,
-      locationName: locationName,
-      latitude: latitude,
-      longitude: longitude,
+      locationName: name,
+      locationCity: (loc?.city?.trim().isNotEmpty ?? false) ? loc!.city!.trim() : null,
+      locationCountry:
+          (loc?.country?.trim().isNotEmpty ?? false) ? loc!.country!.trim() : null,
+      latitude: lat,
+      longitude: lon,
       categoryId: categoryId,
       isPublic: isPublic,
       createdAt: createdAt,

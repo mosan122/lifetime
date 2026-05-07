@@ -7,6 +7,9 @@ import 'package:image_picker/image_picker.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
 
 import '../../../../core/failures/failure.dart';
+import '../../../../core/constants/milestone_categories.dart';
+import '../../../../core/services/place_autocomplete_service.dart';
+import '../../../../core/models/milestone_location_data.dart';
 import '../../../../core/utils/milestone_title_utils.dart';
 import '../../../../core/services/location_service.dart';
 import '../../../../core/theme/app_theme.dart';
@@ -14,17 +17,17 @@ import '../../../../domain/entities/media_item.dart';
 import '../../../../domain/entities/milestone.dart';
 import '../../../../domain/services/face_cropper_service.dart';
 import '../../../../injection_container.dart';
+import '../../../../data/datasources/isar_milestone_datasource.dart';
 import '../../../auth/presentation/bloc/auth_cubit.dart';
 import '../bloc/create_milestone_cubit.dart';
 import '../bloc/edit_milestone_cubit.dart';
-import '../../data/datasources/isar_category_datasource.dart';
 import '../../data/datasources/isar_person_datasource.dart';
-import '../../data/models/local/category_collection.dart';
 import '../../data/models/local/media_item_embed.dart';
 import '../../data/models/local/person_collection.dart';
 import '../widgets/face_source_bottom_sheet.dart';
 import '../widgets/milestone_participant_picker_sheet.dart';
 import '../widgets/person_avatar_badge.dart';
+import 'location_picker_page.dart';
 
 int _clampGalleryCoverIndexForCount(int coverIndex, int mediaCount) {
   if (mediaCount <= 0) return 0;
@@ -101,10 +104,12 @@ class _CreateMilestoneViewState extends State<_CreateMilestoneView> {
   final List<PersonCollection> _participants = [];
   final _faceCropService = sl<FaceCropperService>();
   final _personDs = sl<IsarPersonDataSource>();
+  final _placeAutocomplete = PlaceAutocompleteService();
   DateTime _selectedDate = DateTime.now();
-  int _categoryId = 1;
+  String _categoryId = 'otros';
   final List<_SelectedMedia> _selectedMedia = [];
   LocationData? _locationData;
+  MilestoneLocationData? _pickedPlace;
   bool _fetchingLocation = true;
   int? _importingImagesTotal;
   int _importingImagesDone = 0;
@@ -122,7 +127,14 @@ class _CreateMilestoneViewState extends State<_CreateMilestoneView> {
         _locationData = data;
         _fetchingLocation = false;
         if (data?.placeName != null) {
-          _locationController.text = data!.placeName!;
+          if (_locationController.text.trim().isEmpty) {
+            _locationController.text = data!.placeName!;
+          }
+          _pickedPlace = MilestoneLocationData(
+            name: data!.placeName!,
+            latitude: data.latitude,
+            longitude: data.longitude,
+          );
         }
       });
     }
@@ -288,6 +300,10 @@ class _CreateMilestoneViewState extends State<_CreateMilestoneView> {
 
     final title = _titleController.text.trim();
     final locationText = _locationController.text.trim();
+    final picked = _pickedPlace;
+    final usePicked = picked != null;
+    final coordsLat = usePicked ? picked.latitude : null;
+    final coordsLon = usePicked ? picked.longitude : null;
     context.read<CreateMilestoneCubit>().submit(
           title: title.isEmpty ? null : title,
           userNote: note,
@@ -297,8 +313,10 @@ class _CreateMilestoneViewState extends State<_CreateMilestoneView> {
           mediaTypes: _selectedMedia.map((e) => e.type).toList(),
           accessToken: accessToken,
           locationName: locationText.isEmpty ? null : locationText,
-          latitude: _locationData?.latitude,
-          longitude: _locationData?.longitude,
+          locationCity: usePicked ? picked.city : null,
+          locationCountry: usePicked ? picked.country : null,
+          latitude: coordsLat,
+          longitude: coordsLon,
           participants: _participants.map((p) => p.id).toList(),
         );
   }
@@ -389,12 +407,6 @@ class _CreateMilestoneViewState extends State<_CreateMilestoneView> {
                                 ),
                               ),
                             ),
-                            const SizedBox(height: 12),
-                            _CategorySelector(
-                              value: _categoryId,
-                              enabled: !isSubmitting,
-                              onChanged: (v) => setState(() => _categoryId = v),
-                            ),
                             const SizedBox(height: 16),
                             _MediaPickerSection(
                               selected: _selectedMedia,
@@ -404,6 +416,12 @@ class _CreateMilestoneViewState extends State<_CreateMilestoneView> {
                               onPickImages: _pickImages,
                               onPickVideo: _pickVideo,
                               onRemoveAt: _removeMediaAt,
+                            ),
+                            const SizedBox(height: 14),
+                            _FixedCategorySelector(
+                              value: _categoryId,
+                              enabled: !isSubmitting,
+                              onChanged: (v) => setState(() => _categoryId = v),
                             ),
                             const SizedBox(height: 8),
                             _ParticipantsSection(
@@ -423,16 +441,15 @@ class _CreateMilestoneViewState extends State<_CreateMilestoneView> {
                               onTap: () => _pickDate(context),
                             ),
                             const SizedBox(height: 8),
-                            TextField(
+                            _PlacePickerField(
                               controller: _locationController,
                               enabled: !isSubmitting,
-                              style: theme.textTheme.bodyMedium,
-                              decoration: _locationFieldDecoration(
-                                theme,
-                                hintText: _fetchingLocation
-                                    ? 'Detectando ubicación...'
-                                    : 'Lugar (opcional)',
-                              ),
+                              isFetchingLocation: _fetchingLocation,
+                              placeAutocomplete: _placeAutocomplete,
+                              pickedPlace: _pickedPlace,
+                              clearOnTextChange: true,
+                              onPickedPlaceChanged: (p) =>
+                                  setState(() => _pickedPlace = p),
                             ),
                             const SizedBox(height: 4),
                             if (step != null)
@@ -494,7 +511,14 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
   late final TextEditingController _descController;
   late final TextEditingController _locationController;
   late DateTime _selectedDate;
-  late int _categoryId;
+  late String _categoryId;
+  MilestoneLocationData? _pickedPlace;
+  final _placeAutocomplete = PlaceAutocompleteService();
+  late final String _initialLocationText;
+  late final double? _initialLat;
+  late final double? _initialLon;
+  late final String? _initialCity;
+  late final String? _initialCountry;
 
   final List<PersonCollection> _participants = [];
   final List<_SelectedMedia> _newMedia = [];
@@ -514,14 +538,32 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
         TextEditingController(text: widget.milestone.description ?? '');
     _locationController =
         TextEditingController(text: widget.milestone.locationName ?? '');
+    _initialLocationText = (widget.milestone.locationName ?? '').trim();
+    _initialLat = widget.milestone.latitude;
+    _initialLon = widget.milestone.longitude;
+    _initialCity = widget.milestone.locationCity;
+    _initialCountry = widget.milestone.locationCountry;
     _selectedDate = widget.milestone.eventDate;
-    _categoryId = widget.milestone.categoryId;
+    _categoryId = (widget.milestone.categoryId ?? 'otros').trim().isEmpty
+        ? 'otros'
+        : widget.milestone.categoryId!.trim().toLowerCase();
     _existingMedia = List.from(widget.milestone.mediaItems);
     _galleryCoverIndex = _clampGalleryCoverIndexForCount(
       widget.milestone.galleryCoverIndex,
       _existingMedia.length,
     );
     _loadParticipants();
+
+    final existingName = (widget.milestone.locationName ?? '').trim();
+    if (existingName.isNotEmpty &&
+        widget.milestone.latitude != null &&
+        widget.milestone.longitude != null) {
+      _pickedPlace = MilestoneLocationData(
+        name: existingName,
+        latitude: widget.milestone.latitude,
+        longitude: widget.milestone.longitude,
+      );
+    }
   }
 
   Future<void> _loadParticipants() async {
@@ -720,6 +762,19 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
     final desc = _descController.text.trim();
     if (desc.isEmpty) return;
     final locationText = _locationController.text.trim();
+    final picked = _pickedPlace;
+    final usePicked = picked != null;
+    final keepExistingLink = picked == null && _initialLat != null && _initialLon != null && locationText.isNotEmpty;
+    final coordsLat = usePicked
+        ? picked!.latitude
+        : keepExistingLink
+            ? _initialLat
+            : null;
+    final coordsLon = usePicked
+        ? picked!.longitude
+        : keepExistingLink
+            ? _initialLon
+            : null;
     final titleInput = _titleController.text.trim();
     final title = titleInput.isEmpty
         ? milestoneTitleFromDescription(desc)
@@ -736,8 +791,18 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
           categoryId: _categoryId,
           eventDate: _selectedDate,
           locationName: locationText.isEmpty ? null : locationText,
-          latitude: widget.milestone.latitude,
-          longitude: widget.milestone.longitude,
+          locationCity: usePicked
+              ? picked!.city
+              : keepExistingLink
+                  ? _initialCity
+                  : null,
+          locationCountry: usePicked
+              ? picked!.country
+              : keepExistingLink
+                  ? _initialCountry
+                  : null,
+          latitude: coordsLat,
+          longitude: coordsLon,
           participantIds: _participants.map((p) => p.id).toList(),
           mediaToKeep: List.from(_existingMedia),
           newMediaFiles: _newMedia.map((m) => m.file).toList(),
@@ -827,12 +892,6 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
                                 decoration: _cleanMultilineDecoration(theme),
                               ),
                             ),
-                            const SizedBox(height: 12),
-                            _CategorySelector(
-                              value: _categoryId,
-                              enabled: !isSubmitting,
-                              onChanged: (v) => setState(() => _categoryId = v),
-                            ),
                             const SizedBox(height: 8),
                             _EditMediaSection(
                               existingMedia: _existingMedia,
@@ -856,6 +915,12 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
                               onRemoveExisting: _removeExistingMediaAt,
                               onRemoveNew: _removeNewMediaAt,
                             ),
+                            const SizedBox(height: 14),
+                            _FixedCategorySelector(
+                              value: _categoryId,
+                              enabled: !isSubmitting,
+                              onChanged: (v) => setState(() => _categoryId = v),
+                            ),
                             const SizedBox(height: 8),
                             _ParticipantsSection(
                               participants: _participants,
@@ -874,14 +939,15 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
                               onTap: () => _pickDate(context),
                             ),
                             const SizedBox(height: 8),
-                            TextField(
+                            _PlacePickerField(
                               controller: _locationController,
                               enabled: !isSubmitting,
-                              style: theme.textTheme.bodyMedium,
-                              decoration: _locationFieldDecoration(
-                                theme,
-                                hintText: 'Lugar (opcional)',
-                              ),
+                              isFetchingLocation: false,
+                              placeAutocomplete: _placeAutocomplete,
+                              pickedPlace: _pickedPlace,
+                              clearOnTextChange: false,
+                              onPickedPlaceChanged: (p) =>
+                                  setState(() => _pickedPlace = p),
                             ),
                             const SizedBox(height: 12),
                             ValueListenableBuilder<TextEditingValue>(
@@ -975,6 +1041,7 @@ InputDecoration _cleanMultilineDecoration(
 InputDecoration _locationFieldDecoration(
   ThemeData theme, {
   required String hintText,
+  Widget? suffixIcon,
 }) {
   return InputDecoration(
     hintText: hintText,
@@ -982,6 +1049,7 @@ InputDecoration _locationFieldDecoration(
         theme.textTheme.bodyMedium?.copyWith(color: const Color(0xFFAAAAAA)),
     prefixIcon:
         const Icon(Icons.location_on_outlined, color: AppTheme.navy, size: 20),
+    suffixIcon: suffixIcon,
     filled: true,
     fillColor: const Color(0xFFFAFAE8),
     contentPadding:
@@ -1005,52 +1073,689 @@ InputDecoration _locationFieldDecoration(
   );
 }
 
-class _CategorySelector extends StatelessWidget {
-  final int value;
+class _PlacePickerField extends StatelessWidget {
+  final TextEditingController controller;
   final bool enabled;
-  final ValueChanged<int> onChanged;
+  final bool isFetchingLocation;
+  final PlaceAutocompleteService placeAutocomplete;
+  final MilestoneLocationData? pickedPlace;
+  final bool clearOnTextChange;
+  final ValueChanged<MilestoneLocationData?> onPickedPlaceChanged;
 
-  const _CategorySelector({
-    required this.value,
+  const _PlacePickerField({
+    required this.controller,
     required this.enabled,
-    required this.onChanged,
+    required this.isFetchingLocation,
+    required this.placeAutocomplete,
+    required this.pickedPlace,
+    required this.clearOnTextChange,
+    required this.onPickedPlaceChanged,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final ds = sl<IsarCategoryDataSource>();
 
-    return FutureBuilder<List<CategoryCollection>>(
-      future: ds.fetchAll(),
-      builder: (context, snapshot) {
-        final items = snapshot.data ?? const <CategoryCollection>[];
-        final hasData = snapshot.hasData;
-
-        final safeValue = items.any((c) => c.id == value) ? value : 1;
-
-        return DropdownButtonFormField<int>(
-          initialValue: hasData ? safeValue : null,
-          items: items
-              .map(
-                (c) => DropdownMenuItem(
-                  value: c.id,
-                  child: Text(c.name),
+    return TextField(
+      controller: controller,
+      enabled: enabled,
+      style: theme.textTheme.bodyMedium,
+      onChanged: (_) {
+        if (clearOnTextChange) onPickedPlaceChanged(null);
+      },
+      decoration: _locationFieldDecoration(
+        theme,
+        hintText: isFetchingLocation ? 'Detectando ubicación...' : 'Lugar (opcional)',
+        suffixIcon: _PlacePickerSuffixIcons(
+          enabled: enabled,
+          onOpenPicker: () async {
+            final picked = await showPlacePickerSheet(
+              context: context,
+              initialQuery: controller.text,
+              service: placeAutocomplete,
+            );
+            if (picked == null) return;
+            final current = controller.text.trim();
+            if (current.isEmpty) {
+              controller.text = picked.name;
+              controller.selection =
+                  TextSelection.collapsed(offset: controller.text.length);
+            } else if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Ubicación actualizada (se mantiene tu nombre).'),
+                  duration: Duration(milliseconds: 1400),
                 ),
-              )
-              .toList(),
-          onChanged: !enabled || !hasData ? null : (v) => onChanged(v ?? 1),
-          decoration: InputDecoration(
-            labelText: 'Categoría',
-            filled: true,
-            fillColor: const Color(0xFFFAFAE8),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: BorderSide(color: theme.colorScheme.outline),
+              );
+            }
+            onPickedPlaceChanged(picked);
+            FocusManager.instance.primaryFocus?.unfocus();
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _PlacePickerSuffixIcons extends StatelessWidget {
+  final bool enabled;
+  final VoidCallback onOpenPicker;
+
+  const _PlacePickerSuffixIcons({
+    required this.enabled,
+    required this.onOpenPicker,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = AppTheme.navy.withValues(alpha: enabled ? 0.75 : 0.35);
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minWidth: 48, maxWidth: 92),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            onPressed: enabled ? onOpenPicker : null,
+            icon: const Icon(Icons.search),
+            tooltip: 'Buscar lugar',
+            color: color,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+Future<MilestoneLocationData?> showPlacePickerSheet({
+  required BuildContext context,
+  required String initialQuery,
+  required PlaceAutocompleteService service,
+}) {
+  return showModalBottomSheet<MilestoneLocationData>(
+    context: context,
+    useSafeArea: true,
+    isScrollControlled: true,
+    backgroundColor: Colors.white,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+    ),
+    builder: (_) => _PlacePickerSheet(
+      initialQuery: initialQuery,
+      service: service,
+    ),
+  );
+}
+
+class _PlacePickerSheet extends StatefulWidget {
+  final String initialQuery;
+  final PlaceAutocompleteService service;
+  const _PlacePickerSheet({
+    required this.initialQuery,
+    required this.service,
+  });
+
+  @override
+  State<_PlacePickerSheet> createState() => _PlacePickerSheetState();
+}
+
+class _PlacePickerSheetState extends State<_PlacePickerSheet> {
+  late final TextEditingController _ctrl;
+  List<MilestoneLocationData> _items = const [];
+  List<MilestoneLocationData> _recents = const [];
+  bool _loading = false;
+  String? _error;
+  int _reqId = 0;
+  String _lastQuery = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = TextEditingController(text: widget.initialQuery);
+    _loadRecents();
+    _search(widget.initialQuery);
+    _ctrl.addListener(() => _search(_ctrl.text));
+  }
+
+  Future<void> _loadRecents() async {
+    try {
+      final ds = sl<IsarMilestoneDataSource>();
+      final recents = await ds.fetchRecentLocations(limit: 8);
+      if (!mounted) return;
+      setState(() {
+        _recents = recents
+            .map(
+              (e) => MilestoneLocationData(
+                name: (e.name ?? '').trim(),
+                city: e.city,
+                country: e.country,
+                latitude: e.latitude,
+                longitude: e.longitude,
+              ),
+            )
+            .where((e) => e.name.trim().isNotEmpty)
+            .toList();
+      });
+    } catch (_) {
+      // Ignore: recents are best-effort.
+    }
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _search(String q) {
+    final query = q.trim();
+    _lastQuery = query;
+    if (query.length < 3) {
+      _reqId++;
+      setState(() {
+        _items = const [];
+        _loading = false;
+        _error = null;
+      });
+      return;
+    }
+
+    // Debounce simple.
+    final myId = ++_reqId;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    Future<void>.delayed(const Duration(milliseconds: 280), () async {
+      if (!mounted) return;
+      if (myId != _reqId) return; // stale
+      if (query != _lastQuery) return;
+      try {
+        final res = await widget.service.search(query);
+        if (!mounted) return;
+        if (myId != _reqId) return; // stale
+        setState(() {
+          _items = res;
+          _loading = false;
+          _error = null;
+        });
+      } catch (_) {
+        if (!mounted) return;
+        if (myId != _reqId) return; // stale
+        setState(() {
+          _items = const [];
+          _loading = false;
+          _error =
+              'No se pudo buscar lugares ahora mismo. Revisa tu conexión e inténtalo de nuevo.';
+        });
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(16, 12, 16, 16 + bottomInset),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Text(
+                'Buscar lugar',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  color: AppTheme.navy,
+                ),
+              ),
+              const Spacer(),
+              IconButton(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.close),
+                tooltip: 'Cerrar',
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _ctrl,
+            autofocus: true,
+            decoration: InputDecoration(
+              hintText: 'Escribe una ciudad, lugar o dirección…',
+              prefixIcon: const Icon(Icons.search),
+              filled: true,
+              fillColor: const Color(0xFFFAFAE8),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: theme.colorScheme.outline),
+              ),
             ),
           ),
-        );
-      },
+          const SizedBox(height: 10),
+          Flexible(
+            child: ListView.separated(
+              itemCount: 1 /* mapa */ +
+                  (_recents.isEmpty ? 0 : (1 + _recents.length)) +
+                  (_items.isEmpty ? 1 : _items.length),
+              separatorBuilder: (_, __) => Divider(
+                height: 1,
+                color: theme.colorScheme.outline.withValues(alpha: 0.6),
+              ),
+              itemBuilder: (context, index) {
+                if (index == 0) {
+                  return InkWell(
+                    onTap: () async {
+                      final picked = await Navigator.push<MilestoneLocationData>(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => LocationPickerPage(
+                            placeService: widget.service,
+                          ),
+                        ),
+                      );
+                      if (!context.mounted) return;
+                      if (picked != null) {
+                        Navigator.pop(context, picked);
+                      }
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 12),
+                      child: Row(
+                        children: [
+                          Icon(Icons.map_outlined,
+                              size: 18,
+                              color: AppTheme.navy.withValues(alpha: 0.75)),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'Seleccionar en el mapa',
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                fontWeight: FontWeight.w800,
+                                color: AppTheme.navy,
+                              ),
+                            ),
+                          ),
+                          Icon(Icons.chevron_right,
+                              size: 18,
+                              color: AppTheme.navy.withValues(alpha: 0.45)),
+                        ],
+                      ),
+                    ),
+                  );
+                }
+
+                var cursor = 1;
+                if (_recents.isNotEmpty) {
+                  if (index == cursor) {
+                    return Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+                      child: Text(
+                        'Sitios recientes',
+                        style: theme.textTheme.labelLarge?.copyWith(
+                          color: AppTheme.navy.withValues(alpha: 0.8),
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    );
+                  }
+                  cursor += 1;
+                  final endRecents = cursor + _recents.length;
+                  if (index >= cursor && index < endRecents) {
+                    final s = _recents[index - cursor];
+                    final subtitleParts = <String>[
+                      if (s.city != null && s.city!.trim().isNotEmpty) s.city!.trim(),
+                      if (s.country != null && s.country!.trim().isNotEmpty)
+                        s.country!.trim(),
+                    ];
+                    final subtitle = subtitleParts.join(', ');
+                    return InkWell(
+                      onTap: () => Navigator.pop(context, s),
+                      child: Padding(
+                        padding:
+                            const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.only(top: 2),
+                              child: Icon(
+                                Icons.history,
+                                size: 18,
+                                color: AppTheme.navy.withValues(alpha: 0.7),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    s.name,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      fontWeight: FontWeight.w700,
+                                      height: 1.15,
+                                    ),
+                                  ),
+                                  if (subtitle.isNotEmpty) ...[
+                                    const SizedBox(height: 3),
+                                    Text(
+                                      subtitle,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: theme.textTheme.bodySmall?.copyWith(
+                                        color: AppTheme.navy.withValues(alpha: 0.7),
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }
+                  cursor = endRecents;
+                }
+
+                if (_items.isEmpty) {
+                  if (_loading) {
+                    return const Padding(
+                      padding: EdgeInsets.all(20),
+                      child: Center(child: CircularProgressIndicator()),
+                    );
+                  }
+                  if (_error != null) {
+                    return Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            _error!,
+                            style: theme.textTheme.bodySmall,
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 12),
+                          OutlinedButton.icon(
+                            onPressed: () => _search(_ctrl.text),
+                            icon: const Icon(Icons.refresh),
+                            label: const Text('Reintentar'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppTheme.navy,
+                              side: const BorderSide(color: AppTheme.navy),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+                  return Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Text(
+                      _lastQuery.length < 3
+                          ? 'Escribe al menos 3 letras para ver sugerencias.'
+                          : 'Sin resultados.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: AppTheme.navy.withValues(alpha: 0.65),
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  );
+                }
+
+                final s = _items[index - cursor];
+                final subtitleParts = <String>[
+                  if (s.city != null) s.city!,
+                  if (s.country != null) s.country!,
+                ];
+                final subtitle = subtitleParts.join(' · ');
+                return InkWell(
+                  onTap: () => Navigator.pop(context, s),
+                  child: Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Icon(
+                            Icons.place_outlined,
+                            size: 18,
+                            color: AppTheme.navy.withValues(alpha: 0.7),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                s.name,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                  height: 1.15,
+                                ),
+                              ),
+                              if (subtitle.isNotEmpty) ...[
+                                const SizedBox(height: 3),
+                                Text(
+                                  subtitle,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: AppTheme.navy.withValues(alpha: 0.7),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FixedCategorySelector extends StatelessWidget {
+  final String value;
+  final bool enabled;
+  final ValueChanged<String> onChanged;
+
+  const _FixedCategorySelector({
+    required this.value,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  Future<void> _openPicker(BuildContext context) async {
+    if (!enabled) return;
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      useSafeArea: true,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (_) => _CategoryPickerSheet(
+        selectedId: milestoneCategoryById(value).id,
+      ),
+    );
+    if (picked != null && picked.trim().isNotEmpty) {
+      onChanged(picked.trim().toLowerCase());
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final selected = milestoneCategoryById(value);
+
+    return InkWell(
+      onTap: enabled ? () => _openPicker(context) : null,
+      borderRadius: BorderRadius.circular(10),
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: 'Categoría',
+          filled: true,
+          fillColor: const Color(0xFFFAFAE8),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: BorderSide(color: theme.colorScheme.outline),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: BorderSide(color: theme.colorScheme.outline),
+          ),
+          disabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: BorderSide(color: theme.colorScheme.outline),
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                color: selected.color.withValues(alpha: 0.16),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(selected.icon, size: 16, color: selected.color),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                selected.name,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: AppTheme.navy,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            Icon(
+              Icons.chevron_right,
+              size: 20,
+              color: AppTheme.navy.withValues(alpha: enabled ? 0.6 : 0.3),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CategoryPickerSheet extends StatelessWidget {
+  final String selectedId;
+  const _CategoryPickerSheet({required this.selectedId});
+
+  String _label(String raw) {
+    final v = raw.trim();
+    if (v.isEmpty) return raw;
+    return v[0].toUpperCase() + v.substring(1);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                'Selecciona una categoría',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.navy,
+                ),
+              ),
+              const Spacer(),
+              IconButton(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.close),
+                tooltip: 'Cerrar',
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Flexible(
+            child: GridView.builder(
+              shrinkWrap: true,
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                mainAxisSpacing: 10,
+                crossAxisSpacing: 10,
+                childAspectRatio: 3.6,
+              ),
+              itemCount: defaultCategories.length,
+              itemBuilder: (context, index) {
+                final c = defaultCategories[index];
+                final selected = c.id == selectedId;
+                return InkWell(
+                  onTap: () => Navigator.pop(context, c.id),
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    decoration: BoxDecoration(
+                      color: selected
+                          ? c.color.withValues(alpha: 0.18)
+                          : const Color(0xFFFAFAE8),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: selected
+                            ? c.color.withValues(alpha: 0.85)
+                            : theme.colorScheme.outline,
+                        width: selected ? 1.4 : 1,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(c.icon, size: 18, color: c.color),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            _label(c.name),
+                            style: theme.textTheme.labelLarge?.copyWith(
+                              color: AppTheme.navy,
+                              fontWeight:
+                                  selected ? FontWeight.w800 : FontWeight.w600,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (selected)
+                          Icon(Icons.check,
+                              size: 18, color: c.color.withValues(alpha: 0.95)),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
     );
   }
 }

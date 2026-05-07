@@ -10,6 +10,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
   supabase_flutter: ^2.5.0
   dartz: ^0.10.1
   equatable: ^2.0.5
@@ -37,6 +39,11 @@ dependencies:
   photo_view: ^0.15.0
   video_player: ^2.9.2
   chewie: ^1.8.5
+  flutter_typeahead: ^6.0.0
+  osm_nominatim: ^4.0.1
+  flutter_map: ^8.3.0
+  flutter_map_marker_cluster: ^8.2.2
+  latlong2: ^0.9.1
 
 dev_dependencies:
   flutter_test:

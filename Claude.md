@@ -49,7 +49,18 @@ LifeTime es una "cápsula del tiempo" que permite registrar hitos de vida (fotos
 
 ### Gestión de personas (global)
 - **Icono** `Icons.groups_outlined` en el `AppBar` del **timeline** (`timeline_page.dart`) abre **`ManagePeoplePage`** con `PeopleCubit` (misma ruta que Ajustes → Gestionar personas: nombres, foto de perfil, borrar foto).
+- **FAB** en esa pantalla para **añadir persona** (nombre + Isar); lista vacía con CTA.
 - En **crear/editar hito** (`add_milestone_page.dart`) los participantes se eligen solo con la hoja anterior; foto de perfil por participante sigue en el formulario.
+
+### Diálogo de nombre (`person_name_alert_dialog.dart`)
+- **`PersonNameAlertDialog`** es `StatefulWidget`: el **`TextEditingController` pertenece al estado del diálogo** y se dispone en `dispose()` (no crear el controller fuera del diálogo ni hacer `dispose()` justo tras `Navigator.pop`).
+- **`showPersonNameAlertDialog`**: parámetros `title`, `initialValue`, `submitLabel`, `textCapitalization`, **`useRootNavigator: true`** cuando el diálogo se abre encima de un **`showModalBottomSheet`** (p. ej. añadir persona al hito).
+- **`barrierDismissible: false`**: evitar cerrar tocando fuera sin el ciclo de cierre controlado (solo botones).
+- **Android / IME / autofill**: antes de `pop`, **`FocusManager.instance.primaryFocus?.unfocus()`** + **`TextInput.finishAutofillContext(shouldSave: false)`**; el **`Navigator.pop`** en **`WidgetsBinding.instance.addPostFrameCallback`** para no competir con el teclado. En el `TextField`: **`autofillHints: const []`**, **`keyboardType: TextInputType.name`**. Esto mitiga el crash **`'_dependents.isEmpty'`** (framework.dart ~6171) y avisos de **GlobalKeys** duplicadas ligados a **`AutofillManager`**.
+- Usado desde **`manage_people_page.dart`** (nueva persona y renombrar) y desde **`milestone_participant_picker_sheet.dart`** (crear desde el hito).
+
+### Repositorio de hitos y participantes
+- **`MilestoneRepositoryImpl`** ya no recibe **`IsarPersonDataSource`**: los **`participantIds`** al crear/actualizar son solo la lista explícita (**`_dedupeParticipantIds`**), sin fusionar menciones `@` del texto (los hashtags siguen extrayéndose).
 
 ### Pendiente / mejoras posibles
 - Opcional: al renombrar una persona globalmente, reescribir `@menciones` en hitos existentes (no implementado).

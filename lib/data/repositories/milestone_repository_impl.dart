@@ -14,7 +14,6 @@ import '../../domain/entities/milestone.dart';
 import '../../domain/repositories/drive_repository.dart';
 import '../../domain/repositories/milestone_repository.dart';
 import '../datasources/isar_milestone_datasource.dart';
-import '../../features/milestones/data/datasources/isar_category_datasource.dart';
 import '../datasources/milestone_remote_datasource.dart';
 import '../models/milestone_model.dart';
 import '../../features/milestones/data/models/local/milestone_collection.dart';
@@ -28,7 +27,6 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
   final String Function() _getUserId;
   final DriveRepository _drive;
   final LocalMediaStore _localMedia;
-  final IsarCategoryDataSource _categories;
 
   MilestoneRepositoryImpl(
     this._local,
@@ -37,7 +35,6 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
     this._getUserId,
     this._drive,
     this._localMedia,
-    this._categories,
   );
 
   static const _uuid = Uuid();
@@ -120,9 +117,11 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
     required String userNote,
     required DateTime eventDate,
     String? locationName,
+    String? locationCity,
+    String? locationCountry,
     double? latitude,
     double? longitude,
-    int categoryId = 1,
+    String? categoryId,
     List<String> participants = const [],
     bool isPublic = false,
     String? driveFileId,
@@ -131,7 +130,9 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
     List<MediaType> localMediaTypes = const [],
   }) async {
     final userId = _getUserId();
-    final categoryName = await _resolveCategoryName(categoryId) ?? 'General';
+    final safeCategoryId = (categoryId == null || categoryId.trim().isEmpty)
+        ? 'otros'
+        : categoryId.trim().toLowerCase();
 
     final extracted = TextMetadataExtractor.extract(userNote);
     final tags = extracted.hashtags;
@@ -146,9 +147,11 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
         userId: userId,
         eventDate: eventDate,
         locationName: locationName,
+        locationCity: locationCity,
+        locationCountry: locationCountry,
         latitude: latitude,
         longitude: longitude,
-        categoryId: categoryId,
+        categoryId: safeCategoryId,
         participants: participants,
         participantIds: participantIds,
         tags: tags,
@@ -188,13 +191,38 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
         locationName: locationName,
         latitude: latitude,
         longitude: longitude,
-        category: categoryName,
+        categoryId: safeCategoryId,
         isPublic: isPublic,
         driveFileId: driveFileId,
       );
       final remoteModel = await _remote.insertMilestone(insertData);
       final collection =
           MilestoneCollection.fromMilestone(remoteModel, SyncStatus.synced);
+      if (locationName != null &&
+          locationName.trim().isNotEmpty &&
+          (latitude != null && longitude != null)) {
+        collection.location = MilestoneLocationDataEmbed()
+          ..name = locationName.trim()
+          ..city = (locationCity?.trim().isEmpty ?? true)
+              ? null
+              : locationCity?.trim()
+          ..country = (locationCountry?.trim().isEmpty ?? true)
+              ? null
+              : locationCountry?.trim()
+          ..latitude = latitude
+          ..longitude = longitude;
+      } else if (locationName != null && locationName.trim().isNotEmpty) {
+        collection.location = MilestoneLocationDataEmbed()
+          ..name = locationName.trim()
+          ..city = (locationCity?.trim().isEmpty ?? true)
+              ? null
+              : locationCity?.trim()
+          ..country = (locationCountry?.trim().isEmpty ?? true)
+              ? null
+              : locationCountry?.trim()
+          ..latitude = latitude
+          ..longitude = longitude;
+      }
       if (localMediaPaths.isNotEmpty) {
         try {
           final items = await _persistLocalMediaItems(
@@ -224,7 +252,7 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
             locationName: locationName,
             latitude: latitude,
             longitude: longitude,
-            category: categoryName,
+            categoryId: safeCategoryId,
             isPublic: isPublic,
             driveFileId: driveFileId,
           ),
@@ -245,9 +273,11 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
         userId: userId,
         eventDate: eventDate,
         locationName: locationName,
+        locationCity: locationCity,
+        locationCountry: locationCountry,
         latitude: latitude,
         longitude: longitude,
-        categoryId: categoryId,
+        categoryId: safeCategoryId,
         participants: participants,
         participantIds: participantIds,
         tags: tags,
@@ -313,9 +343,11 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
     required String id,
     required String title,
     required String description,
-    int? categoryId,
+    String? categoryId,
     DateTime? eventDate,
     String? locationName,
+    String? locationCity,
+    String? locationCountry,
     double? latitude,
     double? longitude,
     List<String> participantIds = const [],
@@ -364,14 +396,33 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
       if (locationName != null) existing.locationName = locationName;
       if (latitude != null) existing.latitude = latitude;
       if (longitude != null) existing.longitude = longitude;
+      if (locationName != null ||
+          locationCity != null ||
+          locationCountry != null ||
+          latitude != null ||
+          longitude != null) {
+        final prev = existing.location;
+        final name = locationName ?? prev?.name ?? existing.locationName;
+        final lat = latitude ?? prev?.latitude ?? existing.latitude;
+        final lon = longitude ?? prev?.longitude ?? existing.longitude;
+        existing.location = (name == null || name.trim().isEmpty) &&
+                lat == null &&
+                lon == null
+            ? null
+            : (MilestoneLocationDataEmbed()
+              ..name = name
+              ..city = locationCity ?? prev?.city
+              ..country = locationCountry ?? prev?.country
+              ..latitude = lat
+              ..longitude = lon);
+      }
       if (categoryId != null) existing.categoryId = categoryId;
       await _local.upsert(existing);
 
       if (_premium.isPremium) {
         try {
-          final categoryName = categoryId == null
-              ? null
-              : await _resolveCategoryName(categoryId);
+          final safeCategoryId =
+              categoryId == null ? null : categoryId.trim().toLowerCase();
           final updateData = MilestoneModel.toUpdateMap(
             title: title,
             description: description,
@@ -381,9 +432,10 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
             longitude: longitude,
             participantIds: existing.participants,
             tags: existing.tags,
-            category: categoryName,
+            categoryId: safeCategoryId,
           );
           final remoteModel = await _remote.updateMilestone(id, updateData);
+          final prevLoc = existing.location;
           existing
             ..title = remoteModel.title
             ..description = remoteModel.description
@@ -400,6 +452,19 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
                 .map(MediaAssetEmbed.fromEntity)
                 .toList()
             ..syncStatus = SyncStatus.synced;
+          final name = remoteModel.locationName ?? prevLoc?.name;
+          final lat = remoteModel.latitude ?? prevLoc?.latitude;
+          final lon = remoteModel.longitude ?? prevLoc?.longitude;
+          existing.location = (name == null || name.trim().isEmpty) &&
+                  lat == null &&
+                  lon == null
+              ? null
+              : (MilestoneLocationDataEmbed()
+                ..name = name
+                ..city = prevLoc?.city
+                ..country = prevLoc?.country
+                ..latitude = lat
+                ..longitude = lon);
           await _local.upsert(existing);
           return Right(existing.toDomain());
         } catch (_) {
@@ -410,7 +475,10 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
       // Post-local upsert to Supabase (premium). Best-effort.
       if (_premium.isPremium) {
         try {
-          final categoryName = await _resolveCategoryName(existing.categoryId);
+          final safeCategoryId = (existing.categoryId == null ||
+                  existing.categoryId!.trim().isEmpty)
+              ? 'otros'
+              : existing.categoryId!.trim().toLowerCase();
           await _remote.upsertMilestone(
             existing.id,
             MilestoneModel.toInsertMap(
@@ -423,7 +491,7 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
               locationName: existing.locationName,
               latitude: existing.latitude,
               longitude: existing.longitude,
-              category: categoryName ?? 'General',
+              categoryId: safeCategoryId,
               isPublic: existing.isPublic,
               driveFileId: existing.driveFileId,
             ),
@@ -481,9 +549,11 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
     required String userId,
     required DateTime eventDate,
     required String? locationName,
+    required String? locationCity,
+    required String? locationCountry,
     required double? latitude,
     required double? longitude,
-    required int categoryId,
+    required String categoryId,
     required List<String> participants,
     required List<String> participantIds,
     required List<String> tags,
@@ -502,6 +572,26 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
         ..participants = List<String>.from(participantIds)
         ..tags = List<String>.from(tags)
         ..eventDate = eventDate
+        ..location = (() {
+          final name = locationName;
+          final lat = latitude;
+          final lon = longitude;
+          if ((name == null || name.trim().isEmpty) && lat == null && lon == null) {
+            return null;
+          }
+          final city = (locationCity?.trim().isEmpty ?? true)
+              ? null
+              : locationCity?.trim();
+          final country = (locationCountry?.trim().isEmpty ?? true)
+              ? null
+              : locationCountry?.trim();
+          return MilestoneLocationDataEmbed()
+            ..name = name
+            ..city = city
+            ..country = country
+            ..latitude = lat
+            ..longitude = lon;
+        })()
         ..locationName = locationName
         ..latitude = latitude
         ..longitude = longitude
@@ -526,15 +616,6 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
       return Right(saved.toDomain());
     } catch (e) {
       return Left(DatabaseFailure(e.toString()));
-    }
-  }
-
-  Future<String?> _resolveCategoryName(int categoryId) async {
-    try {
-      final c = await _categories.fetchById(categoryId);
-      return c?.name;
-    } catch (_) {
-      return null;
     }
   }
 

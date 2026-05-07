@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import '../../../../core/constants/milestone_categories.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../injection_container.dart';
 import '../../../../domain/entities/media_item.dart';
 import '../../../../domain/entities/milestone.dart';
 import '../../../auth/presentation/bloc/auth_cubit.dart';
-import '../../data/datasources/isar_category_datasource.dart';
 import '../../data/datasources/isar_person_datasource.dart';
 import '../bloc/milestone_timeline_cubit.dart';
 import '../widgets/drive_thumbnail.dart';
@@ -15,7 +15,7 @@ import '../../../../features/settings/presentation/bloc/people_cubit.dart';
 import '../../../../features/settings/presentation/pages/manage_people_page.dart';
 import '../../../../features/settings/presentation/pages/settings_page.dart';
 import 'add_milestone_page.dart';
-import 'map_explorer_page.dart';
+import 'milestones_map_page.dart';
 import 'milestone_detail_page.dart';
 
 class TimelinePage extends StatelessWidget {
@@ -135,12 +135,22 @@ class _AuthenticatedTimelineView extends StatelessWidget {
           IconButton(
             icon: const Icon(Icons.map_outlined),
             tooltip: 'Mapa de hitos',
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => const MapExplorerPage(),
-              ),
-            ),
+            onPressed: () {
+              final s = context.read<MilestoneTimelineCubit>().state;
+              final milestones = s is MilestoneTimelineLoaded
+                  ? s.milestones
+                      .where((m) => m.latitude != null && m.longitude != null)
+                      .toList()
+                  : const <Milestone>[];
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => MilestonesMapPage(
+                    milestonesWithCoords: milestones,
+                  ),
+                ),
+              );
+            },
           ),
           IconButton(
             icon: const Icon(Icons.groups_outlined),
@@ -187,6 +197,7 @@ class _AuthenticatedTimelineView extends StatelessWidget {
         },
       ),
       floatingActionButton: FloatingActionButton(
+        heroTag: 'timeline_add_milestone',
         tooltip: 'Nuevo hito',
         onPressed: () async {
           final cubit = context.read<MilestoneTimelineCubit>();
@@ -204,20 +215,202 @@ class _AuthenticatedTimelineView extends StatelessWidget {
   }
 }
 
-// ── List ──────────────────────────────────────────────────────────────────────
+// ── List (agrupado por año, cabeceras sticky, índice de años) ────────────────
 
-class _MilestoneList extends StatelessWidget {
+/// Conserva el orden del timeline (eventDate descendente) y agrupa por año.
+List<(int year, List<Milestone> items)> _groupMilestonesByYear(
+    List<Milestone> milestones) {
+  final map = <int, List<Milestone>>{};
+  for (final m in milestones) {
+    final y = m.eventDate.year;
+    map.putIfAbsent(y, () => []).add(m);
+  }
+  final years = map.keys.toList()..sort((a, b) => b.compareTo(a));
+  return [for (final y in years) (y, map[y]!)];
+}
+
+class _TimelineYearHeaderDelegate extends SliverPersistentHeaderDelegate {
+  _TimelineYearHeaderDelegate({required this.year, required this.theme});
+
+  final int year;
+  final ThemeData theme;
+
+  static const double headerHeight = 44;
+
+  @override
+  double get minExtent => headerHeight;
+
+  @override
+  double get maxExtent => headerHeight;
+
+  @override
+  Widget build(
+      BuildContext context, double shrinkOffset, bool overlapsContent) {
+    final softBg =
+        theme.colorScheme.surfaceContainerHighest.withOpacity(0.92);
+    return Material(
+      color: softBg,
+      elevation: overlapsContent ? 0.5 : 0,
+      shadowColor: theme.dividerColor.withOpacity(0.4),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: Text(
+            '$year',
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: theme.colorScheme.primary,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  bool shouldRebuild(covariant _TimelineYearHeaderDelegate oldDelegate) {
+    return oldDelegate.year != year || oldDelegate.theme != theme;
+  }
+}
+
+class _MilestoneList extends StatefulWidget {
   final List<Milestone> milestones;
   const _MilestoneList({required this.milestones});
 
   @override
+  State<_MilestoneList> createState() => _MilestoneListState();
+}
+
+class _MilestoneListState extends State<_MilestoneList> {
+  final ScrollController _scrollController = ScrollController();
+  final Map<int, GlobalKey> _yearAnchorKeys = {};
+
+  GlobalKey _keyForYear(int year) =>
+      _yearAnchorKeys.putIfAbsent(year, GlobalKey.new);
+
+  @override
+  void didUpdateWidget(covariant _MilestoneList oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final validYears = _groupMilestonesByYear(widget.milestones)
+        .map((e) => e.$1)
+        .toSet();
+    _yearAnchorKeys.removeWhere((y, _) => !validYears.contains(y));
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _scrollToYear(int year) {
+    final ctx = _yearAnchorKeys[year]?.currentContext;
+    if (ctx == null) return;
+    Scrollable.ensureVisible(
+      ctx,
+      duration: const Duration(milliseconds: 380),
+      curve: Curves.easeInOutCubic,
+      alignment: 0,
+    );
+  }
+
+  void _showYearIndexSheet(BuildContext context, List<int> years) {
+    final theme = Theme.of(context);
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) {
+        return SafeArea(
+          child: ListView.separated(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+            itemCount: years.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 4),
+            itemBuilder: (_, i) {
+              final y = years[i];
+              return ListTile(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                tileColor: theme.colorScheme.surfaceContainerHighest
+                    .withOpacity(0.5),
+                title: Text(
+                  '$y',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: theme.colorScheme.primary,
+                  ),
+                ),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) _scrollToYear(y);
+                  });
+                },
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return ListView.separated(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
-      itemCount: milestones.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (context, index) =>
-          _MilestoneCard(milestone: milestones[index]),
+    final theme = Theme.of(context);
+    final grouped = _groupMilestonesByYear(widget.milestones);
+    final years = grouped.map((e) => e.$1).toList();
+    final bottomFabInset =
+        MediaQuery.paddingOf(context).bottom + 72; // encima del FAB principal
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        CustomScrollView(
+          controller: _scrollController,
+          slivers: [
+            const SliverToBoxAdapter(child: SizedBox(height: 20)),
+            for (final (year, items) in grouped) ...[
+              SliverPersistentHeader(
+                key: _keyForYear(year),
+                pinned: true,
+                delegate: _TimelineYearHeaderDelegate(
+                  year: year,
+                  theme: theme,
+                ),
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+                sliver: SliverList(
+                  delegate: SliverChildBuilderDelegate(
+                    (context, index) {
+                      final m = items[index];
+                      final gap =
+                          index < items.length - 1 ? 12.0 : 20.0;
+                      return Padding(
+                        padding: EdgeInsets.only(bottom: gap),
+                        child: _MilestoneCard(milestone: m),
+                      );
+                    },
+                    childCount: items.length,
+                  ),
+                ),
+              ),
+            ],
+            const SliverToBoxAdapter(child: SizedBox(height: 8)),
+          ],
+        ),
+        Positioned(
+          right: 16,
+          bottom: bottomFabInset,
+          child: FloatingActionButton.small(
+            heroTag: 'timeline_year_index',
+            tooltip: 'Ir a año',
+            onPressed: () => _showYearIndexSheet(context, years),
+            child: const Icon(Icons.calendar_month_outlined),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -371,7 +564,7 @@ class _LocalMediaCard extends StatelessWidget {
                         const SizedBox(width: 2),
                         Flexible(
                           child: Text(
-                            milestone.locationName!,
+                            _locationInlineLabel(milestone),
                             style: theme.textTheme.bodySmall,
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -511,7 +704,7 @@ class _MediaCard extends StatelessWidget {
                       const SizedBox(width: 2),
                       Flexible(
                         child: Text(
-                          milestone.locationName!,
+                          _locationInlineLabel(milestone),
                           style: theme.textTheme.bodySmall,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -635,7 +828,7 @@ class _TextCard extends StatelessWidget {
                         const SizedBox(width: 2),
                         Expanded(
                           child: Text(
-                            milestone.locationName!,
+                            _locationInlineLabel(milestone),
                             style: theme.textTheme.bodySmall,
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -758,81 +951,50 @@ Future<List<String>> _loadPeopleNames(List<String> ids) async {
 }
 
 class _CategoryChip extends StatelessWidget {
-  final int categoryId;
+  final String? categoryId;
   const _CategoryChip({required this.categoryId});
 
   @override
   Widget build(BuildContext context) {
-    if (categoryId == 1) return const SizedBox.shrink(); // General
-
-    final ds = sl<IsarCategoryDataSource>();
     final theme = Theme.of(context);
+    final c = milestoneCategoryById(categoryId);
+    if (c.id == 'otros') return const SizedBox.shrink();
 
-    return FutureBuilder(
-      future: ds.fetchById(categoryId),
-      builder: (context, snapshot) {
-        final c = snapshot.data;
-        if (c == null) return const SizedBox.shrink();
-        if (c.name.trim().toLowerCase() == 'general') {
-          return const SizedBox.shrink();
-        }
-        final color = Color(c.colorValue);
-        final icon = _iconByName(c.iconName) ?? Icons.category_outlined;
-
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.14),
-            borderRadius: BorderRadius.circular(999),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: c.color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(c.icon, size: 14, color: c.color),
+          const SizedBox(width: 6),
+          Text(
+            c.name,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: AppTheme.navy,
+              fontWeight: FontWeight.w600,
+            ),
           ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 14, color: color),
-              const SizedBox(width: 6),
-              Text(
-                c.name,
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: AppTheme.navy,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-        );
-      },
+        ],
+      ),
     );
   }
 }
 
-IconData? _iconByName(String name) {
-  switch (name) {
-    case 'cake':
-      return Icons.cake_outlined;
-    case 'favorite':
-      return Icons.favorite_outline;
-    case 'child_care':
-      return Icons.child_care_outlined;
-    case 'star':
-      return Icons.star_outline;
-    case 'celebration':
-      return Icons.celebration_outlined;
-    case 'photo':
-      return Icons.photo_outlined;
-    case 'travel':
-      return Icons.flight_takeoff_outlined;
-    case 'home':
-      return Icons.home_outlined;
-    case 'work':
-      return Icons.work_outline;
-    case 'school':
-      return Icons.school_outlined;
-    case 'pets':
-      return Icons.pets_outlined;
-    case 'category':
-    default:
-      return Icons.category_outlined;
-  }
+// (Fixed categories: no Isar lookup needed.)
+
+String _locationInlineLabel(Milestone m) {
+  final name = (m.locationName ?? '').trim();
+  if (name.isEmpty) return '';
+  final parts = <String>[
+    if ((m.locationCity ?? '').trim().isNotEmpty) m.locationCity!.trim(),
+    if ((m.locationCountry ?? '').trim().isNotEmpty) m.locationCountry!.trim(),
+  ];
+  if (parts.isEmpty) return name;
+  return '$name • ${parts.join(', ')}';
 }
 
 // ── Empty & Error ─────────────────────────────────────────────────────────────

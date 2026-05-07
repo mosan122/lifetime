@@ -15,9 +15,11 @@ class MilestoneModel extends Milestone {
     super.galleryCoverIndex = 0,
     required super.eventDate,
     super.locationName,
+    super.locationCity,
+    super.locationCountry,
     super.latitude,
     super.longitude,
-    super.categoryId = 1,
+    super.categoryId,
     super.isPublic = false,
     required super.createdAt,
     super.driveFileId,
@@ -53,24 +55,51 @@ class MilestoneModel extends Milestone {
           (json['gallery_cover_index'] as num?)?.toInt() ?? 0,
       eventDate: DateTime.parse(json['event_date'] as String),
       locationName: json['location_name'] as String?,
+      // Backend does not persist these (yet). They remain local-only.
+      locationCity: null,
+      locationCountry: null,
       latitude: latitude,
       longitude: longitude,
-      categoryId: _categoryIdFromLegacy(json['category'] as String?),
+      categoryId: _categoryIdFromRemote(json['category'] as String?),
       isPublic: json['is_public'] as bool? ?? false,
       createdAt: DateTime.parse(json['created_at'] as String),
       driveFileId: json['drive_file_id'] as String?,
     );
   }
 
-  static int _categoryIdFromLegacy(String? legacy) {
-    final v = (legacy ?? '').trim().toLowerCase();
-    if (v.isEmpty) return 1;
-    if (v == 'general') return 1;
-    if (v == 'cumpleaños' || v == 'cumpleanos') return 2;
-    if (v == 'boda') return 3;
-    if (v == 'nacimiento') return 4;
-    if (v == 'especial') return 5;
-    return 1;
+  static String? _categoryIdFromRemote(String? raw) {
+    final v = (raw ?? '').trim().toLowerCase();
+    if (v.isEmpty) return null;
+
+    // If backend already stores ids (e.g. "familia"), keep it.
+    const known = <String>{
+      'familia',
+      'amigos',
+      'amor',
+      'mascotas',
+      'viajes',
+      'naturaleza',
+      'ocio',
+      'trabajo',
+      'formacion',
+      'finanzas',
+      'salud',
+      'deporte',
+      'hogar',
+      'gastronomia',
+      'diy',
+      'nacimiento',
+      'defuncion',
+      'otros',
+    };
+    if (known.contains(v)) return v;
+
+    // Legacy mapping (older strings).
+    if (v == 'general') return 'otros';
+    if (v == 'cumpleaños' || v == 'cumpleanos') return 'familia';
+    if (v == 'boda') return 'amor';
+    if (v == 'especial') return 'otros';
+    return 'otros';
   }
 
   // Método estático para construir el payload de inserción.
@@ -85,7 +114,7 @@ class MilestoneModel extends Milestone {
     required String? locationName,
     required double? latitude,
     required double? longitude,
-    required String category,
+    required String categoryId,
     required bool isPublic,
     String? driveFileId,
   }) {
@@ -95,7 +124,7 @@ class MilestoneModel extends Milestone {
       'participant_ids': participantIds,
       'tags': tags,
       'event_date': eventDate.toIso8601String(),
-      'category': category,
+      'category': categoryId,
       'is_public': isPublic,
     };
     if (description != null) map['description'] = description;
@@ -109,7 +138,7 @@ class MilestoneModel extends Milestone {
 
   static Map<String, dynamic> toUpdateMap({
     String? title,
-    String? category,
+    String? categoryId,
     required String description,
     DateTime? eventDate,
     String? locationName,
@@ -120,7 +149,7 @@ class MilestoneModel extends Milestone {
   }) {
     final map = <String, dynamic>{'description': description};
     if (title != null) map['title'] = title;
-    if (category != null) map['category'] = category;
+    if (categoryId != null) map['category'] = categoryId;
     if (eventDate != null) map['event_date'] = eventDate.toIso8601String();
     if (locationName != null) map['location_name'] = locationName;
     if (latitude != null && longitude != null) {

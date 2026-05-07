@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../../core/theme/app_theme.dart';
 
@@ -15,6 +16,7 @@ Future<String?> showPersonNameAlertDialog({
   return showDialog<String?>(
     context: context,
     useRootNavigator: useRootNavigator,
+    barrierDismissible: false,
     builder: (ctx) => PersonNameAlertDialog(
       title: title,
       initialValue: initialValue,
@@ -60,6 +62,17 @@ class _PersonNameAlertDialogState extends State<PersonNameAlertDialog> {
     super.dispose();
   }
 
+  /// Cierra el IME/autofill y hace [pop] en el siguiente frame para evitar
+  /// `_dependents.isEmpty` y avisos de GlobalKey duplicada con Autofill en Android.
+  void _popWithResult(String? result) {
+    FocusManager.instance.primaryFocus?.unfocus();
+    TextInput.finishAutofillContext(shouldSave: false);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      Navigator.of(context).pop(result);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
@@ -69,18 +82,21 @@ class _PersonNameAlertDialogState extends State<PersonNameAlertDialog> {
         controller: _controller,
         autofocus: true,
         textCapitalization: widget.textCapitalization,
+        keyboardType: TextInputType.name,
+        autofillHints: const [],
+        enableSuggestions: true,
         decoration: InputDecoration(hintText: widget.hintText),
       ),
       actions: [
         TextButton(
-          onPressed: () => Navigator.pop(context, null),
+          onPressed: () => _popWithResult(null),
           child: Text(
             'Cancelar',
             style: TextStyle(color: Colors.grey.shade600),
           ),
         ),
         TextButton(
-          onPressed: () => Navigator.pop(context, _controller.text.trim()),
+          onPressed: () => _popWithResult(_controller.text.trim()),
           child: Text(
             widget.submitLabel,
             style: const TextStyle(

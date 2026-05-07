@@ -21,7 +21,7 @@ const MilestoneCollectionSchema = CollectionSchema(
     r'categoryId': PropertySchema(
       id: 0,
       name: r'categoryId',
-      type: IsarType.long,
+      type: IsarType.string,
     ),
     r'createdAt': PropertySchema(
       id: 1,
@@ -68,51 +68,57 @@ const MilestoneCollectionSchema = CollectionSchema(
       name: r'latitude',
       type: IsarType.double,
     ),
-    r'locationName': PropertySchema(
+    r'location': PropertySchema(
       id: 10,
+      name: r'location',
+      type: IsarType.object,
+      target: r'MilestoneLocationDataEmbed',
+    ),
+    r'locationName': PropertySchema(
+      id: 11,
       name: r'locationName',
       type: IsarType.string,
     ),
     r'longitude': PropertySchema(
-      id: 11,
+      id: 12,
       name: r'longitude',
       type: IsarType.double,
     ),
     r'media': PropertySchema(
-      id: 12,
+      id: 13,
       name: r'media',
       type: IsarType.objectList,
       target: r'MediaAssetEmbed',
     ),
     r'mediaItems': PropertySchema(
-      id: 13,
+      id: 14,
       name: r'mediaItems',
       type: IsarType.objectList,
       target: r'MediaItemEmbed',
     ),
     r'participants': PropertySchema(
-      id: 14,
+      id: 15,
       name: r'participants',
       type: IsarType.stringList,
     ),
     r'syncStatus': PropertySchema(
-      id: 15,
+      id: 16,
       name: r'syncStatus',
       type: IsarType.string,
       enumMap: _MilestoneCollectionsyncStatusEnumValueMap,
     ),
     r'tags': PropertySchema(
-      id: 16,
+      id: 17,
       name: r'tags',
       type: IsarType.stringList,
     ),
     r'title': PropertySchema(
-      id: 17,
+      id: 18,
       name: r'title',
       type: IsarType.string,
     ),
     r'userId': PropertySchema(
-      id: 18,
+      id: 19,
       name: r'userId',
       type: IsarType.string,
     )
@@ -139,6 +145,7 @@ const MilestoneCollectionSchema = CollectionSchema(
   },
   links: {},
   embeddedSchemas: {
+    r'MilestoneLocationDataEmbed': MilestoneLocationDataEmbedSchema,
     r'MediaAssetEmbed': MediaAssetEmbedSchema,
     r'MediaItemEmbed': MediaItemEmbedSchema
   },
@@ -154,6 +161,12 @@ int _milestoneCollectionEstimateSize(
   Map<Type, List<int>> allOffsets,
 ) {
   var bytesCount = offsets.last;
+  {
+    final value = object.categoryId;
+    if (value != null) {
+      bytesCount += 3 + value.length * 3;
+    }
+  }
   {
     final value = object.description;
     if (value != null) {
@@ -173,6 +186,14 @@ int _milestoneCollectionEstimateSize(
     }
   }
   bytesCount += 3 + object.id.length * 3;
+  {
+    final value = object.location;
+    if (value != null) {
+      bytesCount += 3 +
+          MilestoneLocationDataEmbedSchema.estimateSize(
+              value, allOffsets[MilestoneLocationDataEmbed]!, allOffsets);
+    }
+  }
   {
     final value = object.locationName;
     if (value != null) {
@@ -223,7 +244,7 @@ void _milestoneCollectionSerialize(
   List<int> offsets,
   Map<Type, List<int>> allOffsets,
 ) {
-  writer.writeLong(offsets[0], object.categoryId);
+  writer.writeString(offsets[0], object.categoryId);
   writer.writeDateTime(offsets[1], object.createdAt);
   writer.writeString(offsets[2], object.description);
   writer.writeString(offsets[3], object.driveFileId);
@@ -233,25 +254,31 @@ void _milestoneCollectionSerialize(
   writer.writeString(offsets[7], object.id);
   writer.writeBool(offsets[8], object.isPublic);
   writer.writeDouble(offsets[9], object.latitude);
-  writer.writeString(offsets[10], object.locationName);
-  writer.writeDouble(offsets[11], object.longitude);
+  writer.writeObject<MilestoneLocationDataEmbed>(
+    offsets[10],
+    allOffsets,
+    MilestoneLocationDataEmbedSchema.serialize,
+    object.location,
+  );
+  writer.writeString(offsets[11], object.locationName);
+  writer.writeDouble(offsets[12], object.longitude);
   writer.writeObjectList<MediaAssetEmbed>(
-    offsets[12],
+    offsets[13],
     allOffsets,
     MediaAssetEmbedSchema.serialize,
     object.media,
   );
   writer.writeObjectList<MediaItemEmbed>(
-    offsets[13],
+    offsets[14],
     allOffsets,
     MediaItemEmbedSchema.serialize,
     object.mediaItems,
   );
-  writer.writeStringList(offsets[14], object.participants);
-  writer.writeString(offsets[15], object.syncStatus.name);
-  writer.writeStringList(offsets[16], object.tags);
-  writer.writeString(offsets[17], object.title);
-  writer.writeString(offsets[18], object.userId);
+  writer.writeStringList(offsets[15], object.participants);
+  writer.writeString(offsets[16], object.syncStatus.name);
+  writer.writeStringList(offsets[17], object.tags);
+  writer.writeString(offsets[18], object.title);
+  writer.writeString(offsets[19], object.userId);
 }
 
 MilestoneCollection _milestoneCollectionDeserialize(
@@ -261,7 +288,7 @@ MilestoneCollection _milestoneCollectionDeserialize(
   Map<Type, List<int>> allOffsets,
 ) {
   final object = MilestoneCollection();
-  object.categoryId = reader.readLong(offsets[0]);
+  object.categoryId = reader.readStringOrNull(offsets[0]);
   object.createdAt = reader.readDateTime(offsets[1]);
   object.description = reader.readStringOrNull(offsets[2]);
   object.driveFileId = reader.readStringOrNull(offsets[3]);
@@ -272,29 +299,34 @@ MilestoneCollection _milestoneCollectionDeserialize(
   object.isPublic = reader.readBool(offsets[8]);
   object.isarId = id;
   object.latitude = reader.readDoubleOrNull(offsets[9]);
-  object.locationName = reader.readStringOrNull(offsets[10]);
-  object.longitude = reader.readDoubleOrNull(offsets[11]);
+  object.location = reader.readObjectOrNull<MilestoneLocationDataEmbed>(
+    offsets[10],
+    MilestoneLocationDataEmbedSchema.deserialize,
+    allOffsets,
+  );
+  object.locationName = reader.readStringOrNull(offsets[11]);
+  object.longitude = reader.readDoubleOrNull(offsets[12]);
   object.media = reader.readObjectList<MediaAssetEmbed>(
-        offsets[12],
+        offsets[13],
         MediaAssetEmbedSchema.deserialize,
         allOffsets,
         MediaAssetEmbed(),
       ) ??
       [];
   object.mediaItems = reader.readObjectList<MediaItemEmbed>(
-        offsets[13],
+        offsets[14],
         MediaItemEmbedSchema.deserialize,
         allOffsets,
         MediaItemEmbed(),
       ) ??
       [];
-  object.participants = reader.readStringList(offsets[14]) ?? [];
+  object.participants = reader.readStringList(offsets[15]) ?? [];
   object.syncStatus = _MilestoneCollectionsyncStatusValueEnumMap[
-          reader.readStringOrNull(offsets[15])] ??
+          reader.readStringOrNull(offsets[16])] ??
       SyncStatus.synced;
-  object.tags = reader.readStringList(offsets[16]) ?? [];
-  object.title = reader.readString(offsets[17]);
-  object.userId = reader.readString(offsets[18]);
+  object.tags = reader.readStringList(offsets[17]) ?? [];
+  object.title = reader.readString(offsets[18]);
+  object.userId = reader.readString(offsets[19]);
   return object;
 }
 
@@ -306,7 +338,7 @@ P _milestoneCollectionDeserializeProp<P>(
 ) {
   switch (propertyId) {
     case 0:
-      return (reader.readLong(offset)) as P;
+      return (reader.readStringOrNull(offset)) as P;
     case 1:
       return (reader.readDateTime(offset)) as P;
     case 2:
@@ -326,10 +358,16 @@ P _milestoneCollectionDeserializeProp<P>(
     case 9:
       return (reader.readDoubleOrNull(offset)) as P;
     case 10:
-      return (reader.readStringOrNull(offset)) as P;
+      return (reader.readObjectOrNull<MilestoneLocationDataEmbed>(
+        offset,
+        MilestoneLocationDataEmbedSchema.deserialize,
+        allOffsets,
+      )) as P;
     case 11:
-      return (reader.readDoubleOrNull(offset)) as P;
+      return (reader.readStringOrNull(offset)) as P;
     case 12:
+      return (reader.readDoubleOrNull(offset)) as P;
+    case 13:
       return (reader.readObjectList<MediaAssetEmbed>(
             offset,
             MediaAssetEmbedSchema.deserialize,
@@ -337,7 +375,7 @@ P _milestoneCollectionDeserializeProp<P>(
             MediaAssetEmbed(),
           ) ??
           []) as P;
-    case 13:
+    case 14:
       return (reader.readObjectList<MediaItemEmbed>(
             offset,
             MediaItemEmbedSchema.deserialize,
@@ -345,17 +383,17 @@ P _milestoneCollectionDeserializeProp<P>(
             MediaItemEmbed(),
           ) ??
           []) as P;
-    case 14:
-      return (reader.readStringList(offset) ?? []) as P;
     case 15:
+      return (reader.readStringList(offset) ?? []) as P;
+    case 16:
       return (_MilestoneCollectionsyncStatusValueEnumMap[
               reader.readStringOrNull(offset)] ??
           SyncStatus.synced) as P;
-    case 16:
-      return (reader.readStringList(offset) ?? []) as P;
     case 17:
-      return (reader.readString(offset)) as P;
+      return (reader.readStringList(offset) ?? []) as P;
     case 18:
+      return (reader.readString(offset)) as P;
+    case 19:
       return (reader.readString(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
@@ -569,49 +607,76 @@ extension MilestoneCollectionQueryWhere
 extension MilestoneCollectionQueryFilter on QueryBuilder<MilestoneCollection,
     MilestoneCollection, QFilterCondition> {
   QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
-      categoryIdEqualTo(int value) {
+      categoryIdIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNull(
+        property: r'categoryId',
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      categoryIdIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNotNull(
+        property: r'categoryId',
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      categoryIdEqualTo(
+    String? value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.equalTo(
         property: r'categoryId',
         value: value,
+        caseSensitive: caseSensitive,
       ));
     });
   }
 
   QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
       categoryIdGreaterThan(
-    int value, {
+    String? value, {
     bool include = false,
+    bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.greaterThan(
         include: include,
         property: r'categoryId',
         value: value,
+        caseSensitive: caseSensitive,
       ));
     });
   }
 
   QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
       categoryIdLessThan(
-    int value, {
+    String? value, {
     bool include = false,
+    bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.lessThan(
         include: include,
         property: r'categoryId',
         value: value,
+        caseSensitive: caseSensitive,
       ));
     });
   }
 
   QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
       categoryIdBetween(
-    int lower,
-    int upper, {
+    String? lower,
+    String? upper, {
     bool includeLower = true,
     bool includeUpper = true,
+    bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.between(
@@ -620,6 +685,77 @@ extension MilestoneCollectionQueryFilter on QueryBuilder<MilestoneCollection,
         includeLower: includeLower,
         upper: upper,
         includeUpper: includeUpper,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      categoryIdStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.startsWith(
+        property: r'categoryId',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      categoryIdEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.endsWith(
+        property: r'categoryId',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      categoryIdContains(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.contains(
+        property: r'categoryId',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      categoryIdMatches(String pattern, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.matches(
+        property: r'categoryId',
+        wildcard: pattern,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      categoryIdIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'categoryId',
+        value: '',
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      categoryIdIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        property: r'categoryId',
+        value: '',
       ));
     });
   }
@@ -1536,6 +1672,24 @@ extension MilestoneCollectionQueryFilter on QueryBuilder<MilestoneCollection,
         upper: upper,
         includeUpper: includeUpper,
         epsilon: epsilon,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      locationIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNull(
+        property: r'location',
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      locationIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNotNull(
+        property: r'location',
       ));
     });
   }
@@ -2818,6 +2972,13 @@ extension MilestoneCollectionQueryFilter on QueryBuilder<MilestoneCollection,
 extension MilestoneCollectionQueryObject on QueryBuilder<MilestoneCollection,
     MilestoneCollection, QFilterCondition> {
   QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      location(FilterQuery<MilestoneLocationDataEmbed> q) {
+    return QueryBuilder.apply(this, (query) {
+      return query.object(q, r'location');
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
       mediaElement(FilterQuery<MediaAssetEmbed> q) {
     return QueryBuilder.apply(this, (query) {
       return query.object(q, r'media');
@@ -3278,9 +3439,9 @@ extension MilestoneCollectionQuerySortThenBy
 extension MilestoneCollectionQueryWhereDistinct
     on QueryBuilder<MilestoneCollection, MilestoneCollection, QDistinct> {
   QueryBuilder<MilestoneCollection, MilestoneCollection, QDistinct>
-      distinctByCategoryId() {
+      distinctByCategoryId({bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'categoryId');
+      return query.addDistinctBy(r'categoryId', caseSensitive: caseSensitive);
     });
   }
 
@@ -3406,7 +3567,7 @@ extension MilestoneCollectionQueryProperty
     });
   }
 
-  QueryBuilder<MilestoneCollection, int, QQueryOperations>
+  QueryBuilder<MilestoneCollection, String?, QQueryOperations>
       categoryIdProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'categoryId');
@@ -3474,6 +3635,13 @@ extension MilestoneCollectionQueryProperty
     });
   }
 
+  QueryBuilder<MilestoneCollection, MilestoneLocationDataEmbed?,
+      QQueryOperations> locationProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'location');
+    });
+  }
+
   QueryBuilder<MilestoneCollection, String?, QQueryOperations>
       locationNameProperty() {
     return QueryBuilder.apply(this, (query) {
@@ -3535,3 +3703,765 @@ extension MilestoneCollectionQueryProperty
     });
   }
 }
+
+// **************************************************************************
+// IsarEmbeddedGenerator
+// **************************************************************************
+
+// coverage:ignore-file
+// ignore_for_file: duplicate_ignore, non_constant_identifier_names, constant_identifier_names, invalid_use_of_protected_member, unnecessary_cast, prefer_const_constructors, lines_longer_than_80_chars, require_trailing_commas, inference_failure_on_function_invocation, unnecessary_parenthesis, unnecessary_raw_strings, unnecessary_null_checks, join_return_with_assignment, prefer_final_locals, avoid_js_rounded_ints, avoid_positional_boolean_parameters, always_specify_types
+
+const MilestoneLocationDataEmbedSchema = Schema(
+  name: r'MilestoneLocationDataEmbed',
+  id: -2427487330364144110,
+  properties: {
+    r'city': PropertySchema(
+      id: 0,
+      name: r'city',
+      type: IsarType.string,
+    ),
+    r'country': PropertySchema(
+      id: 1,
+      name: r'country',
+      type: IsarType.string,
+    ),
+    r'latitude': PropertySchema(
+      id: 2,
+      name: r'latitude',
+      type: IsarType.double,
+    ),
+    r'longitude': PropertySchema(
+      id: 3,
+      name: r'longitude',
+      type: IsarType.double,
+    ),
+    r'name': PropertySchema(
+      id: 4,
+      name: r'name',
+      type: IsarType.string,
+    )
+  },
+  estimateSize: _milestoneLocationDataEmbedEstimateSize,
+  serialize: _milestoneLocationDataEmbedSerialize,
+  deserialize: _milestoneLocationDataEmbedDeserialize,
+  deserializeProp: _milestoneLocationDataEmbedDeserializeProp,
+);
+
+int _milestoneLocationDataEmbedEstimateSize(
+  MilestoneLocationDataEmbed object,
+  List<int> offsets,
+  Map<Type, List<int>> allOffsets,
+) {
+  var bytesCount = offsets.last;
+  {
+    final value = object.city;
+    if (value != null) {
+      bytesCount += 3 + value.length * 3;
+    }
+  }
+  {
+    final value = object.country;
+    if (value != null) {
+      bytesCount += 3 + value.length * 3;
+    }
+  }
+  {
+    final value = object.name;
+    if (value != null) {
+      bytesCount += 3 + value.length * 3;
+    }
+  }
+  return bytesCount;
+}
+
+void _milestoneLocationDataEmbedSerialize(
+  MilestoneLocationDataEmbed object,
+  IsarWriter writer,
+  List<int> offsets,
+  Map<Type, List<int>> allOffsets,
+) {
+  writer.writeString(offsets[0], object.city);
+  writer.writeString(offsets[1], object.country);
+  writer.writeDouble(offsets[2], object.latitude);
+  writer.writeDouble(offsets[3], object.longitude);
+  writer.writeString(offsets[4], object.name);
+}
+
+MilestoneLocationDataEmbed _milestoneLocationDataEmbedDeserialize(
+  Id id,
+  IsarReader reader,
+  List<int> offsets,
+  Map<Type, List<int>> allOffsets,
+) {
+  final object = MilestoneLocationDataEmbed();
+  object.city = reader.readStringOrNull(offsets[0]);
+  object.country = reader.readStringOrNull(offsets[1]);
+  object.latitude = reader.readDoubleOrNull(offsets[2]);
+  object.longitude = reader.readDoubleOrNull(offsets[3]);
+  object.name = reader.readStringOrNull(offsets[4]);
+  return object;
+}
+
+P _milestoneLocationDataEmbedDeserializeProp<P>(
+  IsarReader reader,
+  int propertyId,
+  int offset,
+  Map<Type, List<int>> allOffsets,
+) {
+  switch (propertyId) {
+    case 0:
+      return (reader.readStringOrNull(offset)) as P;
+    case 1:
+      return (reader.readStringOrNull(offset)) as P;
+    case 2:
+      return (reader.readDoubleOrNull(offset)) as P;
+    case 3:
+      return (reader.readDoubleOrNull(offset)) as P;
+    case 4:
+      return (reader.readStringOrNull(offset)) as P;
+    default:
+      throw IsarError('Unknown property with id $propertyId');
+  }
+}
+
+extension MilestoneLocationDataEmbedQueryFilter on QueryBuilder<
+    MilestoneLocationDataEmbed, MilestoneLocationDataEmbed, QFilterCondition> {
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> cityIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNull(
+        property: r'city',
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> cityIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNotNull(
+        property: r'city',
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> cityEqualTo(
+    String? value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'city',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> cityGreaterThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'city',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> cityLessThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'city',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> cityBetween(
+    String? lower,
+    String? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'city',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> cityStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.startsWith(
+        property: r'city',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> cityEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.endsWith(
+        property: r'city',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+          QAfterFilterCondition>
+      cityContains(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.contains(
+        property: r'city',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+          QAfterFilterCondition>
+      cityMatches(String pattern, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.matches(
+        property: r'city',
+        wildcard: pattern,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> cityIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'city',
+        value: '',
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> cityIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        property: r'city',
+        value: '',
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> countryIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNull(
+        property: r'country',
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> countryIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNotNull(
+        property: r'country',
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> countryEqualTo(
+    String? value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'country',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> countryGreaterThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'country',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> countryLessThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'country',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> countryBetween(
+    String? lower,
+    String? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'country',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> countryStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.startsWith(
+        property: r'country',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> countryEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.endsWith(
+        property: r'country',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+          QAfterFilterCondition>
+      countryContains(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.contains(
+        property: r'country',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+          QAfterFilterCondition>
+      countryMatches(String pattern, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.matches(
+        property: r'country',
+        wildcard: pattern,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> countryIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'country',
+        value: '',
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> countryIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        property: r'country',
+        value: '',
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> latitudeIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNull(
+        property: r'latitude',
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> latitudeIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNotNull(
+        property: r'latitude',
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> latitudeEqualTo(
+    double? value, {
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'latitude',
+        value: value,
+        epsilon: epsilon,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> latitudeGreaterThan(
+    double? value, {
+    bool include = false,
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'latitude',
+        value: value,
+        epsilon: epsilon,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> latitudeLessThan(
+    double? value, {
+    bool include = false,
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'latitude',
+        value: value,
+        epsilon: epsilon,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> latitudeBetween(
+    double? lower,
+    double? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'latitude',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+        epsilon: epsilon,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> longitudeIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNull(
+        property: r'longitude',
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> longitudeIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNotNull(
+        property: r'longitude',
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> longitudeEqualTo(
+    double? value, {
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'longitude',
+        value: value,
+        epsilon: epsilon,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> longitudeGreaterThan(
+    double? value, {
+    bool include = false,
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'longitude',
+        value: value,
+        epsilon: epsilon,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> longitudeLessThan(
+    double? value, {
+    bool include = false,
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'longitude',
+        value: value,
+        epsilon: epsilon,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> longitudeBetween(
+    double? lower,
+    double? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'longitude',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+        epsilon: epsilon,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> nameIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNull(
+        property: r'name',
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> nameIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNotNull(
+        property: r'name',
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> nameEqualTo(
+    String? value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'name',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> nameGreaterThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'name',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> nameLessThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'name',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> nameBetween(
+    String? lower,
+    String? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'name',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> nameStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.startsWith(
+        property: r'name',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> nameEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.endsWith(
+        property: r'name',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+          QAfterFilterCondition>
+      nameContains(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.contains(
+        property: r'name',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+          QAfterFilterCondition>
+      nameMatches(String pattern, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.matches(
+        property: r'name',
+        wildcard: pattern,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> nameIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'name',
+        value: '',
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneLocationDataEmbed, MilestoneLocationDataEmbed,
+      QAfterFilterCondition> nameIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        property: r'name',
+        value: '',
+      ));
+    });
+  }
+}
+
+extension MilestoneLocationDataEmbedQueryObject on QueryBuilder<
+    MilestoneLocationDataEmbed, MilestoneLocationDataEmbed, QFilterCondition> {}

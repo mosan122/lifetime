@@ -18,6 +18,8 @@ class CreateMilestoneUseCase implements UseCase<Milestone, CreateMilestoneParams
       userNote: params.userNote,
       eventDate: params.eventDate,
       locationName: params.locationName,
+      locationCity: params.locationCity,
+      locationCountry: params.locationCountry,
       latitude: params.latitude,
       longitude: params.longitude,
       categoryId: params.categoryId,
@@ -36,9 +38,11 @@ class CreateMilestoneParams extends Equatable {
   final String userNote;
   final DateTime eventDate;
   final String? locationName;
+  final String? locationCity;
+  final String? locationCountry;
   final double? latitude;
   final double? longitude;
-  final int categoryId;
+  final String categoryId;
   final List<String> participants;
   final bool isPublic;
   final String? driveFileId;
@@ -51,9 +55,11 @@ class CreateMilestoneParams extends Equatable {
     required this.userNote,
     required this.eventDate,
     this.locationName,
+    this.locationCity,
+    this.locationCountry,
     this.latitude,
     this.longitude,
-    this.categoryId = 1,
+    this.categoryId = 'otros',
     this.participants = const [],
     this.isPublic = false,
     this.driveFileId,
@@ -68,6 +74,8 @@ class CreateMilestoneParams extends Equatable {
         userNote,
         eventDate,
         locationName,
+        locationCity,
+        locationCountry,
         latitude,
         longitude,
         categoryId,

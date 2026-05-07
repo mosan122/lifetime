@@ -177,7 +177,6 @@ Future<void> init() async {
       () => Supabase.instance.client.auth.currentUser?.id ?? '',
       sl<DriveRepository>(),
       sl<LocalMediaStore>(),
-      sl<IsarCategoryDataSource>(),
     ),
   );
   sl.registerLazySingleton<AuthRepository>(
@@ -213,11 +212,7 @@ Future<void> init() async {
   sl.registerFactory<AuthCubit>(() => AuthCubit(sl(), sl(), sl(), sl()));
 
   // ─── Local seeds ──────────────────────────────────────────────────────────
-  try {
-    await sl<IsarCategoryDataSource>().ensureSeeded();
-  } catch (_) {
-    // Best-effort seed; app remains usable without it.
-  }
+  // (No category seeding: categories are now fixed constants.)
 
   // ─── Cleanup policy (Premium) ─────────────────────────────────────────────
   try {
@@ -264,6 +259,46 @@ class _WebMilestoneDataSource implements IsarMilestoneDataSource {
   Future<void> markSynced(String id) async {
     final item = _store.where((e) => e.id == id).firstOrNull;
     if (item != null) item.syncStatus = SyncStatus.synced;
+  }
+
+  @override
+  Future<List<MilestoneLocationDataEmbed>> fetchRecentLocations({
+    int limit = 8,
+  }) async {
+    final seen = <String>{};
+    final out = <MilestoneLocationDataEmbed>[];
+    String keyOf(MilestoneLocationDataEmbed l) {
+      final name = (l.name ?? '').trim().toLowerCase();
+      final lat = l.latitude;
+      final lon = l.longitude;
+      final latKey = lat == null ? '' : lat.toStringAsFixed(5);
+      final lonKey = lon == null ? '' : lon.toStringAsFixed(5);
+      return '$name|$latKey|$lonKey';
+    }
+
+    final sorted = [..._store]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    for (final m in sorted) {
+      final loc = m.location ??
+          (() {
+            final name = m.locationName;
+            final lat = m.latitude;
+            final lon = m.longitude;
+            if ((name == null || name.trim().isEmpty) &&
+                lat == null &&
+                lon == null) return null;
+            return MilestoneLocationDataEmbed()
+              ..name = name
+              ..latitude = lat
+              ..longitude = lon;
+          })();
+      if (loc == null) continue;
+      final k = keyOf(loc);
+      if (k.trim().isEmpty) continue;
+      if (!seen.add(k)) continue;
+      out.add(loc);
+      if (out.length >= limit.clamp(1, 20)) break;
+    }
+    return out;
   }
 
   @override
