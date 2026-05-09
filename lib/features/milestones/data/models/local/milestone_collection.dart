@@ -30,6 +30,8 @@ class MilestoneCollection {
   String? description;
   // Centralized people: store Person IDs here (was previously plain names).
   List<String> participants = [];
+  /// Subset of [participants] marked as protagonists.
+  List<String> protagonists = [];
   List<String> tags = [];
   DateTime eventDate = DateTime.fromMillisecondsSinceEpoch(0);
 
@@ -63,6 +65,7 @@ class MilestoneCollection {
       ..title = milestone.title
       ..description = milestone.description
       ..participants = List<String>.from(milestone.participantIds)
+      ..protagonists = List<String>.from(milestone.protagonistIds)
       ..tags = List<String>.from(milestone.tags)
       ..eventDate = milestone.eventDate
       ..savedLocationId = milestone.savedLocationId
@@ -111,6 +114,7 @@ class MilestoneCollection {
       description: description,
       participants: const [],
       participantIds: List<String>.from(participants),
+      protagonistIds: List<String>.from(protagonists),
       tags: List<String>.from(tags),
       media: media.map((e) => e.toDomain()).toList(),
       mediaItems: mediaItems.map((e) => e.toDomain()).toList(),

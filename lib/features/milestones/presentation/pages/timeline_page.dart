@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/constants/milestone_categories.dart';
+import '../../../../core/notifiers/people_faces_revision_notifier.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../injection_container.dart';
 import '../../../../domain/entities/media_item.dart';
@@ -26,104 +27,11 @@ class TimelinePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return BlocProvider(
-      create: (_) => sl<MilestoneTimelineCubit>(),
-      child: const _TimelineView(),
+      create: (_) => sl<MilestoneTimelineCubit>()..loadTimeline(),
+      child: const _AuthenticatedTimelineView(),
     );
   }
 }
-
-class _TimelineView extends StatelessWidget {
-  const _TimelineView();
-
-  @override
-  Widget build(BuildContext context) {
-    return BlocConsumer<AuthCubit, AuthState>(
-      listenWhen: (prev, curr) =>
-          prev is! AuthAuthenticated && curr is AuthAuthenticated,
-      listener: (context, _) =>
-          context.read<MilestoneTimelineCubit>().loadTimeline(),
-      builder: (context, authState) {
-        if (authState is AuthAuthenticating) {
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
-        }
-        if (authState is! AuthAuthenticated) {
-          final error = authState is AuthUnauthenticated ? authState.error : null;
-          return _ConnectView(error: error);
-        }
-        return const _AuthenticatedTimelineView();
-      },
-    );
-  }
-}
-
-// ── Unauthenticated ───────────────────────────────────────────────────────────
-
-class _ConnectView extends StatelessWidget {
-  final String? error;
-  const _ConnectView({this.error});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Scaffold(
-      body: SafeArea(
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(32),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.menu_book_outlined,
-                    size: 72, color: AppTheme.navy.withValues(alpha: 0.25)),
-                const SizedBox(height: 24),
-                Text('Tu Bitácora de Vida',
-                    style: theme.textTheme.headlineMedium,
-                    textAlign: TextAlign.center),
-                const SizedBox(height: 12),
-                Text(
-                  'Conecta tu Google Drive para guardar tus hitos de forma segura y privada.',
-                  style: theme.textTheme.bodyMedium,
-                  textAlign: TextAlign.center,
-                ),
-                if (error != null) ...[
-                  const SizedBox(height: 16),
-                  Text(error!,
-                      style: theme.textTheme.bodySmall
-                          ?.copyWith(color: Colors.red.shade700),
-                      textAlign: TextAlign.center),
-                ],
-                const SizedBox(height: 32),
-                SizedBox(
-                  width: double.infinity,
-                  height: 52,
-                  child: ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppTheme.navy,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8)),
-                    ),
-                    icon: const Icon(Icons.g_mobiledata),
-                    label: const Text(
-                      'Iniciar sesión con Google',
-                      style: TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                    onPressed: () =>
-                        context.read<AuthCubit>().signInWithGoogle(),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ── Authenticated ─────────────────────────────────────────────────────────────
 
 class _AuthenticatedTimelineView extends StatelessWidget {
   const _AuthenticatedTimelineView();
@@ -365,61 +273,74 @@ class _MilestoneListState extends State<_MilestoneList> {
     final bottomFabInset =
         MediaQuery.paddingOf(context).bottom + 72; // encima del FAB principal
 
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        CustomScrollView(
-          controller: _scrollController,
-          slivers: [
-            const SliverToBoxAdapter(child: SizedBox(height: 20)),
-            for (final (year, items) in grouped) ...[
-              SliverPersistentHeader(
-                key: _keyForYear(year),
-                pinned: true,
-                delegate: _TimelineYearHeaderDelegate(
-                  year: year,
-                  theme: theme,
-                ),
-              ),
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
-                sliver: SliverList(
-                  delegate: SliverChildBuilderDelegate(
-                    (context, index) {
-                      final m = items[index];
-                      final gap =
-                          index < items.length - 1 ? 12.0 : 20.0;
-                      return Padding(
-                        padding: EdgeInsets.only(bottom: gap),
-                        child: _MilestoneCard(milestone: m),
-                      );
-                    },
-                    childCount: items.length,
+    return ListenableBuilder(
+      listenable: sl<PeopleFacesRevisionNotifier>(),
+      builder: (context, _) {
+        final peopleDataRevision = sl<PeopleFacesRevisionNotifier>().value;
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            CustomScrollView(
+              controller: _scrollController,
+              slivers: [
+                const SliverToBoxAdapter(child: SizedBox(height: 20)),
+                for (final (year, items) in grouped) ...[
+                  SliverPersistentHeader(
+                    key: _keyForYear(year),
+                    pinned: true,
+                    delegate: _TimelineYearHeaderDelegate(
+                      year: year,
+                      theme: theme,
+                    ),
                   ),
-                ),
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+                    sliver: SliverList(
+                      delegate: SliverChildBuilderDelegate(
+                        (context, index) {
+                          final m = items[index];
+                          final gap =
+                              index < items.length - 1 ? 12.0 : 20.0;
+                          return Padding(
+                            padding: EdgeInsets.only(bottom: gap),
+                            child: _MilestoneCard(
+                              milestone: m,
+                              peopleDataRevision: peopleDataRevision,
+                            ),
+                          );
+                        },
+                        childCount: items.length,
+                      ),
+                    ),
+                  ),
+                ],
+                const SliverToBoxAdapter(child: SizedBox(height: 8)),
+              ],
+            ),
+            Positioned(
+              right: 16,
+              bottom: bottomFabInset,
+              child: FloatingActionButton.small(
+                heroTag: 'timeline_year_index',
+                tooltip: 'Ir a año',
+                onPressed: () => _showYearIndexSheet(context, years),
+                child: const Icon(Icons.calendar_month_outlined),
               ),
-            ],
-            const SliverToBoxAdapter(child: SizedBox(height: 8)),
+            ),
           ],
-        ),
-        Positioned(
-          right: 16,
-          bottom: bottomFabInset,
-          child: FloatingActionButton.small(
-            heroTag: 'timeline_year_index',
-            tooltip: 'Ir a año',
-            onPressed: () => _showYearIndexSheet(context, years),
-            child: const Icon(Icons.calendar_month_outlined),
-          ),
-        ),
-      ],
+        );
+      },
     );
   }
 }
 
 class _MilestoneCard extends StatelessWidget {
   final Milestone milestone;
-  const _MilestoneCard({required this.milestone});
+  final int peopleDataRevision;
+  const _MilestoneCard({
+    required this.milestone,
+    required this.peopleDataRevision,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -429,14 +350,24 @@ class _MilestoneCard extends StatelessWidget {
     final canUseDrive = accessToken != null && accessToken.trim().isNotEmpty;
 
     if (milestone.mediaItems.isNotEmpty) {
-      return _LocalMediaCard(milestone: milestone, accessToken: accessToken);
+      return _LocalMediaCard(
+        milestone: milestone,
+        accessToken: accessToken,
+        peopleDataRevision: peopleDataRevision,
+      );
     }
 
     if (milestone.driveFileId != null && canUseDrive) {
       return _MediaCard(
-          milestone: milestone, accessToken: accessToken);
+        milestone: milestone,
+        accessToken: accessToken,
+        peopleDataRevision: peopleDataRevision,
+      );
     }
-    return _TextCard(milestone: milestone);
+    return _TextCard(
+      milestone: milestone,
+      peopleDataRevision: peopleDataRevision,
+    );
   }
 }
 
@@ -445,8 +376,13 @@ class _MilestoneCard extends StatelessWidget {
 class _LocalMediaCard extends StatelessWidget {
   final Milestone milestone;
   final String? accessToken;
+  final int peopleDataRevision;
 
-  const _LocalMediaCard({required this.milestone, required this.accessToken});
+  const _LocalMediaCard({
+    required this.milestone,
+    required this.accessToken,
+    required this.peopleDataRevision,
+  });
 
   Future<void> _openDetail(BuildContext context) async {
     final cubit = context.read<MilestoneTimelineCubit>();
@@ -551,6 +487,8 @@ class _LocalMediaCard extends StatelessWidget {
                           if (hasTitle) const SizedBox(width: 8),
                           ParticipantFaceStack(
                             participantIds: milestone.participantIds,
+                            protagonistIds: milestone.protagonistIds,
+                            peopleDataRevision: peopleDataRevision,
                           ),
                         ],
                       ],
@@ -595,7 +533,12 @@ class _LocalMediaCard extends StatelessWidget {
 class _MediaCard extends StatelessWidget {
   final Milestone milestone;
   final String accessToken;
-  const _MediaCard({required this.milestone, required this.accessToken});
+  final int peopleDataRevision;
+  const _MediaCard({
+    required this.milestone,
+    required this.accessToken,
+    required this.peopleDataRevision,
+  });
 
   Future<void> _openDetail(BuildContext context) async {
     final cubit = context.read<MilestoneTimelineCubit>();
@@ -691,6 +634,8 @@ class _MediaCard extends StatelessWidget {
                         if (hasTitle) const SizedBox(width: 8),
                         ParticipantFaceStack(
                           participantIds: milestone.participantIds,
+                          protagonistIds: milestone.protagonistIds,
+                          peopleDataRevision: peopleDataRevision,
                         ),
                       ],
                     ],
@@ -734,7 +679,11 @@ class _MediaCard extends StatelessWidget {
 
 class _TextCard extends StatelessWidget {
   final Milestone milestone;
-  const _TextCard({required this.milestone});
+  final int peopleDataRevision;
+  const _TextCard({
+    required this.milestone,
+    required this.peopleDataRevision,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -805,6 +754,8 @@ class _TextCard extends StatelessWidget {
                           if (hasTitle) const SizedBox(width: 8),
                           ParticipantFaceStack(
                             participantIds: milestone.participantIds,
+                            protagonistIds: milestone.protagonistIds,
+                            peopleDataRevision: peopleDataRevision,
                           ),
                         ],
                       ],

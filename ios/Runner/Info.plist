@@ -49,5 +49,18 @@
 	<string>Necesitamos acceso a tus fotos para asignar una foto de perfil.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Necesitamos acceso a la cámara para tomar una foto de perfil.</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.mosan.lifetime</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.mosan.lifetime</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

@@ -1,17 +1,18 @@
 import 'package:flutter/material.dart';
-import 'package:uuid/uuid.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../data/datasources/isar_person_datasource.dart';
 import '../../data/models/local/person_collection.dart';
+import '../../../../data/datasources/isar_milestone_datasource.dart';
 import 'person_avatar_badge.dart';
-import 'person_name_alert_dialog.dart';
+import 'quick_create_person_sheet.dart';
 
 /// Hoja para elegir una persona ya existente o crear una nueva y añadirla al hito.
 Future<PersonCollection?> showMilestoneParticipantPickerSheet({
   required BuildContext context,
   required Set<String> existingParticipantIds,
   required IsarPersonDataSource personDs,
+  required IsarMilestoneDataSource milestoneDs,
 }) {
   return showModalBottomSheet<PersonCollection?>(
     context: context,
@@ -28,6 +29,7 @@ Future<PersonCollection?> showMilestoneParticipantPickerSheet({
           child: _MilestoneParticipantPickerBody(
             existingParticipantIds: existingParticipantIds,
             personDs: personDs,
+            milestoneDs: milestoneDs,
           ),
         ),
       );
@@ -38,10 +40,12 @@ Future<PersonCollection?> showMilestoneParticipantPickerSheet({
 class _MilestoneParticipantPickerBody extends StatefulWidget {
   final Set<String> existingParticipantIds;
   final IsarPersonDataSource personDs;
+  final IsarMilestoneDataSource milestoneDs;
 
   const _MilestoneParticipantPickerBody({
     required this.existingParticipantIds,
     required this.personDs,
+    required this.milestoneDs,
   });
 
   @override
@@ -53,6 +57,7 @@ class _MilestoneParticipantPickerBodyState
     extends State<_MilestoneParticipantPickerBody> {
   List<PersonCollection>? _all;
   Object? _loadError;
+  List<PersonCollection> _quickSuggestions = const [];
 
   @override
   void initState() {
@@ -63,12 +68,32 @@ class _MilestoneParticipantPickerBodyState
   Future<void> _load() async {
     try {
       final raw = await widget.personDs.fetchAll();
+      final milestones = await widget.milestoneDs.fetchAll();
       if (!mounted) return;
+      final counts = <String, int>{};
+      for (final m in milestones) {
+        for (final pid in m.participants) {
+          counts[pid] = (counts[pid] ?? 0) + 1;
+        }
+      }
+      raw.sort((a, b) {
+        final ca = counts[a.id] ?? 0;
+        final cb = counts[b.id] ?? 0;
+        if (cb != ca) return cb.compareTo(ca);
+        return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+      });
+
+      final suggestions = raw
+          .where((p) => !widget.existingParticipantIds.contains(p.id))
+          .take(3)
+          .toList();
+
       raw.sort(
         (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
       );
       setState(() {
         _all = raw;
+        _quickSuggestions = suggestions;
         _loadError = null;
       });
     } catch (e) {
@@ -86,36 +111,15 @@ class _MilestoneParticipantPickerBodyState
   }
 
   Future<void> _createNew() async {
-    final newName = await showPersonNameAlertDialog(
+    final created = await showQuickCreatePersonSheet(
       context: context,
+      personDs: widget.personDs,
       useRootNavigator: true,
-      title: 'Nueva persona',
-      hintText: 'Nombre',
-      submitLabel: 'Crear',
-      textCapitalization: TextCapitalization.words,
     );
-
-    final v = (newName ?? '').trim();
-    if (v.isEmpty) return;
-
-    final existing = await widget.personDs.fetchByName(v);
-    if (existing != null) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Ya existe una persona con ese nombre.'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
-
-    final created = PersonCollection()
-      ..id = const Uuid().v4()
-      ..name = v;
-    await widget.personDs.upsert(created);
     if (!mounted) return;
-    Navigator.pop(context, created);
+    if (created != null) {
+      Navigator.pop(context, created);
+    }
   }
 
   @override
@@ -164,6 +168,35 @@ class _MilestoneParticipantPickerBodyState
             child: ListView(
               padding: const EdgeInsets.symmetric(horizontal: 8),
               children: [
+                if (_quickSuggestions.isNotEmpty) ...[
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                    child: Text(
+                      'Sugerencias rápidas',
+                      style: theme.textTheme.labelLarge,
+                    ),
+                  ),
+                  ..._quickSuggestions.map(
+                    (p) => ListTile(
+                      leading: PersonCircleAvatar(
+                        key: ValueKey<String>(
+                          '${p.id}|${faceImageWidgetCacheKey(p.faceImagePath)}|suggested',
+                        ),
+                        faceImagePath: p.faceImagePath,
+                        diameter: 40,
+                        semanticLabel: p.name,
+                      ),
+                      title: Text(p.name),
+                      trailing: const Icon(
+                        Icons.star,
+                        color: Colors.amber,
+                        size: 18,
+                      ),
+                      onTap: () => Navigator.pop(context, p),
+                    ),
+                  ),
+                  const Divider(height: 16, indent: 16, endIndent: 16),
+                ],
                 if (_available.isEmpty)
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),

@@ -124,6 +124,7 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
     double? longitude,
     String? categoryId,
     List<String> participants = const [],
+    List<String> protagonistIds = const [],
     bool isPublic = false,
     String? driveFileId,
     String? imageBase64,
@@ -138,6 +139,9 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
     final extracted = TextMetadataExtractor.extract(userNote);
     final tags = extracted.hashtags;
     final participantIds = _dedupeParticipantIds(participants);
+    final safeProtagonists = _dedupeParticipantIds(protagonistIds)
+        .where(participantIds.contains)
+        .toList();
 
     if (!_premium.isPremium) {
       return _saveLocalOnly(
@@ -156,6 +160,7 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
         categoryId: safeCategoryId,
         participants: participants,
         participantIds: participantIds,
+        protagonistIds: safeProtagonists,
         tags: tags,
         isPublic: isPublic,
         driveFileId: driveFileId,
@@ -188,6 +193,7 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
         description: narrative,
         participants: participants,
         participantIds: participantIds,
+        protagonistIds: safeProtagonists,
         tags: tags,
         eventDate: eventDate,
         locationName: locationName,
@@ -249,6 +255,7 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
             description: remoteModel.description,
             participants: participants,
             participantIds: participantIds,
+            protagonistIds: safeProtagonists,
             tags: tags,
             eventDate: eventDate,
             locationName: locationName,
@@ -283,6 +290,7 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
         categoryId: safeCategoryId,
         participants: participants,
         participantIds: participantIds,
+        protagonistIds: safeProtagonists,
         tags: tags,
         isPublic: isPublic,
         driveFileId: driveFileId,
@@ -355,6 +363,7 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
     double? latitude,
     double? longitude,
     List<String> participantIds = const [],
+    List<String> protagonistIds = const [],
     List<MediaItem> mediaToKeep = const [],
     List<File> newMediaFiles = const [],
     List<MediaType> newMediaTypes = const [],
@@ -369,6 +378,9 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
       final extracted = TextMetadataExtractor.extract(description);
       final tags = extracted.hashtags;
       final resolvedIds = _dedupeParticipantIds(participantIds);
+      final safeProtagonists = _dedupeParticipantIds(protagonistIds)
+          .where(resolvedIds.contains)
+          .toList();
 
       final dateForPaths = eventDate ?? existing.eventDate;
       final newPersistedItems = newMediaFiles.isEmpty
@@ -386,6 +398,7 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
         ..title = title
         ..description = description
         ..participants = resolvedIds
+        ..protagonists = safeProtagonists
         ..tags = tags
         ..mediaItems = [
           ...mediaToKeep.map(MediaItemEmbed.fromDomain),
@@ -436,6 +449,7 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
             latitude: latitude,
             longitude: longitude,
             participantIds: existing.participants,
+            protagonistIds: existing.protagonists,
             tags: existing.tags,
             categoryId: safeCategoryId,
           );
@@ -450,6 +464,7 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
             ..longitude = remoteModel.longitude
             ..categoryId = remoteModel.categoryId
             ..participants = List<String>.from(remoteModel.participantIds)
+            ..protagonists = existing.protagonists
             ..tags = List<String>.from(remoteModel.tags)
             ..isPublic = remoteModel.isPublic
             ..driveFileId = remoteModel.driveFileId
@@ -491,6 +506,7 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
               description: existing.description,
               participants: const [],
               participantIds: existing.participants,
+              protagonistIds: existing.protagonists,
               tags: existing.tags,
               eventDate: existing.eventDate,
               locationName: existing.locationName,
@@ -562,6 +578,7 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
     required String categoryId,
     required List<String> participants,
     required List<String> participantIds,
+    required List<String> protagonistIds,
     required List<String> tags,
     required bool isPublic,
     required String? driveFileId,
@@ -576,6 +593,7 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
         ..title = title
         ..description = description
         ..participants = List<String>.from(participantIds)
+        ..protagonists = List<String>.from(protagonistIds)
         ..tags = List<String>.from(tags)
         ..eventDate = eventDate
         ..savedLocationId = savedLocationId

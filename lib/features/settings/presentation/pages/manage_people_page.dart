@@ -1,24 +1,27 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:uuid/uuid.dart';
-
 import '../../../../core/failures/failure.dart';
-import '../../../../core/services/cloud_sync_service.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../domain/services/face_cropper_service.dart';
 import '../../../../injection_container.dart';
-import '../../../milestones/data/datasources/isar_person_datasource.dart';
 import '../../../milestones/data/models/local/person_collection.dart';
 import '../../../milestones/presentation/widgets/face_source_bottom_sheet.dart';
 import '../../../milestones/presentation/widgets/person_avatar_badge.dart';
-import '../../../milestones/presentation/widgets/person_name_alert_dialog.dart';
 import '../bloc/people_cubit.dart';
+import 'add_person_page.dart';
+import 'edit_person_page.dart';
 
 class ManagePeoplePage extends StatelessWidget {
   const ManagePeoplePage({super.key});
+
+  String _fullName(PersonCollection p) {
+    final first = (p.firstName ?? '').trim();
+    final last = (p.lastName ?? '').trim();
+    final full = [first, last].where((s) => s.isNotEmpty).join(' ');
+    return full;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -33,6 +36,7 @@ class ManagePeoplePage extends StatelessWidget {
       ),
       body: BlocBuilder<PeopleCubit, PeopleState>(
         builder: (context, state) {
+          final selectedGroup = ValueNotifier<String>('Todos');
           if (state is PeopleLoading) {
             return const Center(child: CircularProgressIndicator());
           }
@@ -79,68 +83,149 @@ class ManagePeoplePage extends StatelessWidget {
             );
           }
 
-          final ordered = [...people]
-            ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+          final allGroups = <String>{
+            for (final p in people)
+              if (p.group.trim().isNotEmpty) p.group.trim(),
+          }.toList()
+            ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
-          return ListView.separated(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            itemCount: ordered.length,
-            separatorBuilder: (_, __) =>
-                const Divider(height: 1, indent: 72, endIndent: 16),
-            itemBuilder: (context, index) {
-              final p = ordered[index];
-              final img = p.faceImagePath;
-              final hasImg =
-                  img != null && img.trim().isNotEmpty && File(img).existsSync();
+          final orderedAll = [...people]
+            ..sort(
+              (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+            );
 
-              return ListTile(
-                leading: GestureDetector(
-                  onTap: () => _assignPhoto(context, p),
-                  child: CircleAvatar(
-                    radius: 22,
-                    backgroundColor: AppTheme.navy.withValues(alpha: 0.10),
-                    child: hasImg
-                        ? ClipOval(
-                            child: Image(
-                              key: ValueKey<String>(
-                                faceImageWidgetCacheKey(img),
+          return ValueListenableBuilder<String>(
+            valueListenable: selectedGroup,
+            builder: (context, group, _) {
+              final filtered = group == 'Todos'
+                  ? orderedAll
+                  : orderedAll
+                      .where((p) => p.group.trim() == group)
+                      .toList();
+
+              return Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.filter_list, color: AppTheme.navy),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: DropdownButtonFormField<String>(
+                            value: group,
+                            items: [
+                              const DropdownMenuItem(
+                                value: 'Todos',
+                                child: Text('Todos los grupos'),
                               ),
-                              width: 44,
-                              height: 44,
-                              fit: BoxFit.cover,
-                              gaplessPlayback: true,
-                              image: FileImage(File(img)),
+                              ...allGroups.map(
+                                (g) => DropdownMenuItem(
+                                  value: g,
+                                  child: Text(g),
+                                ),
+                              ),
+                            ],
+                            onChanged: (v) =>
+                                selectedGroup.value = (v ?? 'Todos'),
+                            decoration: const InputDecoration(
+                              isDense: true,
+                              labelText: 'Grupo',
                             ),
-                          )
-                        : const Icon(Icons.person_outline, color: AppTheme.navy),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                title: Text(p.name),
-                subtitle: (p.driveFaceFileId != null &&
-                        p.driveFaceFileId!.trim().isNotEmpty)
-                    ? const Text('Foto sincronizada en la nube')
-                    : null,
-                trailing: PopupMenuButton<String>(
-                  onSelected: (value) async {
-                    if (value == 'assign_photo') await _assignPhoto(context, p);
-                    if (value == 'rename') await _rename(context, p);
-                    if (value == 'clear_photo') await _clearPhoto(context, p);
-                  },
-                  itemBuilder: (context) => [
-                    const PopupMenuItem(
-                      value: 'assign_photo',
-                      child: Text('Asignar foto de perfil'),
+                  const SizedBox(height: 4),
+                  Expanded(
+                    child: ListView.separated(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      itemCount: filtered.length,
+                      separatorBuilder: (_, __) =>
+                          const Divider(height: 1, indent: 72, endIndent: 16),
+                      itemBuilder: (context, index) {
+                        final p = filtered[index];
+                        final img = p.faceImagePath;
+                        final hasImg = img != null &&
+                            img.trim().isNotEmpty &&
+                            File(img).existsSync();
+
+                        final full = _fullName(p);
+                        final linked = p.linkedUserId != null &&
+                            p.linkedUserId!.trim().isNotEmpty;
+
+                        return ListTile(
+                          onTap: () => _openPersonDetailSheet(context, p),
+                          leading: GestureDetector(
+                            onTap: () => _assignPhoto(context, p),
+                            child: CircleAvatar(
+                              radius: 22,
+                              backgroundColor:
+                                  AppTheme.navy.withValues(alpha: 0.10),
+                              child: hasImg
+                                  ? ClipOval(
+                                      child: Image(
+                                        key: ValueKey<String>(
+                                          faceImageWidgetCacheKey(img),
+                                        ),
+                                        width: 44,
+                                        height: 44,
+                                        fit: BoxFit.cover,
+                                        gaplessPlayback: true,
+                                        image: FileImage(File(img)),
+                                      ),
+                                    )
+                                  : const Icon(Icons.person_outline,
+                                      color: AppTheme.navy),
+                            ),
+                          ),
+                          title: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  p.name,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleMedium
+                                      ?.copyWith(fontWeight: FontWeight.w700),
+                                ),
+                              ),
+                              if (linked)
+                                const Icon(
+                                  Icons.bolt,
+                                  size: 18,
+                                  color: Colors.blue,
+                                ),
+                            ],
+                          ),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (full.isNotEmpty)
+                                Text(
+                                  full,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.copyWith(
+                                        color: Colors.black54,
+                                      ),
+                                ),
+                              if (p.driveFaceFileId != null &&
+                                  p.driveFaceFileId!.trim().isNotEmpty)
+                                const Padding(
+                                  padding: EdgeInsets.only(top: 2),
+                                  child: Text('Foto sincronizada en la nube'),
+                                ),
+                            ],
+                          ),
+                        );
+                      },
                     ),
-                    const PopupMenuItem(
-                      value: 'rename',
-                      child: Text('Cambiar nombre'),
-                    ),
-                    const PopupMenuItem(
-                      value: 'clear_photo',
-                      child: Text('Borrar foto de perfil'),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               );
             },
           );
@@ -149,75 +234,204 @@ class ManagePeoplePage extends StatelessWidget {
     );
   }
 
-  Future<void> _addPerson(BuildContext context) async {
-    final ds = sl<IsarPersonDataSource>();
-    final cubit = context.read<PeopleCubit>();
-    final newName = await showPersonNameAlertDialog(
-      context: context,
-      title: 'Nueva persona',
-      hintText: 'Nombre',
-      submitLabel: 'Crear',
-      textCapitalization: TextCapitalization.words,
+  Future<void> _openPersonDetailSheet(
+    BuildContext parentContext,
+    PersonCollection p,
+  ) async {
+    final theme = Theme.of(parentContext);
+    await showModalBottomSheet<void>(
+      context: parentContext,
+      backgroundColor: AppTheme.cream,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        final bottomInset = MediaQuery.paddingOf(sheetContext).bottom;
+        final img = p.faceImagePath;
+        final hasImg = img != null &&
+            img.trim().isNotEmpty &&
+            File(img).existsSync();
+        final full = _fullName(p);
+        final linked = p.linkedUserId != null &&
+            p.linkedUserId!.trim().isNotEmpty;
+        final email = (p.linkedUserEmail ?? '').trim();
+        final group = p.group.trim();
+        final notes = p.notes.trim();
+        final birth = p.birthDate;
+
+        Widget detailLine(String label, String value) {
+          return Padding(
+            padding: const EdgeInsets.only(top: 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: Colors.black54,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                SelectableText(
+                  value,
+                  style: theme.textTheme.bodyLarge,
+                ),
+              ],
+            ),
+          );
+        }
+
+        final maxH = MediaQuery.sizeOf(sheetContext).height * 0.88;
+        return ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: maxH),
+          child: SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(20, 4, 20, 20 + bottomInset),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    CircleAvatar(
+                      radius: 40,
+                      backgroundColor: AppTheme.navy.withValues(alpha: 0.10),
+                      child: hasImg
+                          ? ClipOval(
+                              child: Image(
+                                key: ValueKey<String>(
+                                  faceImageWidgetCacheKey(img),
+                                ),
+                                width: 80,
+                                height: 80,
+                                fit: BoxFit.cover,
+                                gaplessPlayback: true,
+                                image: FileImage(File(img)),
+                              ),
+                            )
+                          : const Icon(Icons.person_outline,
+                              size: 44, color: AppTheme.navy),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            p.name,
+                            style: theme.textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: AppTheme.navy,
+                            ),
+                          ),
+                          if (full.isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              full,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: Colors.black54,
+                              ),
+                            ),
+                          ],
+                          if (linked) ...[
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                const Icon(Icons.bolt,
+                                    size: 18, color: Colors.blue),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    'Cuenta LifeTime vinculada',
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: Colors.black87,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Editar',
+                      icon: const Icon(Icons.edit_outlined, color: AppTheme.navy),
+                      onPressed: () {
+                        Navigator.pop(sheetContext);
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          if (parentContext.mounted) {
+                            _edit(parentContext, p);
+                          }
+                        });
+                      },
+                    ),
+                  ],
+                ),
+                const Divider(height: 28),
+                if (group.isNotEmpty) detailLine('Grupo', group),
+                if (birth != null)
+                  detailLine(
+                    'Cumpleaños',
+                    '${birth.day.toString().padLeft(2, '0')}/'
+                        '${birth.month.toString().padLeft(2, '0')}/${birth.year}',
+                  ),
+                if (email.isNotEmpty) detailLine('Email', email),
+                if (notes.isNotEmpty) detailLine('Notas', notes),
+                if (p.driveFaceFileId != null &&
+                    p.driveFaceFileId!.trim().isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Text(
+                      'Foto de perfil sincronizada en la nube',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: Colors.black54,
+                      ),
+                    ),
+                  ),
+                if (group.isEmpty &&
+                    birth == null &&
+                    email.isEmpty &&
+                    notes.isEmpty &&
+                    (p.driveFaceFileId == null ||
+                        p.driveFaceFileId!.trim().isEmpty))
+                  Text(
+                    'Pulsa el lápiz para completar la ficha o toca la foto en la lista para asignar imagen.',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: Colors.black54,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
     );
-
-    final v = (newName ?? '').trim();
-    if (v.isEmpty) return;
-
-    final existing = await ds.fetchByName(v);
-    if (existing != null) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Ya existe una persona con ese nombre.'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
-
-    final created = PersonCollection()
-      ..id = const Uuid().v4()
-      ..name = v;
-    await ds.upsert(created);
-    if (!context.mounted) return;
-    await cubit.reload();
   }
 
-  Future<void> _rename(BuildContext context, PersonCollection p) async {
-    final ds = sl<IsarPersonDataSource>();
+  Future<void> _addPerson(BuildContext context) async {
     final cubit = context.read<PeopleCubit>();
-    final newName = await showPersonNameAlertDialog(
-      context: context,
-      title: 'Cambiar nombre',
-      initialValue: p.name,
-      hintText: 'Nombre',
-      submitLabel: 'Guardar',
-    );
-
-    final v = (newName ?? '').trim();
-    if (v.isEmpty || v == p.name) return;
-
-    final existing = await ds.fetchByName(v);
-    if (existing != null && existing.id != p.id) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Ya existe una persona con ese nombre.'),
-          backgroundColor: Colors.red,
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => BlocProvider.value(
+          value: cubit,
+          child: const AddPersonPage(),
         ),
-      );
-      return;
-    }
+      ),
+    );
+  }
 
-    final updated = PersonCollection()
-      ..isarId = p.isarId
-      ..id = p.id
-      ..name = v
-      ..faceImagePath = p.faceImagePath
-      ..driveFaceFileId = p.driveFaceFileId;
-    await ds.upsert(updated);
-    if (!context.mounted) return;
-    await cubit.reload();
+  Future<void> _edit(BuildContext context, PersonCollection p) async {
+    final cubit = context.read<PeopleCubit>();
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => BlocProvider.value(
+          value: cubit,
+          child: EditPersonPage(person: p),
+        ),
+      ),
+    );
   }
 
   Future<void> _assignPhoto(BuildContext context, PersonCollection p) async {
@@ -261,23 +475,5 @@ class ManagePeoplePage extends StatelessWidget {
         );
       },
     );
-  }
-
-  Future<void> _clearPhoto(BuildContext context, PersonCollection p) async {
-    final ds = sl<IsarPersonDataSource>();
-    final cubit = context.read<PeopleCubit>();
-    final driveId = p.driveFaceFileId;
-    final updated = PersonCollection()
-      ..isarId = p.isarId
-      ..id = p.id
-      ..name = p.name
-      ..faceImagePath = null
-      ..driveFaceFileId = null;
-    await ds.upsert(updated);
-    if (driveId != null) {
-      unawaited(sl<CloudSyncService>().deleteDriveFace(driveId));
-    }
-    if (!context.mounted) return;
-    await cubit.reload();
   }
 }

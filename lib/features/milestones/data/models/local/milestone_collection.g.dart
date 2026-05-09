@@ -101,24 +101,34 @@ const MilestoneCollectionSchema = CollectionSchema(
       name: r'participants',
       type: IsarType.stringList,
     ),
-    r'syncStatus': PropertySchema(
+    r'protagonists': PropertySchema(
       id: 16,
+      name: r'protagonists',
+      type: IsarType.stringList,
+    ),
+    r'savedLocationId': PropertySchema(
+      id: 17,
+      name: r'savedLocationId',
+      type: IsarType.long,
+    ),
+    r'syncStatus': PropertySchema(
+      id: 18,
       name: r'syncStatus',
       type: IsarType.string,
       enumMap: _MilestoneCollectionsyncStatusEnumValueMap,
     ),
     r'tags': PropertySchema(
-      id: 17,
+      id: 19,
       name: r'tags',
       type: IsarType.stringList,
     ),
     r'title': PropertySchema(
-      id: 18,
+      id: 20,
       name: r'title',
       type: IsarType.string,
     ),
     r'userId': PropertySchema(
-      id: 19,
+      id: 21,
       name: r'userId',
       type: IsarType.string,
     )
@@ -225,6 +235,13 @@ int _milestoneCollectionEstimateSize(
       bytesCount += value.length * 3;
     }
   }
+  bytesCount += 3 + object.protagonists.length * 3;
+  {
+    for (var i = 0; i < object.protagonists.length; i++) {
+      final value = object.protagonists[i];
+      bytesCount += value.length * 3;
+    }
+  }
   bytesCount += 3 + object.syncStatus.name.length * 3;
   bytesCount += 3 + object.tags.length * 3;
   {
@@ -275,10 +292,12 @@ void _milestoneCollectionSerialize(
     object.mediaItems,
   );
   writer.writeStringList(offsets[15], object.participants);
-  writer.writeString(offsets[16], object.syncStatus.name);
-  writer.writeStringList(offsets[17], object.tags);
-  writer.writeString(offsets[18], object.title);
-  writer.writeString(offsets[19], object.userId);
+  writer.writeStringList(offsets[16], object.protagonists);
+  writer.writeLong(offsets[17], object.savedLocationId);
+  writer.writeString(offsets[18], object.syncStatus.name);
+  writer.writeStringList(offsets[19], object.tags);
+  writer.writeString(offsets[20], object.title);
+  writer.writeString(offsets[21], object.userId);
 }
 
 MilestoneCollection _milestoneCollectionDeserialize(
@@ -321,12 +340,14 @@ MilestoneCollection _milestoneCollectionDeserialize(
       ) ??
       [];
   object.participants = reader.readStringList(offsets[15]) ?? [];
+  object.protagonists = reader.readStringList(offsets[16]) ?? [];
+  object.savedLocationId = reader.readLongOrNull(offsets[17]);
   object.syncStatus = _MilestoneCollectionsyncStatusValueEnumMap[
-          reader.readStringOrNull(offsets[16])] ??
+          reader.readStringOrNull(offsets[18])] ??
       SyncStatus.synced;
-  object.tags = reader.readStringList(offsets[17]) ?? [];
-  object.title = reader.readString(offsets[18]);
-  object.userId = reader.readString(offsets[19]);
+  object.tags = reader.readStringList(offsets[19]) ?? [];
+  object.title = reader.readString(offsets[20]);
+  object.userId = reader.readString(offsets[21]);
   return object;
 }
 
@@ -386,14 +407,18 @@ P _milestoneCollectionDeserializeProp<P>(
     case 15:
       return (reader.readStringList(offset) ?? []) as P;
     case 16:
+      return (reader.readStringList(offset) ?? []) as P;
+    case 17:
+      return (reader.readLongOrNull(offset)) as P;
+    case 18:
       return (_MilestoneCollectionsyncStatusValueEnumMap[
               reader.readStringOrNull(offset)] ??
           SyncStatus.synced) as P;
-    case 17:
-      return (reader.readStringList(offset) ?? []) as P;
-    case 18:
-      return (reader.readString(offset)) as P;
     case 19:
+      return (reader.readStringList(offset) ?? []) as P;
+    case 20:
+      return (reader.readString(offset)) as P;
+    case 21:
       return (reader.readString(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
@@ -2336,6 +2361,305 @@ extension MilestoneCollectionQueryFilter on QueryBuilder<MilestoneCollection,
   }
 
   QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      protagonistsElementEqualTo(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'protagonists',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      protagonistsElementGreaterThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'protagonists',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      protagonistsElementLessThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'protagonists',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      protagonistsElementBetween(
+    String lower,
+    String upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'protagonists',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      protagonistsElementStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.startsWith(
+        property: r'protagonists',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      protagonistsElementEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.endsWith(
+        property: r'protagonists',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      protagonistsElementContains(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.contains(
+        property: r'protagonists',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      protagonistsElementMatches(String pattern, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.matches(
+        property: r'protagonists',
+        wildcard: pattern,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      protagonistsElementIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'protagonists',
+        value: '',
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      protagonistsElementIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        property: r'protagonists',
+        value: '',
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      protagonistsLengthEqualTo(int length) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'protagonists',
+        length,
+        true,
+        length,
+        true,
+      );
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      protagonistsIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'protagonists',
+        0,
+        true,
+        0,
+        true,
+      );
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      protagonistsIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'protagonists',
+        0,
+        false,
+        999999,
+        true,
+      );
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      protagonistsLengthLessThan(
+    int length, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'protagonists',
+        0,
+        true,
+        length,
+        include,
+      );
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      protagonistsLengthGreaterThan(
+    int length, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'protagonists',
+        length,
+        include,
+        999999,
+        true,
+      );
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      protagonistsLengthBetween(
+    int lower,
+    int upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'protagonists',
+        lower,
+        includeLower,
+        upper,
+        includeUpper,
+      );
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      savedLocationIdIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNull(
+        property: r'savedLocationId',
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      savedLocationIdIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNotNull(
+        property: r'savedLocationId',
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      savedLocationIdEqualTo(int? value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'savedLocationId',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      savedLocationIdGreaterThan(
+    int? value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'savedLocationId',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      savedLocationIdLessThan(
+    int? value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'savedLocationId',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      savedLocationIdBetween(
+    int? lower,
+    int? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'savedLocationId',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
       syncStatusEqualTo(
     SyncStatus value, {
     bool caseSensitive = true,
@@ -3167,6 +3491,20 @@ extension MilestoneCollectionQuerySortBy
   }
 
   QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterSortBy>
+      sortBySavedLocationId() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'savedLocationId', Sort.asc);
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterSortBy>
+      sortBySavedLocationIdDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'savedLocationId', Sort.desc);
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterSortBy>
       sortBySyncStatus() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'syncStatus', Sort.asc);
@@ -3394,6 +3732,20 @@ extension MilestoneCollectionQuerySortThenBy
   }
 
   QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterSortBy>
+      thenBySavedLocationId() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'savedLocationId', Sort.asc);
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterSortBy>
+      thenBySavedLocationIdDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'savedLocationId', Sort.desc);
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterSortBy>
       thenBySyncStatus() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'syncStatus', Sort.asc);
@@ -3527,6 +3879,20 @@ extension MilestoneCollectionQueryWhereDistinct
       distinctByParticipants() {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'participants');
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QDistinct>
+      distinctByProtagonists() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'protagonists');
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QDistinct>
+      distinctBySavedLocationId() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'savedLocationId');
     });
   }
 
@@ -3674,6 +4040,20 @@ extension MilestoneCollectionQueryProperty
       participantsProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'participants');
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, List<String>, QQueryOperations>
+      protagonistsProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'protagonists');
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, int?, QQueryOperations>
+      savedLocationIdProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'savedLocationId');
     });
   }
 

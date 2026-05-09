@@ -28,6 +28,15 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <!-- Deep link: retorno de verificación de email / OAuth (Supabase Auth) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="com.mosan.lifetime"
+                    android:host="login" />
+            </intent-filter>
         </activity>
         <!-- image_cropper (uCrop): required or ActivityNotFoundException when cropping -->
         <activity

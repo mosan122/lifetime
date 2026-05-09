@@ -18,6 +18,7 @@ import 'core/services/space_cleanup_service.dart';
 import 'core/services/premium_service.dart';
 import 'core/services/milestone_location_resolver.dart';
 import 'core/constants/milestone_categories.dart';
+import 'core/notifiers/people_faces_revision_notifier.dart';
 import 'core/services/local_user_settings_service.dart';
 import 'data/datasources/google_drive_datasource.dart';
 import 'data/datasources/isar_milestone_datasource.dart';
@@ -26,8 +27,10 @@ import 'data/repositories/drive_repository_impl.dart';
 import 'data/repositories/milestone_repository_impl.dart';
 import 'domain/repositories/drive_repository.dart';
 import 'domain/repositories/milestone_repository.dart';
-import 'features/auth/data/datasources/auth_remote_datasource.dart';
+import 'features/auth/data/datasources/auth_local_persistence.dart';
+import 'features/auth/data/models/local/local_user_session_collection.dart';
 import 'features/auth/data/repositories/auth_repository_impl.dart';
+import 'features/auth/data/services/auth_service.dart';
 import 'features/auth/domain/repositories/auth_repository.dart';
 import 'features/auth/presentation/bloc/auth_cubit.dart';
 import 'features/milestones/data/datasources/isar_person_datasource.dart';
@@ -38,6 +41,8 @@ import 'features/milestones/data/models/local/category_collection.dart';
 import 'features/milestones/data/models/local/person_collection.dart';
 import 'features/milestones/data/models/local/saved_location_collection.dart';
 import 'features/profile/data/datasources/profile_remote_datasource.dart';
+import 'features/profile/data/datasources/user_profile_local_datasource.dart';
+import 'features/profile/data/models/local/user_profile_collection.dart';
 import 'features/profile/data/repositories/profile_repository_impl.dart';
 import 'features/profile/domain/repositories/profile_repository.dart';
 import 'features/milestones/domain/usecases/create_milestone_usecase.dart';
@@ -61,6 +66,8 @@ final sl = GetIt.instance;
 /// Call once in main() after Supabase.initialize().
 Future<void> init() async {
   // ─── External ─────────────────────────────────────────────────────────────
+  sl.registerLazySingleton<PeopleFacesRevisionNotifier>(
+      PeopleFacesRevisionNotifier.new);
   sl.registerLazySingleton<SupabaseClient>(() => Supabase.instance.client);
   sl.registerLazySingleton<LocationService>(() => LocationServiceImpl());
   sl.registerLazySingleton<http.Client>(() => http.Client());
@@ -87,6 +94,8 @@ Future<void> init() async {
           PersonCollectionSchema,
           CategoryCollectionSchema,
           SavedLocationCollectionSchema,
+          LocalUserSessionCollectionSchema,
+          UserProfileCollectionSchema,
         ],
         name: 'lifetime',
         directory: dir.path,
@@ -104,6 +113,8 @@ Future<void> init() async {
             MilestoneCollectionSchema,
             CategoryCollectionSchema,
             SavedLocationCollectionSchema,
+            LocalUserSessionCollectionSchema,
+            UserProfileCollectionSchema,
           ],
           name: 'lifetime',
           directory: dir.path,
@@ -159,6 +170,16 @@ Future<void> init() async {
     );
   }
 
+  if (sl.isRegistered<Isar>()) {
+    sl.registerLazySingleton<UserProfileLocalDataSource>(
+      () => IsarUserProfileLocalDataSourceImpl(sl<Isar>()),
+    );
+  } else {
+    sl.registerLazySingleton<UserProfileLocalDataSource>(
+      () => NoOpUserProfileLocalDataSource(),
+    );
+  }
+
   // ─── Local seeds ──────────────────────────────────────────────────────────
   try {
     await sl<IsarCategoryDataSource>().ensureSeeded();
@@ -172,6 +193,12 @@ Future<void> init() async {
   sl.registerLazySingleton<PremiumService>(() => premiumService);
   sl.registerLazySingleton<LocalUserSettingsService>(
     () => LocalUserSettingsService(),
+  );
+  sl.registerLazySingleton<AuthLocalPersistence>(
+    () => AuthLocalPersistence(
+      sl<LocalUserSettingsService>(),
+      sl.isRegistered<Isar>() ? sl<Isar>() : null,
+    ),
   );
   // Note: DriveApi is constructed per-sync with fresh auth headers.
   sl.registerLazySingleton<CloudSyncService>(
@@ -194,8 +221,8 @@ Future<void> init() async {
   sl.registerLazySingleton<MilestoneRemoteDataSource>(
     () => MilestoneRemoteDataSourceImpl(sl()),
   );
-  sl.registerLazySingleton<AuthRemoteDataSource>(
-    () => AuthRemoteDataSourceImpl(sl(), sl()),
+  sl.registerLazySingleton<AuthService>(
+    () => AuthService(sl<SupabaseClient>(), sl<GoogleSignIn>()),
   );
   sl.registerLazySingleton<ProfileRemoteDataSource>(
     () => ProfileRemoteDataSourceImpl(sl()),
@@ -216,7 +243,7 @@ Future<void> init() async {
     ),
   );
   sl.registerLazySingleton<AuthRepository>(
-    () => AuthRepositoryImpl(sl()),
+    () => AuthRepositoryImpl(sl<AuthService>()),
   );
   sl.registerLazySingleton<ProfileRepository>(
     () => ProfileRepositoryImpl(sl(), sl()),
@@ -243,10 +270,17 @@ Future<void> init() async {
   sl.registerFactory<DeleteMilestoneCubit>(() => DeleteMilestoneCubit(sl()));
   sl.registerFactory<ExportCubit>(() => ExportCubit(sl()));
   sl.registerFactory<PeopleCubit>(
-      () => PeopleCubit(sl(), sl(), sl()));
+      () => PeopleCubit(sl(), sl(), sl(), sl()));
   sl.registerFactory<MapCubit>(() => MapCubit(sl()));
   sl.registerFactory<AuthCubit>(
-    () => AuthCubit(sl(), sl(), sl(), sl(), sl()),
+    () => AuthCubit(
+      sl<AuthRepository>(),
+      sl<PremiumService>(),
+      sl<ProfileRepository>(),
+      sl<SupabaseClient>(),
+      sl<AuthLocalPersistence>(),
+      sl<UserProfileLocalDataSource>(),
+    ),
   );
 
   // ─── Local seeds ──────────────────────────────────────────────────────────

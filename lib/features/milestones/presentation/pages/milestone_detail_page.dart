@@ -454,6 +454,7 @@ class _SemanticChips extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final participantIds = milestone.participantIds;
+    final protagonistIds = milestone.protagonistIds;
     final tags = milestone.tags;
     final mediaItems = milestone.mediaItems;
 
@@ -463,7 +464,10 @@ class _SemanticChips extends StatelessWidget {
         if (participantIds.isNotEmpty) ...[
           Text('Personas', style: theme.textTheme.labelLarge),
           const SizedBox(height: 8),
-          _PeopleFacesRow(participantIds: participantIds),
+          _PeopleFacesRow(
+            participantIds: participantIds,
+            protagonistIds: protagonistIds,
+          ),
           const SizedBox(height: 16),
         ],
         if (mediaItems.isNotEmpty) ...[
@@ -486,7 +490,11 @@ class _SemanticChips extends StatelessWidget {
 
 class _PeopleFacesRow extends StatelessWidget {
   final List<String> participantIds;
-  const _PeopleFacesRow({required this.participantIds});
+  final List<String> protagonistIds;
+  const _PeopleFacesRow({
+    required this.participantIds,
+    required this.protagonistIds,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -498,7 +506,16 @@ class _PeopleFacesRow extends StatelessWidget {
         if (people.isEmpty) return const SizedBox.shrink();
 
         final byId = {for (final p in people) p.id: p};
-        final ordered = participantIds.map((id) => byId[id]).whereType<PersonCollection>().toList();
+        final proSet = protagonistIds.toSet();
+        final ordered = participantIds
+            .map((id) => byId[id])
+            .whereType<PersonCollection>()
+            .toList()
+          ..sort((a, b) {
+            final ap = proSet.contains(a.id) ? 1 : 0;
+            final bp = proSet.contains(b.id) ? 1 : 0;
+            return bp.compareTo(ap);
+          });
 
         return Wrap(
           spacing: 10,
@@ -506,14 +523,32 @@ class _PeopleFacesRow extends StatelessWidget {
           children: ordered.map((p) {
             final img = p.faceImagePath;
             final hasImg = img != null && img.trim().isNotEmpty && File(img).existsSync();
+            final isProtagonist = proSet.contains(p.id);
             return Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                CircleAvatar(
-                  radius: 18,
-                  backgroundColor: AppTheme.navy.withValues(alpha: 0.10),
-                  backgroundImage: hasImg ? FileImage(File(img)) : null,
-                  child: hasImg ? null : const Icon(Icons.person_outline, size: 18, color: AppTheme.navy),
+                Container(
+                  padding: const EdgeInsets.all(2),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: isProtagonist
+                        ? Border.all(color: Colors.amber, width: 2)
+                        : null,
+                  ),
+                  child: CircleAvatar(
+                    radius: 18,
+                    backgroundColor: isProtagonist
+                        ? Colors.amber.withValues(alpha: 0.18)
+                        : AppTheme.navy.withValues(alpha: 0.10),
+                    backgroundImage: hasImg ? FileImage(File(img)) : null,
+                    child: hasImg
+                        ? null
+                        : const Icon(
+                            Icons.person_outline,
+                            size: 18,
+                            color: AppTheme.navy,
+                          ),
+                  ),
                 ),
                 const SizedBox(height: 4),
                 SizedBox(

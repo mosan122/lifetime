@@ -9,6 +9,8 @@ class Milestone extends Equatable {
   final String? description;
   final List<String> participants;
   final List<String> participantIds;
+  /// Subset of [participantIds] marked as protagonists for this milestone.
+  final List<String> protagonistIds;
   final List<String> tags;
   final List<MediaAssetEntity> media;
   final List<MediaItem> mediaItems;
@@ -37,6 +39,7 @@ class Milestone extends Equatable {
     this.description,
     this.participants = const [],
     this.participantIds = const [],
+    this.protagonistIds = const [],
     this.tags = const [],
     this.media = const [],
     this.mediaItems = const [],
@@ -62,6 +65,7 @@ class Milestone extends Equatable {
         description,
         participants,
         participantIds,
+        protagonistIds,
         tags,
         media,
         mediaItems,

@@ -106,8 +106,10 @@ class _CreateMilestoneViewState extends State<_CreateMilestoneView> {
   final _noteController = TextEditingController();
   final _picker = ImagePicker();
   final List<PersonCollection> _participants = [];
+  final Set<String> _protagonistIds = {};
   final _faceCropService = sl<FaceCropperService>();
   final _personDs = sl<IsarPersonDataSource>();
+  final _milestoneDs = sl<IsarMilestoneDataSource>();
   final _placeAutocomplete = PlaceAutocompleteService();
   DateTime _selectedDate = DateTime.now();
   String _categoryId = 'otros';
@@ -239,6 +241,7 @@ class _CreateMilestoneViewState extends State<_CreateMilestoneView> {
       context: context,
       existingParticipantIds: {for (final p in _participants) p.id},
       personDs: _personDs,
+      milestoneDs: _milestoneDs,
     );
     if (picked != null && mounted) {
       if (_participants.any((x) => x.id == picked.id)) return;
@@ -344,6 +347,9 @@ class _CreateMilestoneViewState extends State<_CreateMilestoneView> {
           latitude: coordsLat,
           longitude: coordsLon,
           participants: _participants.map((p) => p.id).toList(),
+          protagonistIds: _protagonistIds
+              .where((id) => _participants.any((p) => p.id == id))
+              .toList(),
         );
   }
 
@@ -454,12 +460,22 @@ class _CreateMilestoneViewState extends State<_CreateMilestoneView> {
                             const SizedBox(height: 8),
                             _ParticipantsSection(
                               participants: _participants,
+                              protagonistIds: _protagonistIds,
                               enabled: !isSubmitting,
                               onAdd: _addParticipant,
                               onAssignPhoto: _assignParticipantPhoto,
+                              onToggleProtagonist: (p) => setState(() {
+                                if (_protagonistIds.contains(p.id)) {
+                                  _protagonistIds.remove(p.id);
+                                } else {
+                                  _protagonistIds.add(p.id);
+                                }
+                              }),
                               onRemove: (p) => setState(
-                                () => _participants
-                                    .removeWhere((x) => x.id == p.id),
+                                () {
+                                  _participants.removeWhere((x) => x.id == p.id);
+                                  _protagonistIds.remove(p.id);
+                                },
                               ),
                             ),
                             const SizedBox(height: 10),
@@ -568,6 +584,7 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
   late final String? _initialCountry;
 
   final List<PersonCollection> _participants = [];
+  final Set<String> _protagonistIds = {};
   final List<_SelectedMedia> _newMedia = [];
   late List<MediaItem> _existingMedia;
   late int _galleryCoverIndex;
@@ -575,6 +592,7 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
   int _importingImagesDone = 0;
   final _picker = ImagePicker();
   final _personDs = sl<IsarPersonDataSource>();
+  final _milestoneDs = sl<IsarMilestoneDataSource>();
   final _faceCropService = sl<FaceCropperService>();
 
   @override
@@ -600,6 +618,9 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
     );
     _loadCategories();
     _loadParticipants();
+    _protagonistIds
+      ..clear()
+      ..addAll(widget.milestone.protagonistIds);
 
     final existingName = (widget.milestone.locationName ?? '').trim();
     if (existingName.isNotEmpty &&
@@ -745,6 +766,7 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
       context: context,
       existingParticipantIds: {for (final p in _participants) p.id},
       personDs: _personDs,
+      milestoneDs: _milestoneDs,
     );
     if (picked != null && mounted) {
       if (_participants.any((x) => x.id == picked.id)) return;
@@ -875,6 +897,9 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
           latitude: coordsLat,
           longitude: coordsLon,
           participantIds: _participants.map((p) => p.id).toList(),
+          protagonistIds: _protagonistIds
+              .where((id) => _participants.any((p) => p.id == id))
+              .toList(),
           mediaToKeep: List.from(_existingMedia),
           newMediaFiles: _newMedia.map((m) => m.file).toList(),
           newMediaTypes: _newMedia.map((m) => m.type).toList(),
@@ -997,12 +1022,22 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
                             const SizedBox(height: 8),
                             _ParticipantsSection(
                               participants: _participants,
+                              protagonistIds: _protagonistIds,
                               enabled: !isSubmitting,
                               onAdd: _addParticipant,
                               onAssignPhoto: _assignParticipantPhoto,
+                              onToggleProtagonist: (p) => setState(() {
+                                if (_protagonistIds.contains(p.id)) {
+                                  _protagonistIds.remove(p.id);
+                                } else {
+                                  _protagonistIds.add(p.id);
+                                }
+                              }),
                               onRemove: (p) => setState(
-                                () => _participants
-                                    .removeWhere((x) => x.id == p.id),
+                                () {
+                                  _participants.removeWhere((x) => x.id == p.id);
+                                  _protagonistIds.remove(p.id);
+                                },
                               ),
                             ),
                             const SizedBox(height: 10),
@@ -2340,16 +2375,20 @@ class _MediaPickerSection extends StatelessWidget {
 
 class _ParticipantsSection extends StatelessWidget {
   final List<PersonCollection> participants;
+  final Set<String> protagonistIds;
   final bool enabled;
   final Future<void> Function()? onAdd;
   final ValueChanged<PersonCollection> onAssignPhoto;
+  final ValueChanged<PersonCollection> onToggleProtagonist;
   final ValueChanged<PersonCollection> onRemove;
 
   const _ParticipantsSection({
     required this.participants,
+    required this.protagonistIds,
     required this.enabled,
     required this.onAdd,
     required this.onAssignPhoto,
+    required this.onToggleProtagonist,
     required this.onRemove,
   });
 
@@ -2365,6 +2404,7 @@ class _ParticipantsSection extends StatelessWidget {
                   spacing: 10,
                   runSpacing: 8,
                   children: participants.map((p) {
+                    final isProtagonist = protagonistIds.contains(p.id);
                     return Stack(
                       clipBehavior: Clip.none,
                       children: [
@@ -2373,6 +2413,30 @@ class _ParticipantsSection extends StatelessWidget {
                           personName: p.name,
                           onAssignPhoto:
                               enabled ? () => onAssignPhoto(p) : () {},
+                        ),
+                        Positioned(
+                          left: -2,
+                          top: -2,
+                          child: Material(
+                            color: isProtagonist
+                                ? Colors.amber
+                                : Colors.black26,
+                            shape: const CircleBorder(),
+                            child: InkWell(
+                              customBorder: const CircleBorder(),
+                              onTap: enabled ? () => onToggleProtagonist(p) : null,
+                              child: Padding(
+                                padding: const EdgeInsets.all(3),
+                                child: Icon(
+                                  Icons.star,
+                                  size: 14,
+                                  color: isProtagonist
+                                      ? Colors.white
+                                      : Colors.white70,
+                                ),
+                              ),
+                            ),
+                          ),
                         ),
                         if (enabled)
                           Positioned(

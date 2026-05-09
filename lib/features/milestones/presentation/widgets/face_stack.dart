@@ -11,12 +11,15 @@ import 'person_avatar_badge.dart';
 /// círculo gris muestra `+[N]` con N = personas adicionales.
 class FaceStack extends StatelessWidget {
   final List<PersonCollection> people;
+  /// IDs de protagonistas (subconjunto de participantes); borde dorado.
+  final Set<String> protagonistIds;
   final double diameter;
   final double overlap;
 
   const FaceStack({
     super.key,
     required this.people,
+    this.protagonistIds = const <String>{},
     this.diameter = 26,
     this.overlap = 9,
   });
@@ -43,13 +46,17 @@ class FaceStack extends StatelessWidget {
               left: i * step,
               child: PersonCircleAvatar(
                 key: ValueKey<String>(
-                  '${faces[i].id}|${faceImageWidgetCacheKey(faces[i].faceImagePath)}',
+                  '${faces[i].id}|${protagonistIds.contains(faces[i].id)}|'
+                  '${faceImageWidgetCacheKey(faces[i].faceImagePath)}',
                 ),
                 faceImagePath: faces[i].faceImagePath,
                 diameter: diameter,
                 semanticLabel: faces[i].name,
-                borderWidth: 1.5,
-                borderColor: AppTheme.cream,
+                borderWidth:
+                    protagonistIds.contains(faces[i].id) ? 2.0 : 1.5,
+                borderColor: protagonistIds.contains(faces[i].id)
+                    ? Colors.amber
+                    : AppTheme.cream,
               ),
             ),
           if (showOverflow)
@@ -84,12 +91,18 @@ class FaceStack extends StatelessWidget {
 /// Carga personas desde Isar en el orden de [participantIds] y muestra un [FaceStack].
 class ParticipantFaceStack extends StatefulWidget {
   final List<String> participantIds;
+  final List<String> protagonistIds;
+  /// Se pasa desde el timeline cuando cambian datos de persona (p. ej. foto) sin
+  /// cambiar [participantIds].
+  final int peopleDataRevision;
   final double diameter;
   final double overlap;
 
   const ParticipantFaceStack({
     super.key,
     required this.participantIds,
+    this.protagonistIds = const [],
+    this.peopleDataRevision = 0,
     this.diameter = 26,
     this.overlap = 9,
   });
@@ -110,7 +123,9 @@ class _ParticipantFaceStackState extends State<ParticipantFaceStack> {
   @override
   void didUpdateWidget(covariant ParticipantFaceStack oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!listEquals(widget.participantIds, oldWidget.participantIds)) {
+    if (!listEquals(widget.participantIds, oldWidget.participantIds) ||
+        widget.peopleDataRevision != oldWidget.peopleDataRevision ||
+        !listEquals(widget.protagonistIds, oldWidget.protagonistIds)) {
       setState(() {
         _future = _loadOrdered();
       });
@@ -123,7 +138,17 @@ class _ParticipantFaceStackState extends State<ParticipantFaceStack> {
     final ds = sl<IsarPersonDataSource>();
     final loaded = await ds.fetchByIds(ids);
     final byId = {for (final p in loaded) p.id: p};
-    return ids.map((id) => byId[id]).whereType<PersonCollection>().toList();
+    final proSet = widget.protagonistIds.toSet();
+    final ordered = ids
+        .map((id) => byId[id])
+        .whereType<PersonCollection>()
+        .toList()
+      ..sort((a, b) {
+        final ap = proSet.contains(a.id) ? 1 : 0;
+        final bp = proSet.contains(b.id) ? 1 : 0;
+        return bp.compareTo(ap);
+      });
+    return ordered;
   }
 
   @override
@@ -137,6 +162,7 @@ class _ParticipantFaceStackState extends State<ParticipantFaceStack> {
         if (list.isEmpty) return const SizedBox.shrink();
         return FaceStack(
           people: list,
+          protagonistIds: widget.protagonistIds.toSet(),
           diameter: widget.diameter,
           overlap: widget.overlap,
         );

@@ -2,9 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'core/config/supabase_auth_config.dart';
 import 'core/theme/app_theme.dart';
 import 'features/auth/presentation/bloc/auth_cubit.dart';
-import 'features/milestones/presentation/pages/timeline_page.dart';
+import 'features/auth/presentation/widgets/auth_gate.dart';
 import 'injection_container.dart' as di;
 
 // Pass credentials via --dart-define at build/run time:
@@ -26,6 +27,7 @@ Future<void> main() async {
   await Supabase.initialize(
     url: _supabaseUrl,
     anonKey: _supabaseAnonKey,
+    authOptions: kSupabaseFlutterAuthOptions,
   );
 
   await di.init();
@@ -39,7 +41,12 @@ class LifeTimeApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return BlocProvider<AuthCubit>(
-      create: (_) => di.sl<AuthCubit>()..checkCurrentUser(),
+      create: (_) {
+        final c = di.sl<AuthCubit>();
+        c.listenToSupabaseAuth();
+        c.checkCurrentUser();
+        return c;
+      },
       child: MaterialApp(
         title: 'LifeTime',
         debugShowCheckedModeBanner: false,
@@ -53,9 +60,7 @@ class LifeTimeApp extends StatelessWidget {
           GlobalWidgetsLocalizations.delegate,
           GlobalCupertinoLocalizations.delegate,
         ],
-        // Local-first: the timeline can render immediately using cached data;
-        // auth / premium refresh happens in the background via AuthCubit.
-        home: const TimelinePage(),
+        home: const AuthGate(),
       ),
     );
   }

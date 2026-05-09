@@ -9,6 +9,7 @@ class MilestoneModel extends Milestone {
     super.description,
     super.participants = const [],
     super.participantIds = const [],
+    super.protagonistIds = const [],
     super.tags = const [],
     super.media = const [],
     super.mediaItems = const [],
@@ -48,6 +49,8 @@ class MilestoneModel extends Milestone {
       participants: List<String>.from(json['participants'] as List? ?? []),
       participantIds:
           List<String>.from(json['participant_ids'] as List? ?? []),
+      // Backend does not persist this (yet). It remains local-only.
+      protagonistIds: const [],
       tags: List<String>.from(json['tags'] as List? ?? []),
       media: (json['media_assets'] as List? ?? [])
           .map((e) => MediaAssetModel.fromJson(e as Map<String, dynamic>))
@@ -112,6 +115,7 @@ class MilestoneModel extends Milestone {
     required String? description,
     required List<String> participants,
     List<String> participantIds = const [],
+    List<String> protagonistIds = const [],
     List<String> tags = const [],
     required DateTime eventDate,
     required String? locationName,
@@ -148,6 +152,7 @@ class MilestoneModel extends Milestone {
     double? latitude,
     double? longitude,
     List<String>? participantIds,
+    List<String>? protagonistIds,
     List<String>? tags,
   }) {
     final map = <String, dynamic>{'description': description};
@@ -159,6 +164,7 @@ class MilestoneModel extends Milestone {
       map['location_coords'] = 'POINT($longitude $latitude)';
     }
     if (participantIds != null) map['participant_ids'] = participantIds;
+    // protagonistIds is local-only for now.
     if (tags != null) map['tags'] = tags;
     return map;
   }

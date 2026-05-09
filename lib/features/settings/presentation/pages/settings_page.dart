@@ -8,9 +8,12 @@ import 'package:share_plus/share_plus.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../injection_container.dart';
 import '../../../auth/presentation/bloc/auth_cubit.dart';
+import '../../../milestones/data/datasources/isar_person_datasource.dart';
+import '../../../milestones/data/models/local/person_collection.dart';
 import 'manage_people_page.dart';
-import 'manage_categories_page.dart';
 import 'manage_locations_page.dart';
+import 'manage_categories_page.dart';
+import '../../../profile/presentation/pages/profile_page.dart';
 import '../bloc/export_cubit.dart';
 import '../bloc/people_cubit.dart';
 
@@ -28,6 +31,28 @@ class SettingsPage extends StatelessWidget {
 
 class _SettingsView extends StatelessWidget {
   const _SettingsView();
+
+  List<(PersonCollection, DateTime)> _upcomingBirthdays(
+    List<PersonCollection> people, {
+    int daysAhead = 21,
+  }) {
+    final now = DateTime.now();
+    DateTime nextBirthday(DateTime b) {
+      final today = DateTime(now.year, now.month, now.day);
+      final candidate = DateTime(now.year, b.month, b.day);
+      return candidate.isBefore(today)
+          ? DateTime(now.year + 1, b.month, b.day)
+          : candidate;
+    }
+
+    final list = people
+        .where((p) => p.birthDate != null)
+        .map((p) => (p, nextBirthday(p.birthDate!)))
+        .where((t) => t.$2.difference(now).inDays <= daysAhead)
+        .toList()
+      ..sort((a, b) => a.$2.compareTo(b.$2));
+    return list;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -50,6 +75,59 @@ class _SettingsView extends StatelessWidget {
         body: ListView(
           padding: const EdgeInsets.symmetric(vertical: 8),
           children: [
+            BlocBuilder<AuthCubit, AuthState>(
+              builder: (context, auth) {
+                if (auth is! AuthAuthenticated) {
+                  return const SizedBox.shrink();
+                }
+                final dn = auth.user.displayName?.trim();
+                final label =
+                    (dn != null && dn.isNotEmpty) ? dn : auth.user.email;
+                final photo = auth.user.photoUrl;
+                return Column(
+                  children: [
+                    ListTile(
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 6,
+                      ),
+                      leading: CircleAvatar(
+                        radius: 28,
+                        backgroundColor: AppTheme.navy.withValues(alpha: 0.12),
+                        backgroundImage: photo != null && photo.isNotEmpty
+                            ? NetworkImage(photo)
+                            : null,
+                        child: photo == null || photo.isEmpty
+                            ? Text(
+                                label.isNotEmpty
+                                    ? label[0].toUpperCase()
+                                    : '?',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  color: AppTheme.navy,
+                                ),
+                              )
+                            : null,
+                      ),
+                      title: const Text('Mi perfil'),
+                      subtitle: Text(label),
+                      trailing: const Icon(
+                        Icons.chevron_right,
+                        color: AppTheme.navy,
+                      ),
+                      onTap: () {
+                        Navigator.of(context).push<void>(
+                          MaterialPageRoute<void>(
+                            builder: (_) => const ProfilePage(),
+                          ),
+                        );
+                      },
+                    ),
+                    const Divider(height: 1),
+                  ],
+                );
+              },
+            ),
             const _SectionHeader(label: 'Plan'),
             const _PremiumTile(),
             const Padding(
@@ -61,6 +139,9 @@ class _SettingsView extends StatelessWidget {
             ),
             const Divider(height: 32, indent: 16, endIndent: 16),
             const _SectionHeader(label: 'Tus datos'),
+            _UpcomingBirthdaysTile(
+              items: _upcomingBirthdays,
+            ),
             _ExportTile(),
             ListTile(
               leading: const Icon(Icons.people_outline, color: AppTheme.navy),
@@ -85,7 +166,7 @@ class _SettingsView extends StatelessWidget {
               trailing: const Icon(Icons.chevron_right, color: AppTheme.navy),
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
-                  builder: (_) => const ManageLocationsPage(),
+                  builder: (_) => ManageLocationsPage(),
                 ),
               ),
             ),
@@ -187,6 +268,67 @@ class _SettingsView extends StatelessWidget {
         subject: subject,
         files: [XFile.fromData(bytes, mimeType: mimeType, name: filename)],
       ),
+    );
+  }
+}
+
+class _UpcomingBirthdaysTile extends StatelessWidget {
+  const _UpcomingBirthdaysTile({required this.items});
+
+  final List<(PersonCollection, DateTime)> Function(List<PersonCollection>,
+      {int daysAhead}) items;
+
+  @override
+  Widget build(BuildContext context) {
+    final ds = sl<IsarPersonDataSource>();
+    return FutureBuilder<List<PersonCollection>>(
+      future: ds.fetchAll(),
+      builder: (context, snapshot) {
+        final people = snapshot.data ?? const <PersonCollection>[];
+        final upcoming = items(people, daysAhead: 21);
+        if (upcoming.isEmpty) return const SizedBox.shrink();
+
+        final names = upcoming.take(2).map((t) => t.$1.name).join(', ');
+        final more = upcoming.length > 2 ? ' +${upcoming.length - 2}' : '';
+
+        return ListTile(
+          leading: const Icon(Icons.cake_outlined, color: AppTheme.navy),
+          title: const Text('Cumpleaños próximos'),
+          subtitle: Text('$names$more'),
+          trailing: const Icon(Icons.chevron_right, color: AppTheme.navy),
+          onTap: () {
+            showDialog<void>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                title: const Text('Cumpleaños próximos'),
+                content: SizedBox(
+                  width: double.maxFinite,
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: upcoming.map((t) {
+                      final p = t.$1;
+                      final d = t.$2;
+                      final dd =
+                          '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}';
+                      return ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(p.name),
+                        subtitle: Text(dd),
+                      );
+                    }).toList(),
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(ctx).pop(),
+                    child: const Text('Cerrar'),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }
