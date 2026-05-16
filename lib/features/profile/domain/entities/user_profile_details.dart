@@ -10,6 +10,8 @@ class UserProfileDetails extends Equatable {
   final DateTime? birthDate;
   final String? avatarUrl;
   final bool isPremium;
+  final bool googleDriveLinked;
+  final String? googleDriveAccountEmail;
 
   const UserProfileDetails({
     required this.userId,
@@ -20,6 +22,8 @@ class UserProfileDetails extends Equatable {
     this.birthDate,
     this.avatarUrl,
     this.isPremium = false,
+    this.googleDriveLinked = false,
+    this.googleDriveAccountEmail,
   });
 
   bool get needsOnboarding => displayName.trim().isEmpty;
@@ -33,6 +37,8 @@ class UserProfileDetails extends Equatable {
     DateTime? birthDate,
     String? avatarUrl,
     bool? isPremium,
+    bool? googleDriveLinked,
+    String? googleDriveAccountEmail,
   }) {
     return UserProfileDetails(
       userId: userId ?? this.userId,
@@ -43,10 +49,23 @@ class UserProfileDetails extends Equatable {
       birthDate: birthDate ?? this.birthDate,
       avatarUrl: avatarUrl ?? this.avatarUrl,
       isPremium: isPremium ?? this.isPremium,
+      googleDriveLinked: googleDriveLinked ?? this.googleDriveLinked,
+      googleDriveAccountEmail:
+          googleDriveAccountEmail ?? this.googleDriveAccountEmail,
     );
   }
 
   @override
-  List<Object?> get props =>
-      [userId, email, displayName, firstName, lastName, birthDate, avatarUrl, isPremium];
+  List<Object?> get props => [
+        userId,
+        email,
+        displayName,
+        firstName,
+        lastName,
+        birthDate,
+        avatarUrl,
+        isPremium,
+        googleDriveLinked,
+        googleDriveAccountEmail,
+      ];
 }

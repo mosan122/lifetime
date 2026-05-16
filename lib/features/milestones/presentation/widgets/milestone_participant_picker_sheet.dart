@@ -67,7 +67,11 @@ class _MilestoneParticipantPickerBodyState
 
   Future<void> _load() async {
     try {
-      final raw = await widget.personDs.fetchAll();
+      final rawAll = await widget.personDs.fetchAll();
+      // Incluye tu ficha vinculada si aún no está en el hito (solo se oculta en Gestionar personas).
+      final raw = rawAll
+          .where((p) => !widget.existingParticipantIds.contains(p.id))
+          .toList();
       final milestones = await widget.milestoneDs.fetchAll();
       if (!mounted) return;
       final counts = <String, int>{};

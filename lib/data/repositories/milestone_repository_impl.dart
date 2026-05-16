@@ -1,10 +1,13 @@
 // lib/data/repositories/milestone_repository_impl.dart
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartz/dartz.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 import '../../core/failures/failure.dart';
+import '../../core/utils/bitacora_backup_json.dart';
 import '../../core/utils/milestone_title_utils.dart';
 import '../../core/services/local_media_store.dart';
 import '../../core/services/text_metadata_extractor.dart';
@@ -19,6 +22,17 @@ import '../models/milestone_model.dart';
 import '../../features/milestones/data/models/local/milestone_collection.dart';
 import '../../features/milestones/data/models/local/media_asset_embed.dart';
 import '../../features/milestones/data/models/local/media_item_embed.dart';
+import '../../features/milestones/data/datasources/isar_category_datasource.dart';
+import '../../features/milestones/data/datasources/isar_person_datasource.dart';
+import '../../features/milestones/data/datasources/isar_relationship_datasource.dart';
+import '../../features/milestones/data/datasources/isar_saved_location_datasource.dart';
+import '../../features/milestones/data/datasources/person_group_local_datasource.dart';
+import '../../features/milestones/data/models/local/category_collection.dart';
+import '../../features/milestones/data/models/local/group_collection.dart';
+import '../../features/milestones/data/models/local/person_collection.dart';
+import '../../features/milestones/data/models/local/relationship_collection.dart';
+import '../../features/milestones/data/models/local/saved_location_collection.dart';
+import '../../features/sync/schedule_cloud_sync.dart';
 
 class MilestoneRepositoryImpl implements MilestoneRepository {
   final IsarMilestoneDataSource _local;
@@ -27,6 +41,11 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
   final String Function() _getUserId;
   final DriveRepository _drive;
   final LocalMediaStore _localMedia;
+  final IsarPersonDataSource _personDs;
+  final IsarCategoryDataSource _categoryDs;
+  final IsarSavedLocationDataSource _savedLocationDs;
+  final IsarRelationshipDataSource _relationshipDs;
+  final PersonGroupLocalDataSource _personGroupDs;
 
   MilestoneRepositoryImpl(
     this._local,
@@ -35,6 +54,11 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
     this._getUserId,
     this._drive,
     this._localMedia,
+    this._personDs,
+    this._categoryDs,
+    this._savedLocationDs,
+    this._relationshipDs,
+    this._personGroupDs,
   );
 
   static const _uuid = Uuid();
@@ -308,6 +332,13 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
     String? accessToken,
   }) async {
     try {
+      final premium = _premium.isPremium;
+      if (premium) {
+        await _local.deleteById(id, softDelete: true);
+        scheduleCloudDataSync();
+        return const Right(null);
+      }
+
       final existing = await _local.fetchById(id);
       await _local.deleteById(id);
 
@@ -319,28 +350,6 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
         }
       }
 
-      if (_premium.isPremium) {
-        try {
-          await _remote.deleteMilestone(id);
-        } catch (_) {
-          // Best-effort Supabase delete.
-        }
-
-        if (accessToken != null && existing != null) {
-          final ids = <String>{
-            if (existing.driveFileId != null) existing.driveFileId!,
-            for (final mi in existing.mediaItems)
-              if (mi.driveFileId != null) mi.driveFileId!,
-          };
-          for (final fid in ids) {
-            try {
-              await _drive.deleteFile(fileId: fid, accessToken: accessToken);
-            } catch (_) {
-              // Best-effort Google Drive delete.
-            }
-          }
-        }
-      }
       return const Right(null);
     } catch (e) {
       return Left(NetworkFailure(e.toString()));
@@ -400,11 +409,14 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
         ..participants = resolvedIds
         ..protagonists = safeProtagonists
         ..tags = tags
-        ..mediaItems = [
-          ...mediaToKeep.map(MediaItemEmbed.fromDomain),
-          ...newEmbeds,
-        ]
-        ..syncStatus = SyncStatus.pending;
+        ..mediaItems = _mergeMediaOnUpdate(
+          existing: existing,
+          mediaToKeep: mediaToKeep,
+          newEmbeds: newEmbeds,
+          softDeleteRemoved: _premium.isPremium,
+        )
+        ..syncStatus = SyncStatus.pending
+        ..isSynced = false;
       if (galleryCoverIndex != null) {
         existing.galleryCoverIndex = galleryCoverIndex;
       }
@@ -436,11 +448,11 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
       }
       if (categoryId != null) existing.categoryId = categoryId;
       await _local.upsert(existing);
+      scheduleCloudDataSync();
 
       if (_premium.isPremium) {
         try {
-          final safeCategoryId =
-              categoryId == null ? null : categoryId.trim().toLowerCase();
+          final safeCategoryId = categoryId?.trim().toLowerCase();
           final updateData = MilestoneModel.toUpdateMap(
             title: title,
             description: description,
@@ -471,7 +483,9 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
             ..media = remoteModel.media
                 .map(MediaAssetEmbed.fromEntity)
                 .toList()
-            ..syncStatus = SyncStatus.synced;
+            ..syncStatus = SyncStatus.synced
+            ..isSynced = true
+            ..supabaseId = remoteModel.id;
           final name = remoteModel.locationName ?? prevLoc?.name;
           final lat = remoteModel.latitude ?? prevLoc?.latitude;
           final lon = remoteModel.longitude ?? prevLoc?.longitude;
@@ -544,15 +558,221 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
       }
       existing.galleryCoverIndex = index.clamp(0, n - 1);
       existing.syncStatus = SyncStatus.pending;
+      existing.isSynced = false;
       await _local.upsert(existing);
+      scheduleCloudDataSync();
       return Right(existing.toDomain());
     } catch (e) {
       return Left(NetworkFailure(e.toString()));
     }
   }
 
+  @override
+  Future<Either<Failure, int>> importFromBackupJson(String json) async {
+    try {
+      final preview = BitacoraBackupJson.parseImportPreview(json);
+      final refToIsar = <String, int>{};
+      if (!preview.isLegacyMilestonesOnly) {
+        await _importBackupSidecars(preview, refToIsar);
+      }
+      final milestones = BitacoraBackupJson.decodeMilestonesFromPreview(
+        preview,
+        userId: _getUserId(),
+        forceUserId: true,
+        savedLocationRefToIsarId: refToIsar.isEmpty ? null : refToIsar,
+      );
+      var n = 0;
+      for (final ms in milestones) {
+        final c = MilestoneCollection.fromMilestone(ms, SyncStatus.pending);
+        _clampGalleryCoverIndex(c);
+        await _local.upsert(c);
+        n++;
+      }
+      return Right(n);
+    } on FormatException catch (e) {
+      return Left(DatabaseFailure(e.message));
+    } catch (e) {
+      return Left(DatabaseFailure(e.toString()));
+    }
+  }
+
+  Future<void> _importBackupSidecars(
+    BitacoraImportPreview p,
+    Map<String, int> refToIsarOut,
+  ) async {
+    for (final map in p.customCategoriesMaps) {
+      final id = (map['id'] as String?)?.trim();
+      if (id == null || id.isEmpty) continue;
+      final name = (map['name'] as String?)?.trim();
+      if (name == null || name.isEmpty) continue;
+      final icon = (map['icon_name'] as String?)?.trim();
+      if (icon == null || icon.isEmpty) continue;
+      final colorVal = map['color_value'];
+      final color = colorVal is int
+          ? colorVal
+          : (colorVal is num)
+              ? colorVal.toInt()
+              : 0xFF000000;
+      final row = CategoryCollection()
+        ..id = id
+        ..name = name
+        ..iconName = icon
+        ..colorValue = color;
+      await _categoryDs.upsert(row);
+    }
+
+    for (final map in p.groupsMaps) {
+      final id = (map['id'] as String?)?.trim();
+      if (id == null || id.isEmpty) continue;
+      final name = (map['name'] as String?)?.trim();
+      if (name == null || name.isEmpty) continue;
+      final row = GroupCollection()
+        ..id = id
+        ..name = name
+        ..builtIn = map['built_in'] as bool? ?? false;
+      await _personGroupDs.upsertGroup(row);
+    }
+
+    for (final map in p.peopleMaps) {
+      final id = (map['id'] as String?)?.trim();
+      if (id == null || id.isEmpty) continue;
+      final name = (map['name'] as String?)?.trim();
+      String? facePath = (map['face_image_path'] as String?)?.trim();
+      final embedded = map['face_portrait_base64'];
+      final restored = await _persistImportedPersonFaceIfAny(
+        personId: id,
+        base64Body: embedded,
+      );
+      if (restored != null && restored.isNotEmpty) {
+        facePath = restored;
+      }
+      final row = PersonCollection()
+        ..id = id
+        ..name = (name != null && name.isNotEmpty) ? name : id
+        ..firstName = (map['first_name'] as String?)?.trim()
+        ..lastName = (map['last_name'] as String?)?.trim()
+        ..birthDate = _parseOptionalIsoDate(map['birth_date'] as String?)
+        ..group = ''
+        ..notes = (map['notes'] as String?) ?? ''
+        ..linkedUserEmail = (map['linked_user_email'] as String?)?.trim()
+        ..linkedUserId = (map['linked_user_id'] as String?)?.trim()
+        ..faceImagePath = facePath
+        ..driveFaceFileId = (map['drive_face_file_id'] as String?)?.trim();
+      await _personDs.upsert(row);
+    }
+
+    for (final map in p.savedLocationsMaps) {
+      final ref = (map['ref'] as String?)?.trim();
+      if (ref == null || ref.isEmpty) continue;
+      final locName = (map['name'] as String?)?.trim();
+      if (locName == null || locName.isEmpty) continue;
+      final row = SavedLocationCollection()
+        ..name = locName
+        ..city = (map['city'] as String?)?.trim()
+        ..country = (map['country'] as String?)?.trim()
+        ..latitude = (map['latitude'] as num?)?.toDouble()
+        ..longitude = (map['longitude'] as num?)?.toDouble();
+      final saved = await _savedLocationDs.upsert(row);
+      refToIsarOut[ref] = saved.isarId;
+    }
+
+    for (final map in p.personGroupLinksMaps) {
+      final pid = (map['person_id'] as String?)?.trim();
+      final gid = (map['group_id'] as String?)?.trim();
+      if (pid == null || gid == null) continue;
+      await _personGroupDs.putPersonGroupLinkForImport(pid, gid);
+    }
+
+    for (final map in p.relationshipsMaps) {
+      final id = (map['id'] as String?)?.trim();
+      if (id == null || id.isEmpty) continue;
+      final personId = (map['person_id'] as String?)?.trim();
+      final relatedId = (map['related_person_id'] as String?)?.trim();
+      if (personId == null || relatedId == null) continue;
+      final type = (map['relationship_type'] as String?)?.trim();
+      if (type == null || type.isEmpty) continue;
+      final row = RelationshipCollection()
+        ..id = id
+        ..personId = personId
+        ..relatedPersonId = relatedId
+        ..relationshipType = type
+        ..startDate = _parseOptionalIsoDate(map['start_date'] as String?)
+        ..endDate = _parseOptionalIsoDate(map['end_date'] as String?)
+        ..isCurrent = map['is_current'] as bool? ?? true;
+      await _relationshipDs.put(row);
+    }
+  }
+
+  static DateTime? _parseOptionalIsoDate(String? raw) {
+    final v = raw?.trim();
+    if (v == null || v.isEmpty) return null;
+    return DateTime.tryParse(v);
+  }
+
+  /// Decodifica [face_portrait_base64] del backup y escribe `faces/<personId>.jpg`.
+  Future<String?> _persistImportedPersonFaceIfAny({
+    required String personId,
+    Object? base64Body,
+  }) async {
+    if (base64Body is! String) return null;
+    final normalized = base64Body.replaceAll(RegExp(r'\s'), '');
+    if (normalized.isEmpty) return null;
+    try {
+      final bytes = base64Decode(normalized);
+      if (bytes.isEmpty) return null;
+      final appDir = await getApplicationDocumentsDirectory();
+      final facesDir = Directory('${appDir.path}/faces');
+      if (!facesDir.existsSync()) {
+        await facesDir.create(recursive: true);
+      }
+      final destPath = '${facesDir.path}/$personId.jpg';
+      await File(destPath).writeAsBytes(bytes, flush: true);
+      return destPath;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  List<MediaItemEmbed> _mergeMediaOnUpdate({
+    required MilestoneCollection existing,
+    required List<MediaItem> mediaToKeep,
+    required List<MediaItemEmbed> newEmbeds,
+    required bool softDeleteRemoved,
+  }) {
+    final keepByPath = {for (final k in mediaToKeep) k.localPath: k};
+    final merged = <MediaItemEmbed>[];
+
+    for (final old in existing.mediaItems) {
+      if (old.isDeleted) {
+        merged.add(old);
+        continue;
+      }
+      final kept = keepByPath.remove(old.localPath);
+      if (kept != null) {
+        merged.add(MediaItemEmbed.fromDomain(kept)
+          ..driveFileId = old.driveFileId ?? kept.driveFileId
+          ..isSynced = old.isSynced
+          ..isDeleted = false);
+      } else if (softDeleteRemoved) {
+        merged.add(MediaItemEmbed()
+          ..localPath = old.localPath
+          ..thumbnailPath = old.thumbnailPath
+          ..mediaType = old.mediaType
+          ..driveFileId = old.driveFileId
+          ..isSynced = false
+          ..isDeleted = true);
+      }
+    }
+
+    for (final kept in keepByPath.values) {
+      merged.add(MediaItemEmbed.fromDomain(kept));
+    }
+    merged.addAll(newEmbeds);
+    return merged;
+  }
+
   void _clampGalleryCoverIndex(MilestoneCollection c) {
-    final n = c.mediaItems.length;
+    final n = c.mediaItems.where((e) => !e.isDeleted).length;
     if (n <= 0) {
       c.galleryCoverIndex = 0;
     } else if (c.galleryCoverIndex < 0) {
@@ -625,6 +845,7 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
         ..createdAt = DateTime.now()
         ..driveFileId = driveFileId
         ..syncStatus = SyncStatus.pending
+        ..isSynced = false
         ..media = [];
 
       if (localMediaPaths.isNotEmpty) {
@@ -637,6 +858,7 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
         collection.mediaItems = items.map(MediaItemEmbed.fromDomain).toList();
       }
       final saved = await _local.upsert(collection);
+      scheduleCloudDataSync();
 
       return Right(saved.toDomain());
     } catch (e) {

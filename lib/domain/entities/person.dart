@@ -8,8 +8,8 @@ class Person extends Equatable {
   final String? firstName;
   final String? lastName;
   final DateTime? birthDate;
-  /// Free-form group label, e.g. "Familia".
-  final String group;
+  /// Ids de [GroupCollection] (predeterminados o personalizados).
+  final List<String> groupIds;
   final String notes;
   final String? linkedUserEmail;
   final String? linkedUserId;
@@ -22,7 +22,7 @@ class Person extends Equatable {
     this.firstName,
     this.lastName,
     this.birthDate,
-    this.group = '',
+    this.groupIds = const [],
     this.notes = '',
     this.linkedUserEmail,
     this.linkedUserId,
@@ -37,7 +37,7 @@ class Person extends Equatable {
         firstName,
         lastName,
         birthDate,
-        group,
+        groupIds,
         notes,
         linkedUserEmail,
         linkedUserId,
@@ -45,4 +45,3 @@ class Person extends Equatable {
         driveFaceFileId,
       ];
 }
-

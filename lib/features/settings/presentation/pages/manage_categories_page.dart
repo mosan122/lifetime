@@ -292,34 +292,12 @@ class _IconPicker extends StatelessWidget {
   final ValueChanged<String> onChanged;
   const _IconPicker({required this.value, required this.onChanged});
 
-  static const _icons = <String, IconData>{
-    // Keep in sync with `kCategoryIconPalette`.
-    'category': Icons.category_outlined,
-    'family_restroom': Icons.family_restroom,
-    'group': Icons.group,
-    'favorite': Icons.favorite,
-    'pets': Icons.pets,
-    'flight': Icons.flight,
-    'eco': Icons.eco,
-    'theater_comedy': Icons.theater_comedy,
-    'business_center': Icons.business_center,
-    'school': Icons.school,
-    'account_balance_wallet': Icons.account_balance_wallet,
-    'monitor_heart': Icons.monitor_heart,
-    'fitness_center': Icons.fitness_center,
-    'home': Icons.home,
-    'restaurant': Icons.restaurant,
-    'handyman': Icons.handyman,
-    'child_care': Icons.child_care,
-    'local_florist': Icons.local_florist,
-  };
-
   @override
   Widget build(BuildContext context) {
     return Wrap(
       spacing: 8,
       runSpacing: 8,
-      children: _icons.entries.map((e) {
+      children: kCategoryIconPalette.entries.map((e) {
         final isSel = e.key == value;
         return ChoiceChip(
           selected: isSel,

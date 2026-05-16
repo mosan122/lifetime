@@ -2,8 +2,12 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/painting.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:uuid/uuid.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
 
 import '../../../../core/failures/failure.dart';
@@ -21,6 +25,8 @@ import '../../../../data/datasources/isar_milestone_datasource.dart';
 import '../../../milestones/data/datasources/isar_category_datasource.dart';
 import '../../../milestones/data/datasources/isar_saved_location_datasource.dart';
 import '../../../auth/presentation/bloc/auth_cubit.dart';
+import '../../../profile/data/datasources/user_profile_local_datasource.dart';
+import '../../../profile/domain/entities/user_profile_details.dart';
 import '../bloc/create_milestone_cubit.dart';
 import '../bloc/edit_milestone_cubit.dart';
 import '../../data/datasources/isar_person_datasource.dart';
@@ -127,6 +133,7 @@ class _CreateMilestoneViewState extends State<_CreateMilestoneView> {
     super.initState();
     _fetchLocationAsync();
     _loadCategories();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _bootstrapSelfFromProfile());
   }
 
   Future<void> _loadCategories() async {
@@ -167,6 +174,113 @@ class _CreateMilestoneViewState extends State<_CreateMilestoneView> {
         }
       });
     }
+  }
+
+  /// Añade al usuario actual como participante (y protagonista) según perfil Isar / Person vinculada.
+  Future<void> _bootstrapSelfFromProfile() async {
+    final auth = context.read<AuthCubit>().state;
+    if (auth is! AuthAuthenticated) return;
+    final userId = auth.user.id.trim();
+    if (userId.isEmpty || !mounted) return;
+
+    final profile = await sl<UserProfileLocalDataSource>().getByUserId(userId);
+    var me = await _personDs.fetchByLinkedUserId(userId);
+    me ??= await _createSelfPersonFromLinkedAccount(
+      userId: userId,
+      email: auth.user.email,
+      profile: profile,
+    );
+    if (me == null || !mounted) return;
+    me = await _hydrateSelfParticipantFace(me, profile, userId);
+    if (!mounted) return;
+    final self = me;
+    if (_participants.any((p) => p.id == self.id)) return;
+    setState(() {
+      _participants.add(self);
+      _protagonistIds.add(self.id);
+    });
+  }
+
+  /// Persona Isar vinculada a la cuenta; solo si hay fila en [UserProfileCollection] vía [profile].
+  Future<PersonCollection?> _createSelfPersonFromLinkedAccount({
+    required String userId,
+    required String email,
+    required UserProfileDetails? profile,
+  }) async {
+    if (profile == null) return null;
+    final nickname = profile.displayName.trim();
+    if (nickname.isEmpty) return null;
+    final id = const Uuid().v4();
+    final c = PersonCollection()
+      ..id = id
+      ..name = nickname
+      ..firstName = profile.firstName
+      ..lastName = profile.lastName
+      ..birthDate = profile.birthDate
+      ..linkedUserId = userId
+      ..linkedUserEmail =
+          email.trim().isEmpty ? null : email.trim().toLowerCase();
+    return _personDs.upsert(c);
+  }
+
+  /// Copia el avatar del perfil (ruta local Isar o URL) a `faces/{personId}.jpg`.
+  Future<PersonCollection> _hydrateSelfParticipantFace(
+    PersonCollection person,
+    UserProfileDetails? profile,
+    String userId,
+  ) async {
+    final existing = await _personDs.fetchById(person.id);
+    if (existing == null) return person;
+    final fp = existing.faceImagePath?.trim();
+    if (fp != null && fp.isNotEmpty && File(fp).existsSync()) {
+      return existing;
+    }
+
+    final profileLocal = sl<UserProfileLocalDataSource>();
+    final localSrc = await profileLocal.getLocalAvatarPath(userId);
+    final remote = profile?.avatarUrl?.trim() ?? '';
+
+    final appDir = await getApplicationDocumentsDirectory();
+    final facesDir = Directory('${appDir.path}/faces');
+    if (!facesDir.existsSync()) await facesDir.create(recursive: true);
+    final destPath = '${facesDir.path}/${existing.id}.jpg';
+
+    try {
+      if (localSrc != null &&
+          localSrc.isNotEmpty &&
+          File(localSrc).existsSync()) {
+        await File(localSrc).copy(destPath);
+        if (localSrc != destPath) {
+          await profileLocal.patchLocalAvatarPath(userId, destPath);
+        }
+      } else if (remote.isNotEmpty) {
+        final uri = Uri.tryParse(remote);
+        if (uri == null || !(uri.isScheme('http') || uri.isScheme('https'))) {
+          return existing;
+        }
+        final res = await http
+            .get(uri)
+            .timeout(const Duration(seconds: 20));
+        if (res.statusCode < 200 ||
+            res.statusCode >= 300 ||
+            res.bodyBytes.isEmpty) {
+          return existing;
+        }
+        await File(destPath).writeAsBytes(res.bodyBytes, flush: true);
+        await profileLocal.patchLocalAvatarPath(userId, destPath);
+      } else {
+        return existing;
+      }
+    } catch (_) {
+      return existing;
+    }
+
+    PaintingBinding.instance.imageCache.evict(FileImage(File(destPath)));
+
+    final updated = existing.copyScalars()
+      ..faceImagePath = destPath
+      ..driveFaceFileId = existing.driveFaceFileId;
+    return _personDs.upsert(updated);
   }
 
   @override
@@ -303,12 +417,9 @@ class _CreateMilestoneViewState extends State<_CreateMilestoneView> {
             setState(() {
               final idx = _participants.indexWhere((x) => x.id == p.id);
               if (idx != -1) {
-                _participants[idx] = PersonCollection()
-                  ..isarId = p.isarId
-                  ..id = p.id
-                  ..name = p.name
+                _participants[idx] = p.copyScalars()
                   ..faceImagePath = updatedPerson.faceImagePath
-                  ..driveFaceFileId = p.driveFaceFileId;
+                  ..driveFaceFileId = updatedPerson.driveFaceFileId;
               }
             });
           },
@@ -836,12 +947,9 @@ class _EditMilestoneViewState extends State<_EditMilestoneView> {
             setState(() {
               final idx = _participants.indexWhere((x) => x.id == p.id);
               if (idx != -1) {
-                _participants[idx] = PersonCollection()
-                  ..isarId = p.isarId
-                  ..id = p.id
-                  ..name = p.name
+                _participants[idx] = p.copyScalars()
                   ..faceImagePath = updatedPerson.faceImagePath
-                  ..driveFaceFileId = p.driveFaceFileId;
+                  ..driveFaceFileId = updatedPerson.driveFaceFileId;
               }
             });
           },
@@ -1307,6 +1415,76 @@ class _PlacePickerSheetState extends State<_PlacePickerSheet> {
     super.dispose();
   }
 
+  /// Conserva coordenadas de [_selected] aunque el usuario edite el nombre en el campo.
+  MilestoneLocationData _resolvePickedForAccept(String q) {
+    final query = q.trim();
+    final base = _selected;
+    if (base != null) {
+      if (query.isEmpty) return base;
+      return MilestoneLocationData(
+        name: query,
+        city: base.city,
+        country: base.country,
+        latitude: base.latitude,
+        longitude: base.longitude,
+      );
+    }
+    if (query.isEmpty) {
+      return const MilestoneLocationData(name: '');
+    }
+    final match = _findLocationMatchForQuery(query);
+    return match ?? MilestoneLocationData(name: query);
+  }
+
+  MilestoneLocationData? _findLocationMatchForQuery(String query) {
+    final qLower = query.toLowerCase();
+    bool nameMatches(MilestoneLocationData l) =>
+        l.name.trim().toLowerCase() == qLower;
+
+    for (final s in _saved) {
+      if (nameMatches(
+        MilestoneLocationData(
+          name: s.name,
+          city: s.city,
+          country: s.country,
+          latitude: s.latitude,
+          longitude: s.longitude,
+        ),
+      )) {
+        return MilestoneLocationData(
+          name: query,
+          city: s.city,
+          country: s.country,
+          latitude: s.latitude,
+          longitude: s.longitude,
+        );
+      }
+    }
+    for (final r in _recents) {
+      if (nameMatches(r)) {
+        return MilestoneLocationData(
+          name: query,
+          city: r.city,
+          country: r.country,
+          latitude: r.latitude,
+          longitude: r.longitude,
+        );
+      }
+    }
+    for (final i in _items) {
+      if (nameMatches(i)) {
+        return MilestoneLocationData(
+          name: query,
+          city: i.city,
+          country: i.country,
+          latitude: i.latitude,
+          longitude: i.longitude,
+        );
+      }
+    }
+    return null;
+  }
+
   void _search(String q) {
     final query = q.trim();
     _lastQuery = query;
@@ -1419,7 +1597,7 @@ class _PlacePickerSheetState extends State<_PlacePickerSheet> {
                 onPressed: (_selected == null && q.isEmpty)
                     ? null
                     : () async {
-                        var picked = _selected ?? MilestoneLocationData(name: q);
+                        var picked = _resolvePickedForAccept(q);
 
                         // If saving as favorite, ask for a friendly name.
                         if (_saveToMyPlaces) {

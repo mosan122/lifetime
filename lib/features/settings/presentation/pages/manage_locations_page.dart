@@ -251,8 +251,21 @@ class _LocationEditorSheetState extends State<_LocationEditorSheet> {
                       );
                       if (!context.mounted) return;
                       final chosen = (friendly ?? '').trim();
+                      final displayName = chosen.isNotEmpty
+                          ? chosen
+                          : _name.text.trim().isNotEmpty
+                              ? _name.text.trim()
+                              : picked.name;
                       if (chosen.isNotEmpty) _name.text = chosen;
-                      setState(() => _picked = picked);
+                      setState(
+                        () => _picked = MilestoneLocationData(
+                          name: displayName,
+                          city: picked.city,
+                          country: picked.country,
+                          latitude: picked.latitude,
+                          longitude: picked.longitude,
+                        ),
+                      );
                     }
                   },
                   icon: const Icon(Icons.map_outlined),
@@ -276,11 +289,15 @@ class _LocationEditorSheetState extends State<_LocationEditorSheet> {
                     if (name.isEmpty) return;
                     final oldName = widget.initial.name.trim();
                     final p = _picked;
+                    String? trimOrNull(String? v) {
+                      final t = v?.trim();
+                      return (t == null || t.isEmpty) ? null : t;
+                    }
                     final c = SavedLocationCollection()
                       ..isarId = widget.initial.isarId
                       ..name = name
-                      ..city = widget.initial.city
-                      ..country = widget.initial.country
+                      ..city = trimOrNull(p?.city ?? widget.initial.city)
+                      ..country = trimOrNull(p?.country ?? widget.initial.country)
                       ..latitude = p?.latitude ?? widget.initial.latitude
                       ..longitude = p?.longitude ?? widget.initial.longitude;
                     await ds.upsert(c);

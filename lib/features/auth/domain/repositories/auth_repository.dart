@@ -32,4 +32,7 @@ abstract class AuthRepository {
   Future<AuthUser?> loadVerifiedUserFromSession();
 
   Future<Either<Failure, Unit>> signOut();
+
+  /// Google Sign-In interactivo solo para permisos de Drive.
+  Future<Either<Failure, String>> linkGoogleAccountForDrive();
 }

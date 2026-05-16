@@ -7,7 +7,7 @@ import '../../../milestones/presentation/widgets/quick_create_person_sheet.dart'
 import '../bloc/people_cubit.dart';
 
 /// Creación rápida desde Personas: mismo formulario que al añadir desde un hito.
-/// Grupo, cumpleaños, notas y email se gestionan al editar la ficha.
+/// Grupos, cumpleaños, notas y email se gestionan al editar la ficha.
 class AddPersonPage extends StatelessWidget {
   const AddPersonPage({super.key});
 

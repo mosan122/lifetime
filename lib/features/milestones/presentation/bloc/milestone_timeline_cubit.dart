@@ -16,11 +16,23 @@ class MilestoneTimelineCubit extends Cubit<MilestoneTimelineState> {
 
   Future<void> loadTimeline() async {
     emit(const MilestoneTimelineLoading());
+    await _fetchAndEmitMilestones();
+  }
+
+  /// Vuelve a leer hitos sin pantalla de carga (p. ej. tras importar desde Ajustes).
+  Future<void> refreshTimeline() async {
+    if (state is! MilestoneTimelineLoaded) {
+      await loadTimeline();
+      return;
+    }
+    await _fetchAndEmitMilestones();
+  }
+
+  Future<void> _fetchAndEmitMilestones() async {
     final result = await _getMilestones(const NoParams());
     result.fold(
       (failure) => emit(MilestoneTimelineError(failure.message, code: failure.code)),
       (milestones) {
-        // Best-effort: sync in background, sequential.
         sl<CloudSyncService>().syncIfNeeded(milestones);
         emit(MilestoneTimelineLoaded(milestones));
       },

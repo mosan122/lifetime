@@ -1,12 +1,16 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 
+import '../../../../core/failures/failure.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../domain/services/face_cropper_service.dart';
+import '../../../../injection_container.dart';
+import '../../../milestones/presentation/widgets/face_source_bottom_sheet.dart';
 import '../../domain/entities/user_profile_details.dart';
 
 /// Formulario compartido: onboarding y edición de perfil.
+/// Misma UX que personas: hoja cámara/galería + recorte circular.
 class UserProfileForm extends StatefulWidget {
   const UserProfileForm({
     super.key,
@@ -14,6 +18,7 @@ class UserProfileForm extends StatefulWidget {
     required this.submitLabel,
     required this.onSubmit,
     this.isBusy = false,
+    this.shrinkWrap = false,
   });
 
   final UserProfileDetails initial;
@@ -21,6 +26,9 @@ class UserProfileForm extends StatefulWidget {
   final Future<void> Function(UserProfileDetails details, Uint8List? avatarBytes)
       onSubmit;
   final bool isBusy;
+
+  /// Si es true, el formulario no hace scroll propio (útil dentro de un [ListView] padre).
+  final bool shrinkWrap;
 
   @override
   State<UserProfileForm> createState() => _UserProfileFormState();
@@ -53,20 +61,52 @@ class _UserProfileFormState extends State<UserProfileForm> {
     super.dispose();
   }
 
-  Future<void> _pickImage() async {
-    final x = await ImagePicker().pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 82,
+  bool get _hasAvatar =>
+      _pickedBytes != null ||
+      ((_avatarUrl ?? '').trim().isNotEmpty);
+
+  Future<void> _assignPhoto() async {
+    if (widget.isBusy) return;
+    final cropper = sl<FaceCropperService>();
+
+    final selection = await showFaceSourceBottomSheet(context: context);
+    if (selection == null || !mounted) return;
+
+    final cropResult = await cropper.pickAndCrop(
+      source: selection.source,
+      milestoneImagePath: selection.milestoneImagePath,
     );
-    if (x == null) return;
-    final b = await x.readAsBytes();
+
     if (!mounted) return;
+    await cropResult.fold(
+      (failure) async {
+        if (failure is! FaceCropCancelledFailure) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(failure.message),
+              backgroundColor: Colors.red.shade700,
+            ),
+          );
+        }
+      },
+      (file) async {
+        final b = await file.readAsBytes();
+        if (!mounted) return;
+        setState(() => _pickedBytes = b);
+      },
+    );
+  }
+
+  void _clearPhoto() {
+    if (widget.isBusy) return;
     setState(() {
-      _pickedBytes = b;
+      _pickedBytes = null;
+      _avatarUrl = null;
     });
   }
 
   Future<void> _pickBirth() async {
+    if (widget.isBusy) return;
     final now = DateTime.now();
     final d = await showDatePicker(
       context: context,
@@ -80,6 +120,7 @@ class _UserProfileFormState extends State<UserProfileForm> {
 
   Future<void> _submit() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
+    // Mantener URL remota previa si hay bytes nuevos: si la subida falla, no se pierde el avatar en BD.
     final d = UserProfileDetails(
       userId: widget.initial.userId,
       email: widget.initial.email,
@@ -87,7 +128,7 @@ class _UserProfileFormState extends State<UserProfileForm> {
       firstName: _first.text.trim().isEmpty ? null : _first.text.trim(),
       lastName: _last.text.trim().isEmpty ? null : _last.text.trim(),
       birthDate: _birth,
-      avatarUrl: _pickedBytes == null ? _avatarUrl : null,
+      avatarUrl: _avatarUrl,
       isPremium: widget.initial.isPremium,
     );
     await widget.onSubmit(d, _pickedBytes);
@@ -110,32 +151,57 @@ class _UserProfileFormState extends State<UserProfileForm> {
     return Form(
       key: _formKey,
       child: ListView(
+        shrinkWrap: widget.shrinkWrap,
+        physics: widget.shrinkWrap
+            ? const NeverScrollableScrollPhysics()
+            : null,
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
         children: [
-          Center(
-            child: GestureDetector(
-              onTap: _pickImage,
-              child: CircleAvatar(
-                radius: 64,
-                backgroundColor: AppTheme.navy.withValues(alpha: 0.12),
-                backgroundImage: _avatarProvider,
-                child: _avatarProvider == null
-                    ? Icon(
-                        Icons.add_a_photo_outlined,
-                        size: 40,
-                        color: AppTheme.navy.withValues(alpha: 0.45),
-                      )
-                    : null,
-              ),
-            ),
+          Text(
+            'Foto de perfil',
+            style: theme.textTheme.titleSmall,
           ),
           const SizedBox(height: 8),
-          Center(
-            child: TextButton.icon(
-              onPressed: _pickImage,
-              icon: const Icon(Icons.photo_library_outlined),
-              label: const Text('Elegir otra foto'),
-            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              GestureDetector(
+                onTap: widget.isBusy ? null : _assignPhoto,
+                child: CircleAvatar(
+                  radius: 64,
+                  backgroundColor: AppTheme.navy.withValues(alpha: 0.12),
+                  backgroundImage: _avatarProvider,
+                  child: _avatarProvider == null
+                      ? Icon(
+                          Icons.person_outline,
+                          size: 40,
+                          color: AppTheme.navy.withValues(alpha: 0.45),
+                        )
+                      : null,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: widget.isBusy ? null : _assignPhoto,
+                      icon: const Icon(Icons.add_a_photo_outlined, size: 20),
+                      label: const Text('Cambiar foto'),
+                    ),
+                    if (_hasAvatar) ...[
+                      const SizedBox(height: 8),
+                      TextButton.icon(
+                        onPressed: widget.isBusy ? null : _clearPhoto,
+                        icon: const Icon(Icons.delete_outline, size: 20),
+                        label: const Text('Quitar foto'),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 16),
           TextFormField(
@@ -183,9 +249,9 @@ class _UserProfileFormState extends State<UserProfileForm> {
             ),
             trailing: IconButton(
               icon: const Icon(Icons.calendar_today_outlined),
-              onPressed: _pickBirth,
+              onPressed: widget.isBusy ? null : () => _pickBirth(),
             ),
-            onTap: _pickBirth,
+            onTap: widget.isBusy ? null : () => _pickBirth(),
           ),
           const SizedBox(height: 32),
           SizedBox(

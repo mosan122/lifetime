@@ -64,4 +64,9 @@ abstract class MilestoneRepository {
     required String id,
     required int index,
   });
+
+  /// Importa hitos desde JSON LifeTime (v2 solo hitos; v3 hitos + personas, categorías
+  /// personalizadas, lugares favoritos, grupos, enlaces y relaciones).
+  /// Misma [id] sustituye el hito local. Los medios solo se restauran si las rutas existen.
+  Future<Either<Failure, int>> importFromBackupJson(String json);
 }

@@ -11,11 +11,19 @@ class PeopleLoading extends PeopleState {
 }
 
 class PeopleLoaded extends PeopleState {
-  const PeopleLoaded(this.people, {this.refreshEpoch = 0});
+  const PeopleLoaded(
+    this.people,
+    this.groups, {
+    this.refreshEpoch = 0,
+  });
+
   final List<PersonCollection> people;
+  final List<GroupCollection> groups;
+
   /// Se incrementa en cada [PeopleCubit.reload] (p. ej. tras guardar cara) para
   /// forzar que [BlocBuilder] vuelva a pintar aunque la lista sea similar.
   final int refreshEpoch;
+
   @override
-  List<Object?> get props => [people, refreshEpoch];
+  List<Object?> get props => [people, groups, refreshEpoch];
 }

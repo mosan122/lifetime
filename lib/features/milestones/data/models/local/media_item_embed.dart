@@ -14,6 +14,7 @@ class MediaItemEmbed {
 
   String? driveFileId;
   bool isSynced = false;
+  bool isDeleted = false;
 
   static MediaItemEmbed fromDomain(MediaItem item) {
     return MediaItemEmbed()
@@ -21,7 +22,8 @@ class MediaItemEmbed {
       ..thumbnailPath = item.thumbnailPath
       ..mediaType = item.mediaType
       ..driveFileId = item.driveFileId
-      ..isSynced = item.isSynced;
+      ..isSynced = item.isSynced
+      ..isDeleted = item.isDeleted;
   }
 
   MediaItem toDomain() {
@@ -31,6 +33,7 @@ class MediaItemEmbed {
       mediaType: mediaType,
       driveFileId: driveFileId,
       isSynced: isSynced,
+      isDeleted: isDeleted,
     );
   }
 }

@@ -4,8 +4,10 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../injection_container.dart';
 import '../../../auth/presentation/bloc/auth_cubit.dart';
+import '../../../settings/presentation/widgets/account_settings_widgets.dart';
 import '../../domain/entities/user_profile_details.dart';
 import '../../domain/repositories/profile_repository.dart';
+import '../widgets/profile_plan_section.dart';
 import '../widgets/user_profile_form.dart';
 
 class ProfilePage extends StatefulWidget {
@@ -59,32 +61,47 @@ class _ProfilePageState extends State<ProfilePage> {
               ? Center(child: Text(_error!))
               : _details == null
                   ? const Center(child: Text('Sin datos de perfil'))
-                  : UserProfileForm(
-                      key: ObjectKey(_details),
-                      initial: _details!,
-                      submitLabel: 'Guardar cambios',
-                      isBusy: _saving,
-                      onSubmit: (d, bytes) async {
-                        setState(() => _saving = true);
-                        final r = await context.read<AuthCubit>().saveUserProfile(
-                              details: d,
-                              newAvatarBytes: bytes,
+                  : ListView(
+                      padding: const EdgeInsets.only(bottom: 24),
+                      children: [
+                        UserProfileForm(
+                          key: ObjectKey(_details),
+                          initial: _details!,
+                          submitLabel: 'Guardar cambios',
+                          isBusy: _saving,
+                          shrinkWrap: true,
+                          onSubmit: (d, bytes) async {
+                            setState(() => _saving = true);
+                            final r =
+                                await context.read<AuthCubit>().saveUserProfile(
+                                      details: d,
+                                      newAvatarBytes: bytes,
+                                    );
+                            if (!mounted) return;
+                            setState(() => _saving = false);
+                            await r.fold<Future<void>>(
+                              (f) async {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text(f.message)),
+                                );
+                              },
+                              (_) async {
+                                await _load();
+                                if (!mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Perfil actualizado'),
+                                  ),
+                                );
+                              },
                             );
-                        if (!mounted) return;
-                        setState(() => _saving = false);
-                        r.fold(
-                          (f) => ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text(f.message)),
-                          ),
-                          (_) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                  content: Text('Perfil actualizado')),
-                            );
-                            Navigator.of(context).pop();
                           },
-                        );
-                      },
+                        ),
+                        const Divider(height: 1),
+                        const SettingsSectionHeader(label: 'Plan'),
+                        const ProfilePlanSection(),
+                        const SignOutSettingsTile(),
+                      ],
                     ),
     );
   }

@@ -190,6 +190,16 @@ class AuthService {
     }
   }
 
+  /// Vincula Google solo para Drive (sin cambiar la sesión Supabase email/Apple).
+  Future<GoogleSignInAccount> linkGoogleAccountForDrive() async {
+    if (_supabase.auth.currentUser == null) {
+      throw const AuthException('No hay sesión activa en LifeTime');
+    }
+    final account = await _googleSignIn.authenticate(scopeHint: _driveScopes);
+    await account.authorizationClient.authorizeScopes(_driveScopes);
+    return account;
+  }
+
   Future<void> signOut() async {
     await _googleSignIn.signOut();
     await _supabase.auth.signOut();

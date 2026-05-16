@@ -1,31 +1,149 @@
+import 'dart:developer' as developer;
 import 'dart:io';
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:google_sign_in/google_sign_in.dart';
-import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:path_provider/path_provider.dart';
 
 import '../../data/datasources/isar_milestone_datasource.dart';
 import '../../domain/entities/milestone.dart';
 import '../../features/milestones/data/datasources/isar_person_datasource.dart';
-import '../../features/milestones/data/models/local/person_collection.dart';
+import '../../features/milestones/data/models/local/milestone_collection.dart';
+import 'google_drive_auth.dart';
+import 'google_drive_reauth_bridge.dart';
 import 'google_drive_service.dart';
+import 'google_sign_in_silent.dart';
 import 'premium_service.dart';
 
 class CloudSyncService {
-  final PremiumService _premium;
-  final GoogleSignIn _googleSignIn;
-  final IsarMilestoneDataSource _milestones;
-  final IsarPersonDataSource _people;
-
-  var _running = false;
-
   CloudSyncService(
     this._premium,
     this._googleSignIn,
     this._milestones,
     this._people,
+    this._reauthBridge,
   );
+
+  final PremiumService _premium;
+  final GoogleSignIn _googleSignIn;
+  final IsarMilestoneDataSource _milestones;
+  final IsarPersonDataSource _people;
+  final GoogleDriveReauthBridge _reauthBridge;
+
+  static const _logName = 'CloudSyncService';
+  var _running = false;
+
+  Future<GoogleDriveService?> _openDriveServiceSilently() async {
+    final account = await googleSignInSilently(_googleSignIn);
+    if (account == null) {
+      developer.log(
+        'Sincronización de Drive abortada: Requiere re-autenticación',
+        name: _logName,
+      );
+      return null;
+    }
+    return GoogleDriveService(_googleSignIn);
+  }
+
+  void _onDriveAuthFailure(Object error) {
+    if (!isGoogleDriveAuthError(error)) return;
+    developer.log(
+      'Drive: token inválido o permisos insuficientes ($error)',
+      name: _logName,
+    );
+    _reauthBridge.requestReauth();
+  }
+
+  /// Borra en Drive los archivos de hitos/personas marcados con [isDeleted].
+  Future<void> purgeDeletedFromDrive() async {
+    if (!_premium.isPremium) return;
+
+    final driveService = await _openDriveServiceSilently();
+    if (driveService == null) return;
+
+    final driveIds = <String>{};
+
+    final deletedMilestones = await _milestones.fetchDeleted();
+    for (final m in deletedMilestones) {
+      final root = m.driveFileId?.trim();
+      if (root != null && root.isNotEmpty) driveIds.add(root);
+      final folder = m.driveFolderId?.trim();
+      if (folder != null && folder.isNotEmpty) driveIds.add(folder);
+      for (final item in m.mediaItems) {
+        final fid = item.driveFileId?.trim();
+        if (fid != null && fid.isNotEmpty) driveIds.add(fid);
+      }
+    }
+
+    final deletedPeople = await _people.fetchDeleted();
+    for (final p in deletedPeople) {
+      final fid = p.driveFaceFileId?.trim();
+      if (fid != null && fid.isNotEmpty) driveIds.add(fid);
+    }
+
+    final mediaPruneByMilestone = <String, Set<String>>{};
+    final activeMilestones = await _milestones.fetchAll();
+    for (final m in activeMilestones) {
+      for (final item in m.mediaItems) {
+        if (!item.isDeleted) continue;
+        final fid = item.driveFileId?.trim();
+        if (fid == null || fid.isEmpty) continue;
+        driveIds.add(fid);
+        mediaPruneByMilestone
+            .putIfAbsent(m.id, () => {})
+            .add(item.localPath);
+      }
+    }
+
+    if (driveIds.isEmpty) {
+      await _pruneDeletedMediaWithoutDriveId(activeMilestones);
+      return;
+    }
+
+    for (final fileId in driveIds) {
+      try {
+        await driveService.deleteById(fileId);
+      } on GoogleDriveAuthException catch (e) {
+        _onDriveAuthFailure(e);
+        return;
+      } catch (e) {
+        developer.log(
+          'No se pudo borrar $fileId en Drive: $e',
+          name: _logName,
+        );
+      }
+    }
+
+    if (mediaPruneByMilestone.isNotEmpty) {
+      for (final entry in mediaPruneByMilestone.entries) {
+        final raw = await _milestones.fetchCollectionById(entry.key);
+        if (raw == null) continue;
+        raw.mediaItems.removeWhere(
+          (e) => e.isDeleted && entry.value.contains(e.localPath),
+        );
+        await _milestones.upsert(raw);
+      }
+    }
+    await _pruneDeletedMediaWithoutDriveId(activeMilestones);
+  }
+
+  Future<void> _pruneDeletedMediaWithoutDriveId(
+    List<MilestoneCollection> milestones,
+  ) async {
+    for (final m in milestones) {
+      final raw = await _milestones.fetchCollectionById(m.id);
+      if (raw == null) continue;
+      final before = raw.mediaItems.length;
+      raw.mediaItems.removeWhere(
+        (e) =>
+            e.isDeleted &&
+            (e.driveFileId == null || e.driveFileId!.trim().isEmpty),
+      );
+      if (raw.mediaItems.length != before) {
+        await _milestones.upsert(raw);
+      }
+    }
+  }
 
   Future<void> syncIfNeeded(List<Milestone> milestones) async {
     if (!_premium.isPremium) return;
@@ -33,27 +151,16 @@ class CloudSyncService {
     _running = true;
 
     try {
-      final account =
-          await _googleSignIn.attemptLightweightAuthentication() ??
-              await _googleSignIn.authenticate(
-                scopeHint: const ['https://www.googleapis.com/auth/drive.file'],
-              );
-      final authorization = await account.authorizationClient.authorizeScopes(
-        const ['https://www.googleapis.com/auth/drive.file'],
-      );
-      final headers = <String, String>{
-        'Authorization': 'Bearer ${authorization.accessToken}',
-      };
-      final client = GoogleAuthHttpClient(headers);
-      final api = drive.DriveApi(client);
-      final driveService = GoogleDriveService(api);
+      final driveService = await _openDriveServiceSilently();
+      if (driveService == null) return;
 
-      final rootId = await driveService.getOrCreateFolder('LifeTime');
+      final rootId = await driveService.getOrCreateBackupFolder();
       final mediaRootId =
           await driveService.getOrCreateFolder('Media', parentId: rootId);
 
       for (final m in milestones) {
         for (final item in m.mediaItems) {
+          if (item.isDeleted) continue;
           if (item.isSynced) continue;
           if (item.driveFileId != null) continue;
 
@@ -62,41 +169,54 @@ class CloudSyncService {
           final f = File(path);
           if (!await f.exists()) continue;
 
-          final d = m.eventDate;
-          final yearId = await driveService.getOrCreateFolder(
-            d.year.toString().padLeft(4, '0'),
-            parentId: mediaRootId,
-          );
-          final monthId = await driveService.getOrCreateFolder(
-            d.month.toString().padLeft(2, '0'),
-            parentId: yearId,
-          );
-          final dayId = await driveService.getOrCreateFolder(
-            d.day.toString().padLeft(2, '0'),
-            parentId: monthId,
-          );
-          final milestoneFolderId = await driveService.getOrCreateFolder(
-            m.id,
-            parentId: dayId,
-          );
-          await _milestones.setDriveFolderId(
-            milestoneId: m.id,
-            driveFolderId: milestoneFolderId,
-          );
+          try {
+            final d = m.eventDate;
+            final yearId = await driveService.getOrCreateFolder(
+              d.year.toString().padLeft(4, '0'),
+              parentId: mediaRootId,
+            );
+            final monthId = await driveService.getOrCreateFolder(
+              d.month.toString().padLeft(2, '0'),
+              parentId: yearId,
+            );
+            final dayId = await driveService.getOrCreateFolder(
+              d.day.toString().padLeft(2, '0'),
+              parentId: monthId,
+            );
+            final milestoneFolderId = await driveService.getOrCreateFolder(
+              m.id,
+              parentId: dayId,
+            );
+            await _milestones.setDriveFolderId(
+              milestoneId: m.id,
+              driveFolderId: milestoneFolderId,
+            );
 
-          // ignore: avoid_print
-          print('Sincronizando archivo $path a Drive...');
+            developer.log(
+              'Sincronizando archivo $path a Drive...',
+              name: _logName,
+            );
 
-          final fileId = await driveService.uploadFile(f, milestoneFolderId);
-          await _milestones.markMediaItemSynced(
-            milestoneId: m.id,
-            localPath: path,
-            driveFileId: fileId,
-          );
+            final fileId = await driveService.uploadFile(f, milestoneFolderId);
+            await _milestones.markMediaItemSynced(
+              milestoneId: m.id,
+              localPath: path,
+              driveFileId: fileId,
+            );
+          } on GoogleDriveAuthException catch (e) {
+            _onDriveAuthFailure(e);
+            return;
+          }
         }
       }
 
-      await syncPendingFaces(driveService, rootId);
+      try {
+        await syncPendingFaces(driveService, rootId);
+      } on GoogleDriveAuthException catch (e) {
+        _onDriveAuthFailure(e);
+      }
+    } on GoogleDriveAuthException catch (e) {
+      _onDriveAuthFailure(e);
     } finally {
       _running = false;
     }
@@ -106,22 +226,13 @@ class CloudSyncService {
     if (!_premium.isPremium) return;
     if (_running) return;
     try {
-      final account =
-          await _googleSignIn.attemptLightweightAuthentication();
-      if (account == null) return;
-      final authorization = await account.authorizationClient.authorizeScopes(
-        const ['https://www.googleapis.com/auth/drive.file'],
-      );
-      final headers = <String, String>{
-        'Authorization': 'Bearer ${authorization.accessToken}',
-      };
-      final client = GoogleAuthHttpClient(headers);
-      final api = drive.DriveApi(client);
-      final driveService = GoogleDriveService(api);
+      final driveService = await _openDriveServiceSilently();
+      if (driveService == null) return;
       await restoreFacesWithService(driveService);
+    } on GoogleDriveAuthException catch (e) {
+      _onDriveAuthFailure(e);
     } catch (e) {
-      // ignore: avoid_print
-      print('restoreMissingFaces failed: $e');
+      developer.log('restoreMissingFaces failed: $e', name: _logName);
     }
   }
 
@@ -144,18 +255,19 @@ class CloudSyncService {
       try {
         final fileId =
             await driveService.uploadFile(File(p.faceImagePath!), peopleId);
-        final updated = PersonCollection()
-          ..isarId = p.isarId
-          ..id = p.id
-          ..name = p.name
+        final updated = p.copyScalars()
           ..faceImagePath = p.faceImagePath
           ..driveFaceFileId = fileId;
         await _people.upsert(updated);
-        // ignore: avoid_print
-        print('Cara sincronizada para ${p.id}');
+        developer.log('Cara sincronizada para ${p.id}', name: _logName);
+      } on GoogleDriveAuthException catch (e) {
+        _onDriveAuthFailure(e);
+        return;
       } catch (e) {
-        // ignore: avoid_print
-        print('Error sincronizando cara para ${p.id}: $e');
+        developer.log(
+          'Error sincronizando cara para ${p.id}: $e',
+          name: _logName,
+        );
       }
     }
   }
@@ -163,21 +275,13 @@ class CloudSyncService {
   Future<void> deleteDriveFace(String fileId) async {
     if (!_premium.isPremium) return;
     try {
-      final account = await _googleSignIn.attemptLightweightAuthentication();
-      if (account == null) return;
-      final authorization = await account.authorizationClient.authorizeScopes(
-        const ['https://www.googleapis.com/auth/drive.file'],
-      );
-      final headers = <String, String>{
-        'Authorization': 'Bearer ${authorization.accessToken}',
-      };
-      final client = GoogleAuthHttpClient(headers);
-      final api = drive.DriveApi(client);
-      final driveService = GoogleDriveService(api);
+      final driveService = await _openDriveServiceSilently();
+      if (driveService == null) return;
       await deleteFaceFromDriveWithService(driveService, fileId);
+    } on GoogleDriveAuthException catch (e) {
+      _onDriveAuthFailure(e);
     } catch (e) {
-      // ignore: avoid_print
-      print('deleteDriveFace failed: $e');
+      developer.log('deleteDriveFace failed: $e', name: _logName);
     }
   }
 
@@ -202,18 +306,19 @@ class CloudSyncService {
       try {
         final destPath = '${appDir.path}/faces/${p.id}.jpg';
         await driveService.downloadFile(p.driveFaceFileId!, destPath);
-        final updated = PersonCollection()
-          ..isarId = p.isarId
-          ..id = p.id
-          ..name = p.name
+        final updated = p.copyScalars()
           ..faceImagePath = destPath
           ..driveFaceFileId = p.driveFaceFileId;
         await _people.upsert(updated);
-        // ignore: avoid_print
-        print('Cara restaurada para ${p.id}');
+        developer.log('Cara restaurada para ${p.id}', name: _logName);
+      } on GoogleDriveAuthException catch (e) {
+        _onDriveAuthFailure(e);
+        return;
       } catch (e) {
-        // ignore: avoid_print
-        print('Error restaurando cara para ${p.id}: $e');
+        developer.log(
+          'Error restaurando cara para ${p.id}: $e',
+          name: _logName,
+        );
       }
     }
   }

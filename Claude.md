@@ -28,9 +28,9 @@ LifeTime es una "cápsula del tiempo" que permite registrar hitos de vida (fotos
 ## Contexto técnico reciente (hitos, Drive, personas)
 
 ### Google Drive y sincronización
-- Raíz de la app en Drive: carpeta **`LifeTime`** (sin `LifeTime_App`).
-- Fotos de **personas** en `LifeTime/People`.
-- Medios de hitos en `LifeTime/Media/YYYY/MM/DD`.
+- Raíz de la app en Drive: carpeta **`LifeTime_App`** (`GoogleDriveService.getOrCreateBackupFolder()`).
+- Fotos de **personas** en `LifeTime_App/People`.
+- Medios de hitos en `LifeTime_App/Media/YYYY/MM/DD`.
 - No crear carpeta en Drive si el usuario **no es premium**; la subida en creación de hito debe respetar `PremiumService.isPremium` (no asumir carpeta creada).
 
 ### Android: medios locales

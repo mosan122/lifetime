@@ -5,11 +5,25 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:lifetime/core/failures/failure.dart';
 import 'package:lifetime/core/usecases/usecase.dart';
+import 'package:lifetime/core/utils/bitacora_backup_json.dart';
 import 'package:lifetime/data/models/milestone_model.dart';
 import 'package:lifetime/domain/repositories/milestone_repository.dart';
+import 'package:lifetime/features/milestones/data/datasources/isar_category_datasource.dart';
+import 'package:lifetime/features/milestones/data/datasources/isar_person_datasource.dart';
+import 'package:lifetime/features/milestones/data/datasources/isar_relationship_datasource.dart';
+import 'package:lifetime/features/milestones/data/datasources/isar_saved_location_datasource.dart';
+import 'package:lifetime/features/milestones/data/datasources/person_group_local_datasource.dart';
 import 'package:lifetime/features/milestones/domain/usecases/export_bitacora_usecase.dart';
 
 class MockMilestoneRepository extends Mock implements MilestoneRepository {}
+class MockIsarPersonDataSource extends Mock implements IsarPersonDataSource {}
+class MockIsarCategoryDataSource extends Mock implements IsarCategoryDataSource {}
+class MockIsarSavedLocationDataSource extends Mock
+    implements IsarSavedLocationDataSource {}
+class MockIsarRelationshipDataSource extends Mock
+    implements IsarRelationshipDataSource {}
+class MockPersonGroupLocalDataSource extends Mock
+    implements PersonGroupLocalDataSource {}
 
 void main() {
   final tDate = DateTime(2026, 4, 26);
@@ -21,7 +35,7 @@ void main() {
     String? locationName = 'Madrid',
     double? latitude = 40.4168,
     double? longitude = -3.7038,
-    List<String> participants = const ['Ana', 'Luis'],
+    List<String> participantIds = const ['Ana', 'Luis'],
     String? driveFileId,
   }) =>
       MilestoneModel(
@@ -29,97 +43,126 @@ void main() {
         userId: 'user-1',
         title: title,
         description: description,
-        participants: participants,
+        participantIds: participantIds,
         media: const [],
         eventDate: tDate,
         locationName: locationName,
         latitude: latitude,
         longitude: longitude,
-        category: 'familia',
+        categoryId: 'familia',
         isPublic: false,
         createdAt: tDate,
         driveFileId: driveFileId,
       );
 
-  // ── toJson ───────────────────────────────────────────────────────────────────
+  // ── BitacoraBackupJson.encode ───────────────────────────────────────────────
 
-  group('ExportBitacoraUseCase.toJson', () {
+  group('BitacoraBackupJson.encode', () {
     test('produces valid JSON that does not throw on decode', () {
       expect(
-        () => jsonDecode(ExportBitacoraUseCase.toJson([makeMilestone()])),
+        () => jsonDecode(BitacoraBackupJson.encode(
+          [makeMilestone()],
+          const BitacoraExportBundles(),
+        )),
         returnsNormally,
       );
     });
 
-    test('contains version 1.0', () {
-      final data = jsonDecode(ExportBitacoraUseCase.toJson([])) as Map;
-      expect(data['version'], equals('1.0'));
+    test('contains version 3.0 and bitacora schema', () {
+      final data = jsonDecode(BitacoraBackupJson.encode(
+        [],
+        const BitacoraExportBundles(),
+      )) as Map;
+      expect(data['version'], equals('3.0'));
+      expect(data['schema'], equals('bitacora'));
+      expect(data['people'], isA<List>());
+      expect(data['custom_categories'], isA<List>());
+    });
+
+    test('legacy encode keeps version 2.0', () {
+      final data = jsonDecode(BitacoraBackupJson.encodeLegacyMilestonesOnly([]))
+          as Map;
+      expect(data['version'], equals('2.0'));
+      expect(data['schema'], equals('bitacora_milestones'));
     });
 
     test('contains exported_at field', () {
-      final data = jsonDecode(ExportBitacoraUseCase.toJson([])) as Map;
+      final data = jsonDecode(BitacoraBackupJson.encode(
+        [],
+        const BitacoraExportBundles(),
+      )) as Map;
       expect(data['exported_at'], isNotNull);
     });
 
     test('total matches milestone count', () {
-      final data = jsonDecode(ExportBitacoraUseCase.toJson(
+      final data = jsonDecode(BitacoraBackupJson.encode(
         [makeMilestone(), makeMilestone(id: 'ms-2')],
       )) as Map;
       expect(data['total'], equals(2));
     });
 
     test('empty list produces total 0 and empty array', () {
-      final data = jsonDecode(ExportBitacoraUseCase.toJson([])) as Map;
+      final data = jsonDecode(BitacoraBackupJson.encode(
+        [],
+        const BitacoraExportBundles(),
+      )) as Map;
       expect(data['total'], equals(0));
       expect((data['milestones'] as List), isEmpty);
     });
 
     test('title is present in milestone entry', () {
-      final data = jsonDecode(ExportBitacoraUseCase.toJson([makeMilestone()])) as Map;
+      final data = jsonDecode(BitacoraBackupJson.encode([makeMilestone()],
+          const BitacoraExportBundles())) as Map;
       expect((data['milestones'] as List)[0]['title'], equals('Mi 30 cumpleaños'));
     });
 
     test('description (narrative) is present in milestone entry', () {
-      final data = jsonDecode(ExportBitacoraUseCase.toJson([makeMilestone()])) as Map;
+      final data = jsonDecode(BitacoraBackupJson.encode([makeMilestone()],
+          const BitacoraExportBundles())) as Map;
       expect((data['milestones'] as List)[0]['description'], equals('Fue un día especial.'));
     });
 
     test('event_date is formatted as YYYY-MM-DD', () {
-      final data = jsonDecode(ExportBitacoraUseCase.toJson([makeMilestone()])) as Map;
+      final data = jsonDecode(BitacoraBackupJson.encode([makeMilestone()],
+          const BitacoraExportBundles())) as Map;
       expect((data['milestones'] as List)[0]['event_date'], equals('2026-04-26'));
     });
 
     test('location contains latitude and longitude when coords are present', () {
-      final data = jsonDecode(ExportBitacoraUseCase.toJson([makeMilestone()])) as Map;
+      final data = jsonDecode(BitacoraBackupJson.encode([makeMilestone()],
+          const BitacoraExportBundles())) as Map;
       final loc = (data['milestones'] as List)[0]['location'] as Map;
       expect(loc['latitude'], equals(40.4168));
       expect(loc['longitude'], equals(-3.7038));
     });
 
     test('location contains name when locationName is set', () {
-      final data = jsonDecode(ExportBitacoraUseCase.toJson([makeMilestone()])) as Map;
+      final data = jsonDecode(BitacoraBackupJson.encode([makeMilestone()],
+          const BitacoraExportBundles())) as Map;
       final loc = (data['milestones'] as List)[0]['location'] as Map;
       expect(loc['name'], equals('Madrid'));
     });
 
     test('location is null when latitude and longitude are null', () {
-      final data = jsonDecode(ExportBitacoraUseCase.toJson([
+      final data = jsonDecode(BitacoraBackupJson.encode([
         makeMilestone(latitude: null, longitude: null, locationName: null),
-      ])) as Map;
+      ], const BitacoraExportBundles())) as Map;
       expect((data['milestones'] as List)[0]['location'], isNull);
     });
 
-    test('participants list is included', () {
-      final data = jsonDecode(ExportBitacoraUseCase.toJson([makeMilestone()])) as Map;
+    test('participant_ids list is included', () {
+      final data = jsonDecode(BitacoraBackupJson.encode([makeMilestone()],
+          const BitacoraExportBundles())) as Map;
       expect(
-        (data['milestones'] as List)[0]['participants'],
+        (data['milestones'] as List)[0]['participant_ids'],
         equals(['Ana', 'Luis']),
       );
     });
 
     test('drive_file_id is included when present', () {
-      final data = jsonDecode(ExportBitacoraUseCase.toJson(
+      final data = jsonDecode(BitacoraBackupJson.encode(
         [makeMilestone(driveFileId: 'drive-abc')],
+        const BitacoraExportBundles(),
       )) as Map;
       expect((data['milestones'] as List)[0]['drive_file_id'], equals('drive-abc'));
     });
@@ -192,7 +235,7 @@ void main() {
 
     test('omits participants line when list is empty', () {
       final md = ExportBitacoraUseCase.toMarkdown([
-        makeMilestone(participants: []),
+        makeMilestone(participantIds: []),
       ]);
       expect(md, isNot(contains('👥')));
     });
@@ -220,11 +263,37 @@ void main() {
 
   group('ExportBitacoraUseCase.call', () {
     late MockMilestoneRepository mockRepository;
+    late MockIsarPersonDataSource mockPerson;
+    late MockIsarCategoryDataSource mockCategory;
+    late MockIsarSavedLocationDataSource mockSavedLoc;
+    late MockIsarRelationshipDataSource mockRel;
+    late MockPersonGroupLocalDataSource mockPersonGroup;
     late ExportBitacoraUseCase useCase;
 
     setUp(() {
       mockRepository = MockMilestoneRepository();
-      useCase = ExportBitacoraUseCase(mockRepository);
+      mockPerson = MockIsarPersonDataSource();
+      mockCategory = MockIsarCategoryDataSource();
+      mockSavedLoc = MockIsarSavedLocationDataSource();
+      mockRel = MockIsarRelationshipDataSource();
+      mockPersonGroup = MockPersonGroupLocalDataSource();
+      when(() => mockPerson.fetchAll()).thenAnswer((_) async => []);
+      when(() => mockCategory.fetchAll()).thenAnswer((_) async => []);
+      when(() => mockSavedLoc.fetchAll()).thenAnswer((_) async => []);
+      when(() => mockRel.fetchAll()).thenAnswer((_) async => []);
+      when(() => mockPersonGroup.fetchAllGroupsOrdered())
+          .thenAnswer((_) async => []);
+      when(() => mockPersonGroup.fetchAllLinks()).thenAnswer((_) async => []);
+      when(() => mockPersonGroup.buildPersonIdToGroupIds())
+          .thenAnswer((_) async => <String, List<String>>{});
+      useCase = ExportBitacoraUseCase(
+        mockRepository,
+        mockPerson,
+        mockCategory,
+        mockSavedLoc,
+        mockRel,
+        mockPersonGroup,
+      );
       registerFallbackValue(const NoParams());
     });
 

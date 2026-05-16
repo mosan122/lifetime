@@ -1,0 +1,184 @@
+{
+  "version": 3,
+  "documentation": "LifeTime Master Categories - Expanded Biography Edition",
+  "allowedIconKeys": [
+    "category",
+    "category_filled",
+    "family_restroom",
+    "group",
+    "favorite",
+    "pets",
+    "flight",
+    "eco",
+    "theater_comedy",
+    "business_center",
+    "school",
+    "account_balance_wallet",
+    "monitor_heart",
+    "fitness_center",
+    "home",
+    "restaurant",
+    "handyman",
+    "child_care",
+    "local_florist",
+    "celebration",
+    "volunteer_activism",
+    "heart_broken",
+    "moving",
+    "military_tech",
+    "pregnant_woman",
+    "flare",
+    "vpn_key",
+    "directions_car",
+    "self_improvement",
+    "palette",
+    "beach_access",
+    "warning_amber"
+  ],
+  "categories": [
+    {
+      "id": "familia",
+      "name": "familia",
+      "iconKey": "family_restroom",
+      "colorArgb": "0xFF9575CD"
+    },
+    {
+      "id": "amigos",
+      "name": "amigos",
+      "iconKey": "group",
+      "colorArgb": "0xFF64B5F6"
+    },
+    {
+      "id": "amor",
+      "name": "amor",
+      "iconKey": "favorite",
+      "colorArgb": "0xFFF06292"
+    },
+    {
+      "id": "boda",
+      "name": "boda",
+      "iconKey": "celebration",
+      "colorArgb": "0xFFFFB300"
+    },
+    {
+      "id": "relacion_inicio",
+      "name": "inicio relación",
+      "iconKey": "volunteer_activism",
+      "colorArgb": "0xFFF48FB1"
+    },
+    {
+      "id": "separacion",
+      "name": "separación",
+      "iconKey": "heart_broken",
+      "colorArgb": "0xFF90A4AE"
+    },
+    {
+      "id": "nacimiento",
+      "name": "nacimiento",
+      "iconKey": "child_care",
+      "colorArgb": "0xFF81D4FA"
+    },
+    {
+      "id": "embarazo",
+      "name": "embarazo",
+      "iconKey": "pregnant_woman",
+      "colorArgb": "0xFFF8BBD0"
+    },
+    {
+      "id": "primeras_veces",
+      "name": "primeras veces",
+      "iconKey": "flare",
+      "colorArgb": "0xFFFFF176"
+    },
+    {
+      "id": "defuncion",
+      "name": "defunción",
+      "iconKey": "local_florist",
+      "colorArgb": "0xFFBDBDBD"
+    },
+    {
+      "id": "mascotas",
+      "name": "mascotas",
+      "iconKey": "pets",
+      "colorArgb": "0xFF81C784"
+    },
+    {
+      "id": "mudanza",
+      "name": "mudanza",
+      "iconKey": "moving",
+      "colorArgb": "0xFFA1887F"
+    },
+    {
+      "id": "vivienda",
+      "name": "vivienda",
+      "iconKey": "vpn_key",
+      "colorArgb": "0xFF78909C"
+    },
+    {
+      "id": "vehiculo",
+      "name": "vehículo",
+      "iconKey": "directions_car",
+      "colorArgb": "0xFF4DD0E1"
+    },
+    {
+      "id": "graduacion",
+      "name": "graduación",
+      "iconKey": "school",
+      "colorArgb": "0xFF3949AB"
+    },
+    {
+      "id": "trabajo",
+      "name": "trabajo",
+      "iconKey": "business_center",
+      "colorArgb": "0xFF7986CB"
+    },
+    {
+      "id": "jubilacion",
+      "name": "jubilación",
+      "iconKey": "beach_access",
+      "colorArgb": "0xFF4FC3F7"
+    },
+    {
+      "id": "logro",
+      "name": "logro",
+      "iconKey": "military_tech",
+      "colorArgb": "0xFFFFD54F"
+    },
+    {
+      "id": "creatividad",
+      "name": "creatividad",
+      "iconKey": "palette",
+      "colorArgb": "0xFFFF8A65"
+    },
+    {
+      "id": "espiritualidad",
+      "name": "crecimiento",
+      "iconKey": "self_improvement",
+      "colorArgb": "0xFFBA68C8"
+    },
+    {
+      "id": "viajes",
+      "name": "viajes",
+      "iconKey": "flight",
+      "colorArgb": "0xFF4DB6AC"
+    },
+    {
+      "id": "salud",
+      "name": "salud",
+      "iconKey": "monitor_heart",
+      "colorArgb": "0xFFE57373"
+    },
+    {
+      "id": "crisis",
+      "name": "crisis",
+      "iconKey": "warning_amber",
+      "colorArgb": "0xFFFF7043"
+    },
+    {
+      "id": "otros",
+      "name": "otros",
+      "iconKey": "category_filled",
+      "colorArgb": "0xFFCE93D8"
+    }
+  ]
+}

@@ -1,17 +1,22 @@
-import 'package:bloc_test/bloc_test.dart';
 import 'package:dartz/dartz.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:get_it/get_it.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:lifetime/core/failures/failure.dart';
+import 'package:lifetime/core/services/cloud_sync_service.dart';
 import 'package:lifetime/core/usecases/usecase.dart';
 import 'package:lifetime/data/models/milestone_model.dart';
+import 'package:lifetime/domain/entities/milestone.dart';
 import 'package:lifetime/features/milestones/domain/usecases/get_milestones_usecase.dart';
 import 'package:lifetime/features/milestones/presentation/bloc/milestone_timeline_cubit.dart';
 
 class MockGetMilestonesUseCase extends Mock implements GetMilestonesUseCase {}
 
+class MockCloudSyncService extends Mock implements CloudSyncService {}
+
 void main() {
   late MockGetMilestonesUseCase mockGetMilestones;
+  late MockCloudSyncService mockCloudSync;
 
   final tMilestone = MilestoneModel(
     id: 'ms-1',
@@ -24,17 +29,49 @@ void main() {
     locationName: 'Madrid',
     latitude: 40.4168,
     longitude: -3.7038,
-    category: 'familia',
+    categoryId: 'familia',
     isPublic: false,
     createdAt: DateTime(2026, 4, 26, 10),
   );
 
+  final tMilestone2 = MilestoneModel(
+    id: 'ms-2',
+    userId: 'user-1',
+    title: 'Otro hito',
+    description: null,
+    participants: const [],
+    media: const [],
+    eventDate: DateTime(2026, 5, 1),
+    locationName: null,
+    latitude: null,
+    longitude: null,
+    categoryId: 'familia',
+    isPublic: false,
+    createdAt: DateTime(2026, 5, 1, 10),
+  );
+
   setUpAll(() {
     registerFallbackValue(const NoParams());
+    registerFallbackValue(<Milestone>[]);
   });
 
   setUp(() {
     mockGetMilestones = MockGetMilestonesUseCase();
+    mockCloudSync = MockCloudSyncService();
+    when(() => mockCloudSync.syncIfNeeded(any())).thenAnswer((_) async {});
+
+    final g = GetIt.instance;
+    if (g.isRegistered<CloudSyncService>()) {
+      g.unregister<CloudSyncService>();
+    }
+    g.registerSingleton<CloudSyncService>(mockCloudSync);
+  });
+
+  tearDown(() async {
+    final g = GetIt.instance;
+    if (g.isRegistered<CloudSyncService>()) {
+      await g.unregister<CloudSyncService>();
+    }
   });
 
   test('initial state is MilestoneTimelineInitial', () {
@@ -43,79 +80,129 @@ void main() {
     cubit.close();
   });
 
-  blocTest<MilestoneTimelineCubit, MilestoneTimelineState>(
-    'emits [Loading, Loaded] when getMilestones succeeds',
-    setUp: () {
-      when(() => mockGetMilestones(any()))
-          .thenAnswer((_) async => Right([tMilestone]));
-    },
-    build: () => MilestoneTimelineCubit(mockGetMilestones),
-    act: (cubit) => cubit.loadTimeline(),
-    expect: () => [
-      const MilestoneTimelineLoading(),
-      MilestoneTimelineLoaded([tMilestone]),
-    ],
-    verify: (_) {
-      verify(() => mockGetMilestones(const NoParams())).called(1);
-    },
-  );
+  test('emits [Loading, Loaded] when getMilestones succeeds', () async {
+    when(() => mockGetMilestones(any()))
+        .thenAnswer((_) async => Right([tMilestone]));
+    final cubit = MilestoneTimelineCubit(mockGetMilestones);
+    final done = expectLater(
+      cubit.stream,
+      emitsInOrder([
+        const MilestoneTimelineLoading(),
+        MilestoneTimelineLoaded([tMilestone]),
+      ]),
+    );
+    await cubit.loadTimeline();
+    await done;
+    await cubit.close();
+    verify(() => mockGetMilestones(const NoParams())).called(1);
+    verify(() => mockCloudSync.syncIfNeeded(any())).called(1);
+  });
 
-  blocTest<MilestoneTimelineCubit, MilestoneTimelineState>(
-    'emits [Loading, Loaded] with empty list when no milestones exist',
-    setUp: () {
-      when(() => mockGetMilestones(any()))
-          .thenAnswer((_) async => const Right([]));
-    },
-    build: () => MilestoneTimelineCubit(mockGetMilestones),
-    act: (cubit) => cubit.loadTimeline(),
-    expect: () => [
-      const MilestoneTimelineLoading(),
-      const MilestoneTimelineLoaded([]),
-    ],
-  );
+  test('emits [Loading, Loaded] with empty list when no milestones exist',
+      () async {
+    when(() => mockGetMilestones(any()))
+        .thenAnswer((_) async => const Right([]));
+    final cubit = MilestoneTimelineCubit(mockGetMilestones);
+    final done = expectLater(
+      cubit.stream,
+      emitsInOrder([
+        const MilestoneTimelineLoading(),
+        const MilestoneTimelineLoaded([]),
+      ]),
+    );
+    await cubit.loadTimeline();
+    await done;
+    await cubit.close();
+  });
 
-  blocTest<MilestoneTimelineCubit, MilestoneTimelineState>(
-    'emits [Loading, Error] with message and code when repository fails',
-    setUp: () {
-      when(() => mockGetMilestones(any())).thenAnswer(
-        (_) async => const Left(NetworkFailure('timeout', '500')),
-      );
-    },
-    build: () => MilestoneTimelineCubit(mockGetMilestones),
-    act: (cubit) => cubit.loadTimeline(),
-    expect: () => [
-      const MilestoneTimelineLoading(),
-      const MilestoneTimelineError('timeout', code: '500'),
-    ],
-  );
+  test('emits [Loading, Error] with message and code when repository fails',
+      () async {
+    when(() => mockGetMilestones(any())).thenAnswer(
+      (_) async => const Left(NetworkFailure('timeout', '500')),
+    );
+    final cubit = MilestoneTimelineCubit(mockGetMilestones);
+    final done = expectLater(
+      cubit.stream,
+      emitsInOrder([
+        const MilestoneTimelineLoading(),
+        const MilestoneTimelineError('timeout', code: '500'),
+      ]),
+    );
+    await cubit.loadTimeline();
+    await done;
+    await cubit.close();
+  });
 
-  blocTest<MilestoneTimelineCubit, MilestoneTimelineState>(
-    'emits [Loading, Error] when auth fails',
-    setUp: () {
-      when(() => mockGetMilestones(any()))
-          .thenAnswer((_) async => const Left(AuthFailure()));
-    },
-    build: () => MilestoneTimelineCubit(mockGetMilestones),
-    act: (cubit) => cubit.loadTimeline(),
-    expect: () => [
-      const MilestoneTimelineLoading(),
-      const MilestoneTimelineError('Authentication error'),
-    ],
-  );
+  test('emits [Loading, Error] when auth fails', () async {
+    when(() => mockGetMilestones(any()))
+        .thenAnswer((_) async => const Left(AuthFailure()));
+    final cubit = MilestoneTimelineCubit(mockGetMilestones);
+    final done = expectLater(
+      cubit.stream,
+      emitsInOrder([
+        const MilestoneTimelineLoading(),
+        const MilestoneTimelineError('Authentication error'),
+      ]),
+    );
+    await cubit.loadTimeline();
+    await done;
+    await cubit.close();
+  });
 
-  blocTest<MilestoneTimelineCubit, MilestoneTimelineState>(
-    'emits [Loading, Error] when database fails with code',
-    setUp: () {
-      when(() => mockGetMilestones(any())).thenAnswer(
-        (_) async =>
-            const Left(DatabaseFailure('connection error', code: '08000')),
-      );
-    },
-    build: () => MilestoneTimelineCubit(mockGetMilestones),
-    act: (cubit) => cubit.loadTimeline(),
-    expect: () => [
-      const MilestoneTimelineLoading(),
-      const MilestoneTimelineError('connection error', code: '08000'),
-    ],
-  );
+  test('emits [Loading, Error] when database fails with code', () async {
+    when(() => mockGetMilestones(any())).thenAnswer(
+      (_) async =>
+          const Left(DatabaseFailure('connection error', code: '08000')),
+    );
+    final cubit = MilestoneTimelineCubit(mockGetMilestones);
+    final done = expectLater(
+      cubit.stream,
+      emitsInOrder([
+        const MilestoneTimelineLoading(),
+        const MilestoneTimelineError('connection error', code: '08000'),
+      ]),
+    );
+    await cubit.loadTimeline();
+    await done;
+    await cubit.close();
+  });
+
+  test('refreshTimeline from Loaded re-fetches without Loading', () async {
+    var calls = 0;
+    when(() => mockGetMilestones(any())).thenAnswer((_) async {
+      calls++;
+      if (calls == 1) {
+        return Right([tMilestone]);
+      }
+      return Right([tMilestone, tMilestone2]);
+    });
+    final cubit = MilestoneTimelineCubit(mockGetMilestones);
+    await cubit.loadTimeline();
+    expect(cubit.state, MilestoneTimelineLoaded([tMilestone]));
+
+    final done = expectLater(
+      cubit.stream,
+      emits(MilestoneTimelineLoaded([tMilestone, tMilestone2])),
+    );
+    await cubit.refreshTimeline();
+    await done;
+    await cubit.close();
+    verify(() => mockGetMilestones(const NoParams())).called(2);
+  });
+
+  test('refreshTimeline from Initial runs full loadTimeline', () async {
+    when(() => mockGetMilestones(any()))
+        .thenAnswer((_) async => Right([tMilestone]));
+    final cubit = MilestoneTimelineCubit(mockGetMilestones);
+    final done = expectLater(
+      cubit.stream,
+      emitsInOrder([
+        const MilestoneTimelineLoading(),
+        MilestoneTimelineLoaded([tMilestone]),
+      ]),
+    );
+    await cubit.refreshTimeline();
+    await done;
+    await cubit.close();
+  });
 }

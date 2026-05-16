@@ -58,77 +58,92 @@ const MilestoneCollectionSchema = CollectionSchema(
       name: r'id',
       type: IsarType.string,
     ),
-    r'isPublic': PropertySchema(
+    r'isDeleted': PropertySchema(
       id: 8,
+      name: r'isDeleted',
+      type: IsarType.bool,
+    ),
+    r'isPublic': PropertySchema(
+      id: 9,
       name: r'isPublic',
       type: IsarType.bool,
     ),
+    r'isSynced': PropertySchema(
+      id: 10,
+      name: r'isSynced',
+      type: IsarType.bool,
+    ),
     r'latitude': PropertySchema(
-      id: 9,
+      id: 11,
       name: r'latitude',
       type: IsarType.double,
     ),
     r'location': PropertySchema(
-      id: 10,
+      id: 12,
       name: r'location',
       type: IsarType.object,
       target: r'MilestoneLocationDataEmbed',
     ),
     r'locationName': PropertySchema(
-      id: 11,
+      id: 13,
       name: r'locationName',
       type: IsarType.string,
     ),
     r'longitude': PropertySchema(
-      id: 12,
+      id: 14,
       name: r'longitude',
       type: IsarType.double,
     ),
     r'media': PropertySchema(
-      id: 13,
+      id: 15,
       name: r'media',
       type: IsarType.objectList,
       target: r'MediaAssetEmbed',
     ),
     r'mediaItems': PropertySchema(
-      id: 14,
+      id: 16,
       name: r'mediaItems',
       type: IsarType.objectList,
       target: r'MediaItemEmbed',
     ),
     r'participants': PropertySchema(
-      id: 15,
+      id: 17,
       name: r'participants',
       type: IsarType.stringList,
     ),
     r'protagonists': PropertySchema(
-      id: 16,
+      id: 18,
       name: r'protagonists',
       type: IsarType.stringList,
     ),
     r'savedLocationId': PropertySchema(
-      id: 17,
+      id: 19,
       name: r'savedLocationId',
       type: IsarType.long,
     ),
+    r'supabaseId': PropertySchema(
+      id: 20,
+      name: r'supabaseId',
+      type: IsarType.string,
+    ),
     r'syncStatus': PropertySchema(
-      id: 18,
+      id: 21,
       name: r'syncStatus',
       type: IsarType.string,
       enumMap: _MilestoneCollectionsyncStatusEnumValueMap,
     ),
     r'tags': PropertySchema(
-      id: 19,
+      id: 22,
       name: r'tags',
       type: IsarType.stringList,
     ),
     r'title': PropertySchema(
-      id: 20,
+      id: 23,
       name: r'title',
       type: IsarType.string,
     ),
     r'userId': PropertySchema(
-      id: 21,
+      id: 24,
       name: r'userId',
       type: IsarType.string,
     )
@@ -242,6 +257,12 @@ int _milestoneCollectionEstimateSize(
       bytesCount += value.length * 3;
     }
   }
+  {
+    final value = object.supabaseId;
+    if (value != null) {
+      bytesCount += 3 + value.length * 3;
+    }
+  }
   bytesCount += 3 + object.syncStatus.name.length * 3;
   bytesCount += 3 + object.tags.length * 3;
   {
@@ -269,35 +290,38 @@ void _milestoneCollectionSerialize(
   writer.writeDateTime(offsets[5], object.eventDate);
   writer.writeLong(offsets[6], object.galleryCoverIndex);
   writer.writeString(offsets[7], object.id);
-  writer.writeBool(offsets[8], object.isPublic);
-  writer.writeDouble(offsets[9], object.latitude);
+  writer.writeBool(offsets[8], object.isDeleted);
+  writer.writeBool(offsets[9], object.isPublic);
+  writer.writeBool(offsets[10], object.isSynced);
+  writer.writeDouble(offsets[11], object.latitude);
   writer.writeObject<MilestoneLocationDataEmbed>(
-    offsets[10],
+    offsets[12],
     allOffsets,
     MilestoneLocationDataEmbedSchema.serialize,
     object.location,
   );
-  writer.writeString(offsets[11], object.locationName);
-  writer.writeDouble(offsets[12], object.longitude);
+  writer.writeString(offsets[13], object.locationName);
+  writer.writeDouble(offsets[14], object.longitude);
   writer.writeObjectList<MediaAssetEmbed>(
-    offsets[13],
+    offsets[15],
     allOffsets,
     MediaAssetEmbedSchema.serialize,
     object.media,
   );
   writer.writeObjectList<MediaItemEmbed>(
-    offsets[14],
+    offsets[16],
     allOffsets,
     MediaItemEmbedSchema.serialize,
     object.mediaItems,
   );
-  writer.writeStringList(offsets[15], object.participants);
-  writer.writeStringList(offsets[16], object.protagonists);
-  writer.writeLong(offsets[17], object.savedLocationId);
-  writer.writeString(offsets[18], object.syncStatus.name);
-  writer.writeStringList(offsets[19], object.tags);
-  writer.writeString(offsets[20], object.title);
-  writer.writeString(offsets[21], object.userId);
+  writer.writeStringList(offsets[17], object.participants);
+  writer.writeStringList(offsets[18], object.protagonists);
+  writer.writeLong(offsets[19], object.savedLocationId);
+  writer.writeString(offsets[20], object.supabaseId);
+  writer.writeString(offsets[21], object.syncStatus.name);
+  writer.writeStringList(offsets[22], object.tags);
+  writer.writeString(offsets[23], object.title);
+  writer.writeString(offsets[24], object.userId);
 }
 
 MilestoneCollection _milestoneCollectionDeserialize(
@@ -315,39 +339,42 @@ MilestoneCollection _milestoneCollectionDeserialize(
   object.eventDate = reader.readDateTime(offsets[5]);
   object.galleryCoverIndex = reader.readLong(offsets[6]);
   object.id = reader.readString(offsets[7]);
-  object.isPublic = reader.readBool(offsets[8]);
+  object.isDeleted = reader.readBool(offsets[8]);
+  object.isPublic = reader.readBool(offsets[9]);
+  object.isSynced = reader.readBool(offsets[10]);
   object.isarId = id;
-  object.latitude = reader.readDoubleOrNull(offsets[9]);
+  object.latitude = reader.readDoubleOrNull(offsets[11]);
   object.location = reader.readObjectOrNull<MilestoneLocationDataEmbed>(
-    offsets[10],
+    offsets[12],
     MilestoneLocationDataEmbedSchema.deserialize,
     allOffsets,
   );
-  object.locationName = reader.readStringOrNull(offsets[11]);
-  object.longitude = reader.readDoubleOrNull(offsets[12]);
+  object.locationName = reader.readStringOrNull(offsets[13]);
+  object.longitude = reader.readDoubleOrNull(offsets[14]);
   object.media = reader.readObjectList<MediaAssetEmbed>(
-        offsets[13],
+        offsets[15],
         MediaAssetEmbedSchema.deserialize,
         allOffsets,
         MediaAssetEmbed(),
       ) ??
       [];
   object.mediaItems = reader.readObjectList<MediaItemEmbed>(
-        offsets[14],
+        offsets[16],
         MediaItemEmbedSchema.deserialize,
         allOffsets,
         MediaItemEmbed(),
       ) ??
       [];
-  object.participants = reader.readStringList(offsets[15]) ?? [];
-  object.protagonists = reader.readStringList(offsets[16]) ?? [];
-  object.savedLocationId = reader.readLongOrNull(offsets[17]);
+  object.participants = reader.readStringList(offsets[17]) ?? [];
+  object.protagonists = reader.readStringList(offsets[18]) ?? [];
+  object.savedLocationId = reader.readLongOrNull(offsets[19]);
+  object.supabaseId = reader.readStringOrNull(offsets[20]);
   object.syncStatus = _MilestoneCollectionsyncStatusValueEnumMap[
-          reader.readStringOrNull(offsets[18])] ??
+          reader.readStringOrNull(offsets[21])] ??
       SyncStatus.synced;
-  object.tags = reader.readStringList(offsets[19]) ?? [];
-  object.title = reader.readString(offsets[20]);
-  object.userId = reader.readString(offsets[21]);
+  object.tags = reader.readStringList(offsets[22]) ?? [];
+  object.title = reader.readString(offsets[23]);
+  object.userId = reader.readString(offsets[24]);
   return object;
 }
 
@@ -377,18 +404,22 @@ P _milestoneCollectionDeserializeProp<P>(
     case 8:
       return (reader.readBool(offset)) as P;
     case 9:
-      return (reader.readDoubleOrNull(offset)) as P;
+      return (reader.readBool(offset)) as P;
     case 10:
+      return (reader.readBool(offset)) as P;
+    case 11:
+      return (reader.readDoubleOrNull(offset)) as P;
+    case 12:
       return (reader.readObjectOrNull<MilestoneLocationDataEmbed>(
         offset,
         MilestoneLocationDataEmbedSchema.deserialize,
         allOffsets,
       )) as P;
-    case 11:
-      return (reader.readStringOrNull(offset)) as P;
-    case 12:
-      return (reader.readDoubleOrNull(offset)) as P;
     case 13:
+      return (reader.readStringOrNull(offset)) as P;
+    case 14:
+      return (reader.readDoubleOrNull(offset)) as P;
+    case 15:
       return (reader.readObjectList<MediaAssetEmbed>(
             offset,
             MediaAssetEmbedSchema.deserialize,
@@ -396,7 +427,7 @@ P _milestoneCollectionDeserializeProp<P>(
             MediaAssetEmbed(),
           ) ??
           []) as P;
-    case 14:
+    case 16:
       return (reader.readObjectList<MediaItemEmbed>(
             offset,
             MediaItemEmbedSchema.deserialize,
@@ -404,21 +435,23 @@ P _milestoneCollectionDeserializeProp<P>(
             MediaItemEmbed(),
           ) ??
           []) as P;
-    case 15:
-      return (reader.readStringList(offset) ?? []) as P;
-    case 16:
-      return (reader.readStringList(offset) ?? []) as P;
     case 17:
-      return (reader.readLongOrNull(offset)) as P;
+      return (reader.readStringList(offset) ?? []) as P;
     case 18:
+      return (reader.readStringList(offset) ?? []) as P;
+    case 19:
+      return (reader.readLongOrNull(offset)) as P;
+    case 20:
+      return (reader.readStringOrNull(offset)) as P;
+    case 21:
       return (_MilestoneCollectionsyncStatusValueEnumMap[
               reader.readStringOrNull(offset)] ??
           SyncStatus.synced) as P;
-    case 19:
+    case 22:
       return (reader.readStringList(offset) ?? []) as P;
-    case 20:
+    case 23:
       return (reader.readString(offset)) as P;
-    case 21:
+    case 24:
       return (reader.readString(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
@@ -1552,10 +1585,30 @@ extension MilestoneCollectionQueryFilter on QueryBuilder<MilestoneCollection,
   }
 
   QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      isDeletedEqualTo(bool value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'isDeleted',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
       isPublicEqualTo(bool value) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.equalTo(
         property: r'isPublic',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      isSyncedEqualTo(bool value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'isSynced',
         value: value,
       ));
     });
@@ -2660,6 +2713,160 @@ extension MilestoneCollectionQueryFilter on QueryBuilder<MilestoneCollection,
   }
 
   QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      supabaseIdIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNull(
+        property: r'supabaseId',
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      supabaseIdIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNotNull(
+        property: r'supabaseId',
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      supabaseIdEqualTo(
+    String? value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'supabaseId',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      supabaseIdGreaterThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'supabaseId',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      supabaseIdLessThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'supabaseId',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      supabaseIdBetween(
+    String? lower,
+    String? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'supabaseId',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      supabaseIdStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.startsWith(
+        property: r'supabaseId',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      supabaseIdEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.endsWith(
+        property: r'supabaseId',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      supabaseIdContains(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.contains(
+        property: r'supabaseId',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      supabaseIdMatches(String pattern, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.matches(
+        property: r'supabaseId',
+        wildcard: pattern,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      supabaseIdIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'supabaseId',
+        value: '',
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
+      supabaseIdIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        property: r'supabaseId',
+        value: '',
+      ));
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterFilterCondition>
       syncStatusEqualTo(
     SyncStatus value, {
     bool caseSensitive = true,
@@ -3435,6 +3642,20 @@ extension MilestoneCollectionQuerySortBy
   }
 
   QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterSortBy>
+      sortByIsDeleted() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isDeleted', Sort.asc);
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterSortBy>
+      sortByIsDeletedDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isDeleted', Sort.desc);
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterSortBy>
       sortByIsPublic() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'isPublic', Sort.asc);
@@ -3445,6 +3666,20 @@ extension MilestoneCollectionQuerySortBy
       sortByIsPublicDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'isPublic', Sort.desc);
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterSortBy>
+      sortByIsSynced() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isSynced', Sort.asc);
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterSortBy>
+      sortByIsSyncedDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isSynced', Sort.desc);
     });
   }
 
@@ -3501,6 +3736,20 @@ extension MilestoneCollectionQuerySortBy
       sortBySavedLocationIdDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'savedLocationId', Sort.desc);
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterSortBy>
+      sortBySupabaseId() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'supabaseId', Sort.asc);
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterSortBy>
+      sortBySupabaseIdDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'supabaseId', Sort.desc);
     });
   }
 
@@ -3662,6 +3911,20 @@ extension MilestoneCollectionQuerySortThenBy
   }
 
   QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterSortBy>
+      thenByIsDeleted() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isDeleted', Sort.asc);
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterSortBy>
+      thenByIsDeletedDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isDeleted', Sort.desc);
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterSortBy>
       thenByIsPublic() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'isPublic', Sort.asc);
@@ -3672,6 +3935,20 @@ extension MilestoneCollectionQuerySortThenBy
       thenByIsPublicDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'isPublic', Sort.desc);
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterSortBy>
+      thenByIsSynced() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isSynced', Sort.asc);
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterSortBy>
+      thenByIsSyncedDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isSynced', Sort.desc);
     });
   }
 
@@ -3742,6 +4019,20 @@ extension MilestoneCollectionQuerySortThenBy
       thenBySavedLocationIdDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'savedLocationId', Sort.desc);
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterSortBy>
+      thenBySupabaseId() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'supabaseId', Sort.asc);
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QAfterSortBy>
+      thenBySupabaseIdDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'supabaseId', Sort.desc);
     });
   }
 
@@ -3848,9 +4139,23 @@ extension MilestoneCollectionQueryWhereDistinct
   }
 
   QueryBuilder<MilestoneCollection, MilestoneCollection, QDistinct>
+      distinctByIsDeleted() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'isDeleted');
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QDistinct>
       distinctByIsPublic() {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'isPublic');
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QDistinct>
+      distinctByIsSynced() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'isSynced');
     });
   }
 
@@ -3893,6 +4198,13 @@ extension MilestoneCollectionQueryWhereDistinct
       distinctBySavedLocationId() {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'savedLocationId');
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, MilestoneCollection, QDistinct>
+      distinctBySupabaseId({bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'supabaseId', caseSensitive: caseSensitive);
     });
   }
 
@@ -3988,9 +4300,22 @@ extension MilestoneCollectionQueryProperty
     });
   }
 
+  QueryBuilder<MilestoneCollection, bool, QQueryOperations>
+      isDeletedProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'isDeleted');
+    });
+  }
+
   QueryBuilder<MilestoneCollection, bool, QQueryOperations> isPublicProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'isPublic');
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, bool, QQueryOperations> isSyncedProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'isSynced');
     });
   }
 
@@ -4054,6 +4379,13 @@ extension MilestoneCollectionQueryProperty
       savedLocationIdProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'savedLocationId');
+    });
+  }
+
+  QueryBuilder<MilestoneCollection, String?, QQueryOperations>
+      supabaseIdProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'supabaseId');
     });
   }
 

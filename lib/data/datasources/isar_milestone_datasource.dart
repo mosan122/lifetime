@@ -5,8 +5,13 @@ import 'package:lifetime/features/milestones/data/models/local/milestone_collect
 abstract class IsarMilestoneDataSource {
   Future<List<MilestoneCollection>> fetchAll();
   Future<MilestoneCollection?> fetchById(String id);
+
+  /// Hito local por id, incluidos borrados lógicamente (sync / medios).
+  Future<MilestoneCollection?> fetchCollectionById(String id);
   Future<MilestoneCollection> upsert(MilestoneCollection c);
-  Future<void> deleteById(String id);
+  Future<void> deleteById(String id, {bool softDelete = false});
+  Future<List<MilestoneCollection>> fetchDeleted();
+  Future<void> hardDelete(MilestoneCollection item);
   Future<void> markSynced(String id);
   /// Returns most recent unique saved locations.
   Future<List<MilestoneLocationDataEmbed>> fetchRecentLocations({
@@ -22,6 +27,7 @@ abstract class IsarMilestoneDataSource {
     required String driveFolderId,
   });
   Future<List<MilestoneCollection>> fetchPending();
+  Future<List<MilestoneCollection>> fetchUnsynced();
 
   Future<void> renameLocationForCoordinates({
     required double latitude,
@@ -37,6 +43,12 @@ abstract class IsarMilestoneDataSource {
     required double? latitude,
     required double? longitude,
   });
+
+  /// Quita [personId] de participantes y protagonistas en todos los hitos locales.
+  Future<void> removePersonFromAllMilestones(String personId);
+
+  /// Hitos donde [personId] figura en participantes o protagonistas.
+  Future<int> countMilestonesContainingPerson(String personId);
 }
 
 class IsarMilestoneDataSourceImpl implements IsarMilestoneDataSource {
@@ -46,16 +58,24 @@ class IsarMilestoneDataSourceImpl implements IsarMilestoneDataSource {
   @override
   Future<List<MilestoneCollection>> fetchAll() =>
       _isar.milestoneCollections
-          .where()
+          .filter()
+          .isDeletedEqualTo(false)
           .sortByEventDateDesc()
           .findAll();
 
+  Future<MilestoneCollection?> _findByIdAny(String id) =>
+      _isar.milestoneCollections.filter().idEqualTo(id).findFirst();
+
   @override
-  Future<MilestoneCollection?> fetchById(String id) =>
-      _isar.milestoneCollections
-          .filter()
-          .idEqualTo(id)
-          .findFirst();
+  Future<MilestoneCollection?> fetchById(String id) async {
+    final item = await _findByIdAny(id);
+    if (item == null || item.isDeleted) return null;
+    return item;
+  }
+
+  @override
+  Future<MilestoneCollection?> fetchCollectionById(String id) =>
+      _findByIdAny(id);
 
   @override
   Future<MilestoneCollection> upsert(MilestoneCollection c) async {
@@ -74,12 +94,29 @@ class IsarMilestoneDataSourceImpl implements IsarMilestoneDataSource {
   }
 
   @override
-  Future<void> deleteById(String id) async {
-    final item = await fetchById(id);
-    if (item == null) return;
+  Future<List<MilestoneCollection>> fetchDeleted() =>
+      _isar.milestoneCollections.filter().isDeletedEqualTo(true).findAll();
+
+  @override
+  Future<void> hardDelete(MilestoneCollection item) async {
     await _isar.writeTxn(
       () => _isar.milestoneCollections.delete(item.isarId),
     );
+  }
+
+  @override
+  Future<void> deleteById(String id, {bool softDelete = false}) async {
+    final item = await _findByIdAny(id);
+    if (item == null) return;
+    if (softDelete) {
+      item
+        ..isDeleted = true
+        ..isSynced = false
+        ..syncStatus = SyncStatus.pending;
+      await _isar.writeTxn(() => _isar.milestoneCollections.put(item));
+      return;
+    }
+    await hardDelete(item);
   }
 
   @override
@@ -134,6 +171,8 @@ class IsarMilestoneDataSourceImpl implements IsarMilestoneDataSource {
     final item = await fetchById(id);
     if (item == null) return;
     item.syncStatus = SyncStatus.synced;
+    item.isSynced = true;
+    item.supabaseId ??= item.id;
     await _isar.writeTxn(() => _isar.milestoneCollections.put(item));
   }
 
@@ -143,7 +182,7 @@ class IsarMilestoneDataSourceImpl implements IsarMilestoneDataSource {
     required String localPath,
     required String driveFileId,
   }) async {
-    final item = await fetchById(milestoneId);
+    final item = await fetchCollectionById(milestoneId);
     if (item == null) return;
     final idx = item.mediaItems.indexWhere((m) => m.localPath == localPath);
     if (idx < 0) return;
@@ -168,7 +207,16 @@ class IsarMilestoneDataSourceImpl implements IsarMilestoneDataSource {
   Future<List<MilestoneCollection>> fetchPending() =>
       _isar.milestoneCollections
           .filter()
+          .isDeletedEqualTo(false)
           .syncStatusEqualTo(SyncStatus.pending)
+          .findAll();
+
+  @override
+  Future<List<MilestoneCollection>> fetchUnsynced() =>
+      _isar.milestoneCollections
+          .filter()
+          .isDeletedEqualTo(false)
+          .isSyncedEqualTo(false)
           .findAll();
 
   @override
@@ -182,7 +230,10 @@ class IsarMilestoneDataSourceImpl implements IsarMilestoneDataSource {
     final latKey = latitude.toStringAsFixed(5);
     final lonKey = longitude.toStringAsFixed(5);
 
-    final all = await _isar.milestoneCollections.where().findAll();
+    final all = await _isar.milestoneCollections
+        .filter()
+        .isDeletedEqualTo(false)
+        .findAll();
     final toUpdate = <MilestoneCollection>[];
 
     for (final m in all) {
@@ -222,7 +273,10 @@ class IsarMilestoneDataSourceImpl implements IsarMilestoneDataSource {
   }) async {
     final n = name.trim();
     if (n.isEmpty) return;
-    final all = await _isar.milestoneCollections.where().findAll();
+    final all = await _isar.milestoneCollections
+        .filter()
+        .isDeletedEqualTo(false)
+        .findAll();
     final toUpdate = <MilestoneCollection>[];
 
     for (final m in all) {
@@ -245,5 +299,50 @@ class IsarMilestoneDataSourceImpl implements IsarMilestoneDataSource {
     await _isar.writeTxn(() async {
       await _isar.milestoneCollections.putAll(toUpdate);
     });
+  }
+
+  @override
+  Future<void> removePersonFromAllMilestones(String personId) async {
+    final pid = personId.trim();
+    if (pid.isEmpty) return;
+    final all = await _isar.milestoneCollections
+        .filter()
+        .isDeletedEqualTo(false)
+        .findAll();
+    final toUpdate = <MilestoneCollection>[];
+    for (final m in all) {
+      final hadParticipant = m.participants.contains(pid);
+      final hadProtagonist = m.protagonists.contains(pid);
+      if (!hadParticipant && !hadProtagonist) continue;
+      m.participants = m.participants.where((id) => id != pid).toList();
+      m.protagonists = m.protagonists.where((id) => id != pid).toList();
+      if (m.syncStatus == SyncStatus.synced || m.isSynced) {
+        m.syncStatus = SyncStatus.pending;
+        m.isSynced = false;
+      }
+      toUpdate.add(m);
+    }
+    if (toUpdate.isEmpty) return;
+    await _isar.writeTxn(() async {
+      await _isar.milestoneCollections.putAll(toUpdate);
+    });
+  }
+
+  @override
+  Future<int> countMilestonesContainingPerson(String personId) async {
+    final pid = personId.trim();
+    if (pid.isEmpty) return 0;
+    final all = await _isar.milestoneCollections
+        .filter()
+        .isDeletedEqualTo(false)
+        .findAll();
+    var n = 0;
+    for (final m in all) {
+      if (m.isDeleted) continue;
+      if (m.participants.contains(pid) || m.protagonists.contains(pid)) {
+        n++;
+      }
+    }
+    return n;
   }
 }

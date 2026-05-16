@@ -8,6 +8,7 @@ class MediaItem extends Equatable {
   final MediaType mediaType;
   final String? driveFileId;
   final bool isSynced;
+  final bool isDeleted;
 
   const MediaItem({
     required this.localPath,
@@ -15,10 +16,17 @@ class MediaItem extends Equatable {
     required this.mediaType,
     this.driveFileId,
     this.isSynced = false,
+    this.isDeleted = false,
   });
 
   @override
-  List<Object?> get props =>
-      [localPath, thumbnailPath, mediaType, driveFileId, isSynced];
+  List<Object?> get props => [
+        localPath,
+        thumbnailPath,
+        mediaType,
+        driveFileId,
+        isSynced,
+        isDeleted,
+      ];
 }
 

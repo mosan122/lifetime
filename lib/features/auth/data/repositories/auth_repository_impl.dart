@@ -147,4 +147,16 @@ class AuthRepositoryImpl implements AuthRepository {
       return Left(AuthFailure(e.toString()));
     }
   }
+
+  @override
+  Future<Either<Failure, String>> linkGoogleAccountForDrive() async {
+    try {
+      final account = await _auth.linkGoogleAccountForDrive();
+      return Right(account.email);
+    } on AuthException catch (e) {
+      return Left(AuthFailure(e.message));
+    } catch (e) {
+      return Left(AuthFailure(e.toString()));
+    }
+  }
 }

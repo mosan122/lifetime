@@ -11,11 +11,14 @@ import 'package:lifetime/core/failures/failure.dart';
 import 'package:lifetime/data/services/face_cropper_service_impl.dart';
 import 'package:lifetime/domain/services/face_cropper_service.dart';
 import 'package:lifetime/features/milestones/data/datasources/isar_person_datasource.dart';
+import 'package:lifetime/features/milestones/data/datasources/person_group_local_datasource.dart';
 import 'package:lifetime/features/milestones/data/models/local/person_collection.dart';
 
 class MockImagePicker extends Mock implements ImagePicker {}
 class MockImageCropper extends Mock implements ImageCropper {}
 class MockIsarPersonDataSource extends Mock implements IsarPersonDataSource {}
+class MockPersonGroupLocalDataSource extends Mock
+    implements PersonGroupLocalDataSource {}
 
 class _FakePath extends PathProviderPlatform with MockPlatformInterfaceMixin {
   _FakePath(this._path);
@@ -39,9 +42,20 @@ class FakeCroppedFile extends Fake implements CroppedFile {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  setUpAll(() {
+    registerFallbackValue(ImageSource.gallery);
+    registerFallbackValue(
+      PersonCollection()
+        ..isarId = 1
+        ..id = 'fallback'
+        ..name = 'fallback',
+    );
+  });
+
   late MockImagePicker picker;
   late MockImageCropper cropper;
   late MockIsarPersonDataSource personDs;
+  late MockPersonGroupLocalDataSource personGroupDs;
   late Directory tempDir;
   late FaceCropperServiceImpl sut;
 
@@ -49,11 +63,16 @@ void main() {
     picker = MockImagePicker();
     cropper = MockImageCropper();
     personDs = MockIsarPersonDataSource();
+    personGroupDs = MockPersonGroupLocalDataSource();
     tempDir = await Directory.systemTemp.createTemp('face_crop_test_');
     PathProviderPlatform.instance = _FakePath(tempDir.path);
 
+    when(() => personGroupDs.groupIdsForPerson(any()))
+        .thenAnswer((_) async => <String>[]);
+
     sut = FaceCropperServiceImpl(
       personDs: personDs,
+      personGroupDs: personGroupDs,
       picker: picker,
       cropper: cropper,
     );

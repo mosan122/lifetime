@@ -1,4 +1,5 @@
 -- Bucket público para fotos de perfil (subida desde la app).
+-- Ejecutar ANTES de 20260509120300_avatars_storage_rls_fix.sql en proyectos nuevos.
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values (

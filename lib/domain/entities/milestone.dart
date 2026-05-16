@@ -25,7 +25,8 @@ class Milestone extends Equatable {
   final String? locationCountry;
   final double? latitude;
   final double? longitude;
-  /// Category id from a fixed, closed list (see `defaultCategories`).
+  /// Category id from a fixed, closed list (see `kMilestoneCategorySeeds` /
+  /// `defaultCategories` in `lib/core/constants/`).
   /// If null/unknown, UI should fall back to `otros`.
   final String? categoryId;
   final bool isPublic;

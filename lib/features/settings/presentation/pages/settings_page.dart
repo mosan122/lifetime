@@ -1,12 +1,19 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show SupabaseClient;
 
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/utils/person_ui_filters.dart';
+import '../../../../core/utils/bitacora_backup_json.dart';
 import '../../../../injection_container.dart';
+import '../../../profile/domain/entities/user_profile_details.dart';
+import '../../../profile/domain/repositories/profile_repository.dart';
 import '../../../auth/presentation/bloc/auth_cubit.dart';
 import '../../../milestones/data/datasources/isar_person_datasource.dart';
 import '../../../milestones/data/models/local/person_collection.dart';
@@ -15,15 +22,21 @@ import 'manage_locations_page.dart';
 import 'manage_categories_page.dart';
 import '../../../profile/presentation/pages/profile_page.dart';
 import '../bloc/export_cubit.dart';
+import '../bloc/import_cubit.dart';
 import '../bloc/people_cubit.dart';
+import '../widgets/account_settings_widgets.dart';
+import '../widgets/google_drive_reauth_banner.dart';
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return BlocProvider(
-      create: (_) => sl<ExportCubit>(),
+    return MultiBlocProvider(
+      providers: [
+        BlocProvider(create: (_) => sl<ExportCubit>()),
+        BlocProvider(create: (_) => sl<ImportCubit>()),
+      ],
       child: const _SettingsView(),
     );
   }
@@ -32,49 +45,115 @@ class SettingsPage extends StatelessWidget {
 class _SettingsView extends StatelessWidget {
   const _SettingsView();
 
-  List<(PersonCollection, DateTime)> _upcomingBirthdays(
-    List<PersonCollection> people, {
-    int daysAhead = 21,
-  }) {
-    final now = DateTime.now();
-    DateTime nextBirthday(DateTime b) {
-      final today = DateTime(now.year, now.month, now.day);
-      final candidate = DateTime(now.year, b.month, b.day);
-      return candidate.isBefore(today)
-          ? DateTime(now.year + 1, b.month, b.day)
-          : candidate;
+  static Future<void> runBitacoraImport(BuildContext context) async {
+    final importCubit = context.read<ImportCubit>();
+    if (importCubit.state is ImportLoading) return;
+
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const ['json'],
+      withData: true,
+    );
+    if (!context.mounted) return;
+    if (result == null || result.files.isEmpty) return;
+
+    final bytes = result.files.first.bytes;
+    if (bytes == null || bytes.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No se pudo leer el archivo.')),
+      );
+      return;
     }
 
-    final list = people
-        .where((p) => p.birthDate != null)
-        .map((p) => (p, nextBirthday(p.birthDate!)))
-        .where((t) => t.$2.difference(now).inDays <= daysAhead)
-        .toList()
-      ..sort((a, b) => a.$2.compareTo(b.$2));
-    return list;
+    final text = utf8.decode(bytes);
+    final n = BitacoraBackupJson.countMilestones(text);
+    if (!context.mounted) return;
+    if (n == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No se encontraron hitos válidos en el JSON.'),
+        ),
+      );
+      return;
+    }
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Importar hitos'),
+        content: Text(
+          'Se importarán $n hito(s). En archivos v3 también se fusionan personas, '
+          'categorías personalizadas, lugares favoritos, grupos, enlaces y relaciones '
+          'cuando el JSON las incluya. Los hitos con el mismo id sustituyen al local.\n\n'
+          '¿Continuar?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Importar'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !context.mounted) return;
+    await importCubit.importJson(text);
   }
 
   @override
   Widget build(BuildContext context) {
-    return BlocListener<ExportCubit, ExportState>(
-      listener: (context, state) {
-        if (state is ExportReady) {
-          _showFormatSheet(context, state.result.json, state.result.markdown);
-        }
-        if (state is ExportError) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(state.message),
-              backgroundColor: Colors.red.shade700,
-            ),
-          );
-        }
-      },
+    return MultiBlocListener(
+      listeners: [
+        BlocListener<ExportCubit, ExportState>(
+          listener: (context, state) {
+            if (state is ExportReady) {
+              _showFormatSheet(context, state.result.json, state.result.markdown);
+            }
+            if (state is ExportError) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(state.message),
+                  backgroundColor: Colors.red.shade700,
+                ),
+              );
+            }
+          },
+        ),
+        BlocListener<ImportCubit, ImportState>(
+          listener: (context, state) {
+            if (state is ImportSuccess) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    state.imported == 0
+                        ? 'Importación completada (0 hitos nuevos).'
+                        : 'Importados ${state.imported} hito${state.imported == 1 ? '' : 's'}.',
+                  ),
+                ),
+              );
+              context.read<ImportCubit>().reset();
+            }
+            if (state is ImportError) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(state.message),
+                  backgroundColor: Colors.red.shade700,
+                ),
+              );
+              context.read<ImportCubit>().reset();
+            }
+          },
+        ),
+      ],
       child: Scaffold(
         appBar: AppBar(title: const Text('Ajustes')),
         body: ListView(
           padding: const EdgeInsets.symmetric(vertical: 8),
           children: [
+            const GoogleDriveReauthBanner(),
             BlocBuilder<AuthCubit, AuthState>(
               builder: (context, auth) {
                 if (auth is! AuthAuthenticated) {
@@ -128,25 +207,14 @@ class _SettingsView extends StatelessWidget {
                 );
               },
             ),
-            const _SectionHeader(label: 'Plan'),
-            const _PremiumTile(),
-            const Padding(
-              padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: Text(
-                'Tu espacio se gestiona automáticamente: los archivos de más de un año se mantienen en la nube para ahorrar espacio en tu móvil.',
-                style: TextStyle(color: Colors.black54),
-              ),
-            ),
-            const Divider(height: 32, indent: 16, endIndent: 16),
-            const _SectionHeader(label: 'Tus datos'),
-            _UpcomingBirthdaysTile(
-              items: _upcomingBirthdays,
-            ),
-            _ExportTile(),
+            const SettingsSectionHeader(label: 'Mis datos'),
+            const _UpcomingBirthdaysTile(),
             ListTile(
               leading: const Icon(Icons.people_outline, color: AppTheme.navy),
               title: const Text('Personas'),
-              subtitle: const Text('Nombres y foto de perfil'),
+              subtitle: const Text(
+                'Contactos en hitos; tu nombre, foto y cumple en Mi perfil',
+              ),
               trailing: const Icon(Icons.chevron_right, color: AppTheme.navy),
               onTap: () {
                 Navigator.of(context).push(
@@ -181,9 +249,9 @@ class _SettingsView extends StatelessWidget {
                 ),
               ),
             ),
-            const Divider(height: 32, indent: 16, endIndent: 16),
-            const _SectionHeader(label: 'Cuenta'),
-            _SignOutTile(),
+            const SettingsSectionHeader(label: 'Copia de seguridad'),
+            const _ExportTile(),
+            const _ImportTile(),
           ],
         ),
       ),
@@ -217,14 +285,28 @@ class _SettingsView extends StatelessWidget {
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-              child: Text('Elige formato',
-                  style: Theme.of(context).textTheme.titleMedium),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Exportar bitácora',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'JSON completo (v2) para copia de seguridad e importación en esta u otra instalación.',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Colors.black54,
+                        ),
+                  ),
+                ],
+              ),
             ),
             ListTile(
               leading: const Icon(Icons.data_object_outlined,
                   color: AppTheme.navy),
               title: const Text('JSON'),
-              subtitle: const Text('Para importar en otras apps'),
+              subtitle: const Text('Compartir archivo .json'),
               onTap: () {
                 Navigator.pop(sheetCtx);
                 _shareFile(
@@ -233,6 +315,22 @@ class _SettingsView extends StatelessWidget {
                   mimeType: 'application/json',
                   subject: 'Mi Bitácora LifeTime',
                 );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.copy_outlined, color: AppTheme.navy),
+              title: const Text('Copiar JSON'),
+              subtitle: const Text('Al portapapeles en este dispositivo'),
+              onTap: () async {
+                await Clipboard.setData(ClipboardData(text: jsonContent));
+                if (sheetCtx.mounted) Navigator.pop(sheetCtx);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('JSON copiado al portapapeles'),
+                    ),
+                  );
+                }
               },
             ),
             ListTile(
@@ -272,23 +370,100 @@ class _SettingsView extends StatelessWidget {
   }
 }
 
-class _UpcomingBirthdaysTile extends StatelessWidget {
-  const _UpcomingBirthdaysTile({required this.items});
+Future<({List<PersonCollection> contacts, UserProfileDetails? profile})>
+    _loadBirthdaysContext() async {
+  final ds = sl<IsarPersonDataSource>();
+  final repo = sl<ProfileRepository>();
+  final supa = sl<SupabaseClient>();
+  final raw = await ds.fetchAll();
+  final contacts = withoutLinkedCurrentUser(raw);
+  final u = supa.auth.currentUser;
+  UserProfileDetails? profile;
+  if (u != null) {
+    final r = await repo.fetchUserProfile(
+      userId: u.id,
+      emailFallback: u.email ?? '',
+    );
+    profile = r.fold((_) => null, (d) => d);
+  }
+  return (contacts: contacts, profile: profile);
+}
 
-  final List<(PersonCollection, DateTime)> Function(List<PersonCollection>,
-      {int daysAhead}) items;
+List<(String name, DateTime next)> _mergedUpcomingBirthdays(
+  List<PersonCollection> contacts,
+  UserProfileDetails? selfProfile, {
+  int daysAhead = 21,
+}) {
+  final now = DateTime.now();
+  DateTime nextBirthday(DateTime b) {
+    final today = DateTime(now.year, now.month, now.day);
+    final candidate = DateTime(now.year, b.month, b.day);
+    return candidate.isBefore(today)
+        ? DateTime(now.year + 1, b.month, b.day)
+        : candidate;
+  }
+
+  final out = <(String, DateTime)>[];
+  for (final p in contacts) {
+    final b = p.birthDate;
+    if (b == null) continue;
+    final n = p.name.trim();
+    if (n.isEmpty) continue;
+    final nx = nextBirthday(b);
+    if (nx.difference(now).inDays <= daysAhead) {
+      out.add((n, nx));
+    }
+  }
+  final sb = selfProfile?.birthDate;
+  if (sb != null) {
+    final nx = nextBirthday(sb);
+    if (nx.difference(now).inDays <= daysAhead) {
+      final dn = (selfProfile!.displayName).trim();
+      final fn = (selfProfile.firstName ?? '').trim();
+      final ln = (selfProfile.lastName ?? '').trim();
+      final composed =
+          [fn, ln].where((s) => s.isNotEmpty).join(' ').trim();
+      final name = dn.isNotEmpty
+          ? dn
+          : (composed.isNotEmpty ? composed : selfProfile.email);
+      out.add((name, nx));
+    }
+  }
+  out.sort((a, b) => a.$2.compareTo(b.$2));
+  return out;
+}
+
+class _UpcomingBirthdaysTile extends StatefulWidget {
+  const _UpcomingBirthdaysTile();
+
+  @override
+  State<_UpcomingBirthdaysTile> createState() => _UpcomingBirthdaysTileState();
+}
+
+class _UpcomingBirthdaysTileState extends State<_UpcomingBirthdaysTile> {
+  late final Future<
+      ({List<PersonCollection> contacts, UserProfileDetails? profile})> _future =
+      _loadBirthdaysContext();
 
   @override
   Widget build(BuildContext context) {
-    final ds = sl<IsarPersonDataSource>();
-    return FutureBuilder<List<PersonCollection>>(
-      future: ds.fetchAll(),
+    return FutureBuilder<
+        ({List<PersonCollection> contacts, UserProfileDetails? profile})>(
+      future: _future,
       builder: (context, snapshot) {
-        final people = snapshot.data ?? const <PersonCollection>[];
-        final upcoming = items(people, daysAhead: 21);
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const SizedBox.shrink();
+        }
+        final data = snapshot.data;
+        if (data == null) return const SizedBox.shrink();
+        final upcoming = _mergedUpcomingBirthdays(
+          data.contacts,
+          data.profile,
+          daysAhead: 21,
+        );
         if (upcoming.isEmpty) return const SizedBox.shrink();
 
-        final names = upcoming.take(2).map((t) => t.$1.name).join(', ');
+        final names = upcoming.take(2).map((t) => t.$1).join(', ');
         final more = upcoming.length > 2 ? ' +${upcoming.length - 2}' : '';
 
         return ListTile(
@@ -306,13 +481,13 @@ class _UpcomingBirthdaysTile extends StatelessWidget {
                   child: ListView(
                     shrinkWrap: true,
                     children: upcoming.map((t) {
-                      final p = t.$1;
+                      final name = t.$1;
                       final d = t.$2;
                       final dd =
                           '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}';
                       return ListTile(
                         contentPadding: EdgeInsets.zero,
-                        title: Text(p.name),
+                        title: Text(name),
                         subtitle: Text(dd),
                       );
                     }).toList(),
@@ -333,9 +508,42 @@ class _UpcomingBirthdaysTile extends StatelessWidget {
   }
 }
 
+class _ImportTile extends StatelessWidget {
+  const _ImportTile();
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<ImportCubit, ImportState>(
+      builder: (context, state) {
+        final loading = state is ImportLoading;
+        return ListTile(
+          leading: const Icon(Icons.upload_file_outlined, color: AppTheme.navy),
+          title: const Text('Importar hitos'),
+          subtitle: const Text(
+            'JSON v3 exportado desde LifeTime (hitos y datos de agenda)',
+          ),
+          trailing: loading
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: AppTheme.navy,
+                  ),
+                )
+              : const Icon(Icons.chevron_right, color: AppTheme.navy),
+          onTap: loading ? null : () => _SettingsView.runBitacoraImport(context),
+        );
+      },
+    );
+  }
+}
+
 // ── Export tile ───────────────────────────────────────────────────────────────
 
 class _ExportTile extends StatelessWidget {
+  const _ExportTile();
+
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<ExportCubit, ExportState>(
@@ -343,8 +551,10 @@ class _ExportTile extends StatelessWidget {
         final isLoading = state is ExportLoading;
         return ListTile(
           leading: const Icon(Icons.download_outlined, color: AppTheme.navy),
-          title: const Text('Exportar Bitácora'),
-          subtitle: const Text('Descarga todos tus hitos como JSON o Markdown'),
+          title: const Text('Exportar datos'),
+          subtitle: const Text(
+            'JSON v3 (hitos + agenda) o Markdown: participantes, etiquetas, medios',
+          ),
           trailing: isLoading
               ? const SizedBox(
                   width: 20,
@@ -362,104 +572,3 @@ class _ExportTile extends StatelessWidget {
   }
 }
 
-// ── Sign-out tile ─────────────────────────────────────────────────────────────
-
-class _SignOutTile extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      leading: const Icon(Icons.logout_outlined, color: Colors.red),
-      title: const Text('Cerrar sesión',
-          style: TextStyle(color: Colors.red)),
-      subtitle: const Text('Desconectar tu Bitácora de Google Drive'),
-      onTap: () => _confirmSignOut(context),
-    );
-  }
-
-  Future<void> _confirmSignOut(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogCtx) => AlertDialog(
-        backgroundColor: AppTheme.cream,
-        title: const Text('Cerrar sesión'),
-        content: const Text(
-          '¿Desconectar tu Bitácora de Google Drive?\nTus hitos no se borrarán.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogCtx, false),
-            child: Text('Cancelar',
-                style: TextStyle(color: Colors.grey.shade600)),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(dialogCtx, true),
-            child: const Text(
-              'Cerrar sesión',
-              style: TextStyle(
-                  color: Colors.red, fontWeight: FontWeight.w600),
-            ),
-          ),
-        ],
-      ),
-    );
-    if (confirmed == true && context.mounted) {
-      context.read<AuthCubit>().signOut();
-      Navigator.pop(context);
-    }
-  }
-}
-
-// ── Premium sync tile ─────────────────────────────────────────────────────────
-
-class _PremiumTile extends StatelessWidget {
-  const _PremiumTile();
-
-  @override
-  Widget build(BuildContext context) {
-    return BlocBuilder<AuthCubit, AuthState>(
-      builder: (ctx, state) {
-        final isPremium = state is AuthAuthenticated && state.isPremium;
-        return SwitchListTile(
-          secondary: Icon(
-            Icons.cloud_sync_outlined,
-            color: isPremium ? AppTheme.navy : Colors.grey,
-          ),
-          title: const Text('Sincronización en la Nube'),
-          subtitle: Text(
-            isPremium
-                ? 'Activa · Biographer IA + Google Drive'
-                : 'Desactivada · Solo almacenamiento local',
-            style: TextStyle(
-              color: isPremium ? AppTheme.navy : Colors.grey.shade600,
-            ),
-          ),
-          value: isPremium,
-          activeThumbColor: AppTheme.navy,
-          onChanged: (v) => ctx.read<AuthCubit>().setPremium(v),
-        );
-      },
-    );
-  }
-}
-
-// ── Section header ────────────────────────────────────────────────────────────
-
-class _SectionHeader extends StatelessWidget {
-  final String label;
-  const _SectionHeader({required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-      child: Text(
-        label.toUpperCase(),
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: AppTheme.navy.withValues(alpha: 0.5),
-              letterSpacing: 1.2,
-              fontWeight: FontWeight.w600,
-            ),
-      ),
-    );
-  }
-}

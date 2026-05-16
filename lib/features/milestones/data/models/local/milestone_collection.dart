@@ -53,6 +53,15 @@ class MilestoneCollection {
   @Enumerated(EnumType.name)
   late SyncStatus syncStatus;
 
+  /// UUID de la fila en Supabase (null hasta el primer insert remoto).
+  String? supabaseId;
+
+  /// `true` solo tras confirmación de guardado en Supabase.
+  bool isSynced = false;
+
+  /// Borrado lógico (premium); purga física tras sincronizar con la nube.
+  bool isDeleted = false;
+
   List<MediaAssetEmbed> media = [];
   List<MediaItemEmbed> mediaItems = [];
   int galleryCoverIndex = 0;
@@ -91,6 +100,8 @@ class MilestoneCollection {
       ..createdAt = milestone.createdAt
       ..driveFileId = milestone.driveFileId
       ..syncStatus = status
+      ..isSynced = status == SyncStatus.synced
+      ..supabaseId = status == SyncStatus.synced ? milestone.id : null
       ..media = milestone.media.map(MediaAssetEmbed.fromEntity).toList()
       ..mediaItems = milestone.mediaItems.map(MediaItemEmbed.fromDomain).toList()
       ..galleryCoverIndex = milestone.galleryCoverIndex;
@@ -117,7 +128,10 @@ class MilestoneCollection {
       protagonistIds: List<String>.from(protagonists),
       tags: List<String>.from(tags),
       media: media.map((e) => e.toDomain()).toList(),
-      mediaItems: mediaItems.map((e) => e.toDomain()).toList(),
+      mediaItems: mediaItems
+          .where((e) => !e.isDeleted)
+          .map((e) => e.toDomain())
+          .toList(),
       galleryCoverIndex: galleryCoverIndex,
       eventDate: eventDate,
       savedLocationId: savedLocationId,

@@ -9,6 +9,7 @@ import 'package:gotrue/gotrue.dart' as gotrue;
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState, AuthUser;
 
 import '../../../../core/failures/failure.dart';
+import '../../../../core/services/google_drive_reauth_bridge.dart';
 import '../../../../core/services/premium_service.dart';
 import '../../data/datasources/auth_local_persistence.dart';
 import '../../domain/entities/auth_user.dart';
@@ -17,6 +18,7 @@ import '../../domain/services/auth_session_policy.dart';
 import '../../../profile/data/datasources/user_profile_local_datasource.dart';
 import '../../../profile/domain/entities/user_profile_details.dart';
 import '../../../profile/domain/repositories/profile_repository.dart';
+import '../../../sync/schedule_cloud_sync.dart';
 
 part 'auth_state.dart';
 
@@ -28,7 +30,10 @@ class AuthCubit extends Cubit<AuthState> {
     this._supabase,
     this._persistence,
     this._userProfileLocal,
-  ) : super(const AuthUnauthenticated());
+    this._driveReauthBridge,
+  ) : super(const AuthUnauthenticated()) {
+    _driveReauthBridge.onReauthRequired = markRequiresGoogleReauth;
+  }
 
   final AuthRepository _authRepository;
   final PremiumService _premiumService;
@@ -36,8 +41,97 @@ class AuthCubit extends Cubit<AuthState> {
   final SupabaseClient _supabase;
   final AuthLocalPersistence _persistence;
   final UserProfileLocalDataSource _userProfileLocal;
+  final GoogleDriveReauthBridge _driveReauthBridge;
 
   StreamSubscription<gotrue.AuthState>? _authSub;
+
+  Future<bool> _googleDriveLinkedFor(String userId) async {
+    final local = await _userProfileLocal.getByUserId(userId);
+    return local?.googleDriveLinked ?? false;
+  }
+
+  Future<AuthAuthenticated> _buildAuthenticated({
+    required AuthUser user,
+    required bool isPremium,
+    required bool needsOnboarding,
+    bool? requiresGoogleReauth,
+    bool? googleDriveLinked,
+  }) async {
+    var linked = googleDriveLinked ?? await _googleDriveLinkedFor(user.id);
+    if (user.accessToken != null) {
+      linked = true;
+      await _userProfileLocal.patchGoogleDriveLink(
+        userId: user.id,
+        linked: true,
+      );
+    }
+    final prev = state;
+    final reauth = requiresGoogleReauth ??
+        (prev is AuthAuthenticated ? prev.requiresGoogleReauth : false);
+    return AuthAuthenticated(
+      user,
+      isPremium: isPremium,
+      needsOnboarding: needsOnboarding,
+      requiresGoogleReauth: reauth,
+      googleDriveLinked: linked,
+    );
+  }
+
+  AuthAuthenticated _authenticatedFrom(
+    AuthAuthenticated base, {
+    bool? isPremium,
+    bool? requiresGoogleReauth,
+    bool? googleDriveLinked,
+  }) {
+    return AuthAuthenticated(
+      base.user,
+      isPremium: isPremium ?? base.isPremium,
+      needsOnboarding: base.needsOnboarding,
+      requiresGoogleReauth:
+          requiresGoogleReauth ?? base.requiresGoogleReauth,
+      googleDriveLinked: googleDriveLinked ?? base.googleDriveLinked,
+    );
+  }
+
+  void markRequiresGoogleReauth() {
+    final s = state;
+    if (s is! AuthAuthenticated || s.requiresGoogleReauth) return;
+    emit(_authenticatedFrom(s, requiresGoogleReauth: true));
+  }
+
+  void clearRequiresGoogleReauth() {
+    final s = state;
+    if (s is! AuthAuthenticated || !s.requiresGoogleReauth) return;
+    emit(_authenticatedFrom(s, requiresGoogleReauth: false));
+  }
+
+  /// Vincula Google solo para backup en Drive (usuarios email/Apple).
+  Future<Either<Failure, Unit>> linkGoogleAccount() async {
+    final s = state;
+    if (s is! AuthAuthenticated) {
+      return const Left(AuthFailure('No autenticado'));
+    }
+
+    final result = await _authRepository.linkGoogleAccountForDrive();
+    return await result.fold<Future<Either<Failure, Unit>>>(
+      (f) async => Left(f),
+      (email) async {
+        await _userProfileLocal.patchGoogleDriveLink(
+          userId: s.user.id,
+          linked: true,
+          accountEmail: email,
+        );
+        emit(
+          _authenticatedFrom(
+            s,
+            requiresGoogleReauth: false,
+            googleDriveLinked: true,
+          ),
+        );
+        return const Right(unit);
+      },
+    );
+  }
 
   /// Escucha Supabase (deep links OAuth, cierre de sesión remoto, etc.).
   void listenToSupabaseAuth() {
@@ -65,6 +159,21 @@ class AuthCubit extends Cubit<AuthState> {
     return super.close();
   }
 
+  /// Prioriza `profiles` sobre metadatos OAuth para nombre y foto.
+  AuthUser _authUserFromProfile(AuthUser session, UserProfileDetails? details) {
+    if (details == null) return session;
+    final dn = details.displayName.trim();
+    final av = details.avatarUrl?.trim() ?? '';
+    return AuthUser(
+      id: session.id,
+      email: session.email,
+      displayName: dn.isNotEmpty ? dn : session.displayName,
+      photoUrl: av.isNotEmpty ? av : null,
+      accessToken: session.accessToken,
+      emailVerified: session.emailVerified,
+    );
+  }
+
   Future<void> checkCurrentUser() async {
     final supa = _supabase.auth.currentUser;
     if (supa != null) {
@@ -79,8 +188,8 @@ class AuthCubit extends Cubit<AuthState> {
       final needsOnboarding = localProfile == null ||
           localProfile.displayName.trim().isEmpty;
       emit(
-        AuthAuthenticated(
-          AuthUser(
+        await _buildAuthenticated(
+          user: AuthUser(
             id: cached.userId,
             email: cached.email,
             displayName: localProfile?.displayName,
@@ -90,8 +199,10 @@ class AuthCubit extends Cubit<AuthState> {
           ),
           isPremium: cached.isPremiumCached,
           needsOnboarding: needsOnboarding,
+          googleDriveLinked: localProfile?.googleDriveLinked,
         ),
       );
+      if (cached.isPremiumCached) scheduleCloudDataSync();
       _refreshProfileInBackground(cached.userId, cached.email);
       return;
     }
@@ -157,17 +268,19 @@ class AuthCubit extends Cubit<AuthState> {
       }
 
       emit(
-        AuthAuthenticated(
-          user,
+        await _buildAuthenticated(
+          user: _authUserFromProfile(user, details),
           isPremium: isPremium,
           needsOnboarding: needsOnboarding,
+          googleDriveLinked: details?.googleDriveLinked,
         ),
       );
+      if (isPremium) scheduleCloudDataSync();
     } else {
       await _premiumService.init();
       emit(
-        AuthAuthenticated(
-          user,
+        await _buildAuthenticated(
+          user: user,
           isPremium: _premiumService.isPremium,
           needsOnboarding: true,
         ),
@@ -205,12 +318,14 @@ class AuthCubit extends Cubit<AuthState> {
           await _userProfileLocal.put(details);
         }
         emit(
-          AuthAuthenticated(
-            s.user,
+          await _buildAuthenticated(
+            user: _authUserFromProfile(s.user, details),
             isPremium: isPremium,
             needsOnboarding: needs,
+            googleDriveLinked: details?.googleDriveLinked,
           ),
         );
+        if (isPremium) scheduleCloudDataSync();
       }
     } catch (_) {
       // offline
@@ -256,17 +371,21 @@ class AuthCubit extends Cubit<AuthState> {
       email: saved.email.isNotEmpty ? saved.email : s.user.email,
       displayName:
           saved.displayName.trim().isEmpty ? null : saved.displayName.trim(),
-      photoUrl: saved.avatarUrl ?? s.user.photoUrl,
+      // Tras guardar perfil, la fuente de verdad es `profiles.avatar_url` (no volver a OAuth).
+      photoUrl: saved.avatarUrl,
       accessToken: s.user.accessToken,
       emailVerified: s.user.emailVerified,
     );
     emit(
-      AuthAuthenticated(
-        updatedUser,
+      await _buildAuthenticated(
+        user: updatedUser,
         isPremium: saved.isPremium,
         needsOnboarding: false,
+        googleDriveLinked: saved.googleDriveLinked,
+        requiresGoogleReauth: s.requiresGoogleReauth,
       ),
     );
+    if (saved.isPremium) scheduleCloudDataSync();
     return const Right(unit);
   }
 
@@ -363,11 +482,7 @@ class AuthCubit extends Cubit<AuthState> {
     await _premiumService.setPremium(value);
     final s = state;
     if (s is AuthAuthenticated) {
-      emit(AuthAuthenticated(
-        s.user,
-        isPremium: value,
-        needsOnboarding: s.needsOnboarding,
-      ));
+      emit(_authenticatedFrom(s, isPremium: value));
     }
   }
 

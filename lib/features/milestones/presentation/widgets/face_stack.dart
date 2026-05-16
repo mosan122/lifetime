@@ -92,6 +92,9 @@ class FaceStack extends StatelessWidget {
 class ParticipantFaceStack extends StatefulWidget {
   final List<String> participantIds;
   final List<String> protagonistIds;
+  /// Si coincide con [PersonCollection.linkedUserId], no se muestra la cara
+  /// (p. ej. timeline: evitar redundancia con el usuario actual).
+  final String? omitFaceForLinkedUserId;
   /// Se pasa desde el timeline cuando cambian datos de persona (p. ej. foto) sin
   /// cambiar [participantIds].
   final int peopleDataRevision;
@@ -102,6 +105,7 @@ class ParticipantFaceStack extends StatefulWidget {
     super.key,
     required this.participantIds,
     this.protagonistIds = const [],
+    this.omitFaceForLinkedUserId,
     this.peopleDataRevision = 0,
     this.diameter = 26,
     this.overlap = 9,
@@ -125,7 +129,8 @@ class _ParticipantFaceStackState extends State<ParticipantFaceStack> {
     super.didUpdateWidget(oldWidget);
     if (!listEquals(widget.participantIds, oldWidget.participantIds) ||
         widget.peopleDataRevision != oldWidget.peopleDataRevision ||
-        !listEquals(widget.protagonistIds, oldWidget.protagonistIds)) {
+        !listEquals(widget.protagonistIds, oldWidget.protagonistIds) ||
+        widget.omitFaceForLinkedUserId != oldWidget.omitFaceForLinkedUserId) {
       setState(() {
         _future = _loadOrdered();
       });
@@ -139,15 +144,24 @@ class _ParticipantFaceStackState extends State<ParticipantFaceStack> {
     final loaded = await ds.fetchByIds(ids);
     final byId = {for (final p in loaded) p.id: p};
     final proSet = widget.protagonistIds.toSet();
-    final ordered = ids
+    final omit = widget.omitFaceForLinkedUserId?.trim();
+    var ordered = ids
         .map((id) => byId[id])
         .whereType<PersonCollection>()
-        .toList()
-      ..sort((a, b) {
-        final ap = proSet.contains(a.id) ? 1 : 0;
-        final bp = proSet.contains(b.id) ? 1 : 0;
-        return bp.compareTo(ap);
-      });
+        .toList();
+    if (omit != null && omit.isNotEmpty) {
+      ordered = ordered
+          .where(
+            (p) =>
+                (p.linkedUserId ?? '').trim() != omit && p.id != omit,
+          )
+          .toList();
+    }
+    ordered.sort((a, b) {
+      final ap = proSet.contains(a.id) ? 1 : 0;
+      final bp = proSet.contains(b.id) ? 1 : 0;
+      return bp.compareTo(ap);
+    });
     return ordered;
   }
 

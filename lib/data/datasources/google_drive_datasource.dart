@@ -50,7 +50,7 @@ abstract class GoogleDriveDataSource {
 // ── Implementation ────────────────────────────────────────────────────────────
 
 class GoogleDriveDataSourceImpl implements GoogleDriveDataSource {
-  static const _folderName = 'LifeTime';
+  static const _folderName = 'LifeTime_App';
   static const _folderMime = 'application/vnd.google-apps.folder';
 
   final http.Client _httpClient;
@@ -80,7 +80,8 @@ class GoogleDriveDataSourceImpl implements GoogleDriveDataSource {
   Future<String> _getOrCreateFolder(gd.DriveApi api) async {
     final list = await api.files
         .list(
-          q: "name='$_folderName' and mimeType='$_folderMime' and trashed=false",
+          q: "name='$_folderName' and mimeType='$_folderMime' "
+              "and trashed=false and 'root' in parents",
           spaces: 'drive',
           $fields: 'files(id)',
         )
@@ -92,7 +93,8 @@ class GoogleDriveDataSourceImpl implements GoogleDriveDataSource {
 
     final folder = gd.File()
       ..name = _folderName
-      ..mimeType = _folderMime;
+      ..mimeType = _folderMime
+      ..parents = ['root'];
 
     final created = await api.files
         .create(folder, $fields: 'id')

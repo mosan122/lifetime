@@ -15,4 +15,8 @@ class UserProfileCollection {
   DateTime? birthDate;
   String? avatarUrl;
   String? localAvatarPath;
+
+  /// Cuenta Google vinculada solo para Drive (email/Apple + linkGoogleAccount).
+  bool googleDriveLinked = false;
+  String? googleDriveAccountEmail;
 }

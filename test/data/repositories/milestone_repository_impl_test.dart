@@ -11,6 +11,10 @@ import 'package:lifetime/data/models/milestone_model.dart';
 import 'package:lifetime/data/repositories/milestone_repository_impl.dart';
 import 'package:lifetime/domain/repositories/drive_repository.dart';
 import 'package:lifetime/features/milestones/data/datasources/isar_category_datasource.dart';
+import 'package:lifetime/features/milestones/data/datasources/isar_person_datasource.dart';
+import 'package:lifetime/features/milestones/data/datasources/isar_relationship_datasource.dart';
+import 'package:lifetime/features/milestones/data/datasources/isar_saved_location_datasource.dart';
+import 'package:lifetime/features/milestones/data/datasources/person_group_local_datasource.dart';
 import 'package:lifetime/features/milestones/data/models/local/milestone_collection.dart';
 
 class MockIsarMilestoneDataSource extends Mock
@@ -22,7 +26,14 @@ class MockMilestoneRemoteDataSource extends Mock
 class MockPremiumService extends Mock implements PremiumService {}
 class MockDriveRepository extends Mock implements DriveRepository {}
 class MockLocalMediaStore extends Mock implements LocalMediaStore {}
+class MockIsarPersonDataSource extends Mock implements IsarPersonDataSource {}
 class MockIsarCategoryDataSource extends Mock implements IsarCategoryDataSource {}
+class MockIsarSavedLocationDataSource extends Mock
+    implements IsarSavedLocationDataSource {}
+class MockIsarRelationshipDataSource extends Mock
+    implements IsarRelationshipDataSource {}
+class MockPersonGroupLocalDataSource extends Mock
+    implements PersonGroupLocalDataSource {}
 
 class FakeMilestoneCollection extends Fake implements MilestoneCollection {}
 
@@ -36,7 +47,11 @@ void main() {
   late MockPremiumService mockPremium;
   late MockDriveRepository mockDrive;
   late MockLocalMediaStore mockLocalMedia;
-  late MockIsarCategoryDataSource mockCategories;
+  late MockIsarPersonDataSource mockPerson;
+  late MockIsarCategoryDataSource mockCategory;
+  late MockIsarSavedLocationDataSource mockSavedLoc;
+  late MockIsarRelationshipDataSource mockRel;
+  late MockPersonGroupLocalDataSource mockPersonGroup;
   late MilestoneRepositoryImpl repository;
 
   final tDate = DateTime(2026, 4, 26);
@@ -58,7 +73,7 @@ void main() {
     locationName: 'Madrid',
     latitude: 40.4168,
     longitude: -3.7038,
-    categoryId: 1,
+    categoryId: 'familia',
     isPublic: false,
     createdAt: DateTime(2026, 4, 26, 10),
   );
@@ -85,7 +100,7 @@ void main() {
     locationName: 'Madrid',
     latitude: 40.4168,
     longitude: -3.7038,
-    categoryId: 1,
+    categoryId: 'familia',
     isPublic: false,
     createdAt: DateTime(2026, 4, 26, 10),
     driveFileId: 'drive-file-123',
@@ -102,7 +117,11 @@ void main() {
     mockPremium = MockPremiumService();
     mockDrive = MockDriveRepository();
     mockLocalMedia = MockLocalMediaStore();
-    mockCategories = MockIsarCategoryDataSource();
+    mockPerson = MockIsarPersonDataSource();
+    mockCategory = MockIsarCategoryDataSource();
+    mockSavedLoc = MockIsarSavedLocationDataSource();
+    mockRel = MockIsarRelationshipDataSource();
+    mockPersonGroup = MockPersonGroupLocalDataSource();
     repository = MilestoneRepositoryImpl(
       mockLocal,
       mockRemote,
@@ -110,7 +129,11 @@ void main() {
       () => 'user-1',
       mockDrive,
       mockLocalMedia,
-      mockCategories,
+      mockPerson,
+      mockCategory,
+      mockSavedLoc,
+      mockRel,
+      mockPersonGroup,
     );
   });
 
@@ -385,59 +408,27 @@ void main() {
           ));
     });
 
-    test('premium user: deletes from local and attempts remote', () async {
+    test('premium user: soft-deletes locally (sync purges remote later)', () async {
       stubPremium(true);
-      when(() => mockLocal.fetchById(any())).thenAnswer((_) async => tCollection);
-      when(() => mockLocal.deleteById(any())).thenAnswer((_) async {});
-      when(() => mockLocalMedia.deleteFolder(any(), any())).thenAnswer((_) async {});
-      when(() => mockRemote.deleteMilestone(any())).thenAnswer((_) async {});
+      when(() => mockLocal.deleteById('ms-1', softDelete: true))
+          .thenAnswer((_) async {});
 
       final result = await repository.deleteMilestone('ms-1');
 
       expect(result.isRight(), isTrue);
-      verify(() => mockLocal.deleteById('ms-1')).called(1);
-      verify(() => mockLocalMedia.deleteFolder(tDate, 'ms-1')).called(1);
-      verify(() => mockRemote.deleteMilestone('ms-1')).called(1);
+      verify(() => mockLocal.deleteById('ms-1', softDelete: true)).called(1);
+      verifyNever(() => mockLocalMedia.deleteFolder(any(), any()));
+      verifyNever(() => mockRemote.deleteMilestone(any()));
     });
 
-    test('premium user: still returns Right when remote delete throws', () async {
+    test('premium user: soft-delete returns Right even if local throws', () async {
       stubPremium(true);
-      when(() => mockLocal.fetchById(any())).thenAnswer((_) async => tCollection);
-      when(() => mockLocal.deleteById(any())).thenAnswer((_) async {});
-      when(() => mockLocalMedia.deleteFolder(any(), any())).thenAnswer((_) async {});
-      when(() => mockRemote.deleteMilestone(any()))
-          .thenThrow(Exception('Network error'));
+      when(() => mockLocal.deleteById('ms-1', softDelete: true))
+          .thenThrow(Exception('local error'));
 
       final result = await repository.deleteMilestone('ms-1');
 
-      expect(result.isRight(), isTrue);
-    });
-
-    test(
-        'premium with drive file: calls localMedia with correct date/id and continues when drive delete fails',
-        () async {
-      stubPremium(true);
-      when(() => mockLocal.fetchById('ms-2'))
-          .thenAnswer((_) async => tCollectionWithDrive);
-      when(() => mockLocal.deleteById('ms-2')).thenAnswer((_) async {});
-      when(() => mockLocalMedia.deleteFolder(any(), any())).thenAnswer((_) async {});
-      when(() => mockRemote.deleteMilestone('ms-2')).thenAnswer((_) async {});
-      when(() => mockDrive.deleteFile(
-            fileId: 'drive-file-123',
-            accessToken: 'token-abc',
-          )).thenAnswer((_) async => const Left(NetworkFailure('drive error')));
-
-      final result =
-          await repository.deleteMilestone('ms-2', accessToken: 'token-abc');
-
-      expect(result, const Right(null));
-      verify(() => mockLocal.deleteById('ms-2')).called(1);
-      verify(() => mockLocalMedia.deleteFolder(tDate, 'ms-2')).called(1);
-      verify(() => mockRemote.deleteMilestone('ms-2')).called(1);
-      verify(() => mockDrive.deleteFile(
-            fileId: 'drive-file-123',
-            accessToken: 'token-abc',
-          )).called(1);
+      expect(result.isLeft(), isTrue);
     });
   });
 

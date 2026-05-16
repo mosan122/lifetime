@@ -78,10 +78,16 @@ class _AuthenticatedTimelineView extends StatelessWidget {
           IconButton(
             icon: const Icon(Icons.settings_outlined),
             tooltip: 'Ajustes',
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const SettingsPage()),
-            ),
+            onPressed: () async {
+              await Navigator.push<void>(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) => const SettingsPage(),
+                ),
+              );
+              if (!context.mounted) return;
+              await context.read<MilestoneTimelineCubit>().refreshTimeline();
+            },
           ),
         ],
       ),
@@ -348,12 +354,15 @@ class _MilestoneCard extends StatelessWidget {
     final accessToken =
         authState is AuthAuthenticated ? authState.user.accessToken : null;
     final canUseDrive = accessToken != null && accessToken.trim().isNotEmpty;
+    final omitFaceForLinkedUserId =
+        authState is AuthAuthenticated ? authState.user.id : null;
 
     if (milestone.mediaItems.isNotEmpty) {
       return _LocalMediaCard(
         milestone: milestone,
         accessToken: accessToken,
         peopleDataRevision: peopleDataRevision,
+        omitFaceForLinkedUserId: omitFaceForLinkedUserId,
       );
     }
 
@@ -362,11 +371,13 @@ class _MilestoneCard extends StatelessWidget {
         milestone: milestone,
         accessToken: accessToken,
         peopleDataRevision: peopleDataRevision,
+        omitFaceForLinkedUserId: omitFaceForLinkedUserId,
       );
     }
     return _TextCard(
       milestone: milestone,
       peopleDataRevision: peopleDataRevision,
+      omitFaceForLinkedUserId: omitFaceForLinkedUserId,
     );
   }
 }
@@ -377,11 +388,13 @@ class _LocalMediaCard extends StatelessWidget {
   final Milestone milestone;
   final String? accessToken;
   final int peopleDataRevision;
+  final String? omitFaceForLinkedUserId;
 
   const _LocalMediaCard({
     required this.milestone,
     required this.accessToken,
     required this.peopleDataRevision,
+    this.omitFaceForLinkedUserId,
   });
 
   Future<void> _openDetail(BuildContext context) async {
@@ -489,6 +502,7 @@ class _LocalMediaCard extends StatelessWidget {
                             participantIds: milestone.participantIds,
                             protagonistIds: milestone.protagonistIds,
                             peopleDataRevision: peopleDataRevision,
+                            omitFaceForLinkedUserId: omitFaceForLinkedUserId,
                           ),
                         ],
                       ],
@@ -534,10 +548,12 @@ class _MediaCard extends StatelessWidget {
   final Milestone milestone;
   final String accessToken;
   final int peopleDataRevision;
+  final String? omitFaceForLinkedUserId;
   const _MediaCard({
     required this.milestone,
     required this.accessToken,
     required this.peopleDataRevision,
+    this.omitFaceForLinkedUserId,
   });
 
   Future<void> _openDetail(BuildContext context) async {
@@ -636,6 +652,7 @@ class _MediaCard extends StatelessWidget {
                           participantIds: milestone.participantIds,
                           protagonistIds: milestone.protagonistIds,
                           peopleDataRevision: peopleDataRevision,
+                          omitFaceForLinkedUserId: omitFaceForLinkedUserId,
                         ),
                       ],
                     ],
@@ -680,9 +697,11 @@ class _MediaCard extends StatelessWidget {
 class _TextCard extends StatelessWidget {
   final Milestone milestone;
   final int peopleDataRevision;
+  final String? omitFaceForLinkedUserId;
   const _TextCard({
     required this.milestone,
     required this.peopleDataRevision,
+    this.omitFaceForLinkedUserId,
   });
 
   @override
@@ -756,6 +775,7 @@ class _TextCard extends StatelessWidget {
                             participantIds: milestone.participantIds,
                             protagonistIds: milestone.protagonistIds,
                             peopleDataRevision: peopleDataRevision,
+                            omitFaceForLinkedUserId: omitFaceForLinkedUserId,
                           ),
                         ],
                       ],

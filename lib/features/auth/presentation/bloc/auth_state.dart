@@ -31,13 +31,25 @@ class AuthAuthenticated extends AuthState {
   final bool isPremium;
   /// `true` si falta `display_name` en `profiles` (onboarding obligatorio).
   final bool needsOnboarding;
+  /// Token de Drive inválido o sin permisos (401/403).
+  final bool requiresGoogleReauth;
+  /// Google Sign-In vinculado para backup en Drive (también email/Apple).
+  final bool googleDriveLinked;
 
   const AuthAuthenticated(
     this.user, {
     this.isPremium = false,
     this.needsOnboarding = false,
+    this.requiresGoogleReauth = false,
+    this.googleDriveLinked = false,
   });
 
   @override
-  List<Object?> get props => [user, isPremium, needsOnboarding];
+  List<Object?> get props => [
+        user,
+        isPremium,
+        needsOnboarding,
+        requiresGoogleReauth,
+        googleDriveLinked,
+      ];
 }

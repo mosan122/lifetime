@@ -11,6 +11,13 @@ abstract class IsarCategoryDataSource {
   Future<void> ensureSeeded();
 }
 
+CategoryCollection _categoryCollectionFromSeed(MilestoneCategorySeed s) =>
+    CategoryCollection()
+      ..id = s.id
+      ..name = s.name
+      ..iconName = s.iconKey
+      ..colorValue = s.colorArgb;
+
 class IsarCategoryDataSourceImpl implements IsarCategoryDataSource {
   final Isar _isar;
   IsarCategoryDataSourceImpl(this._isar);
@@ -42,22 +49,25 @@ class IsarCategoryDataSourceImpl implements IsarCategoryDataSource {
 
   @override
   Future<void> ensureSeeded() async {
-    final count = await _isar.categoryCollections.count();
-    if (count > 0) return;
+    final existing = await _isar.categoryCollections.where().findAll();
+    if (existing.isEmpty) {
+      final seeds =
+          kMilestoneCategorySeeds.map(_categoryCollectionFromSeed).toList();
+      await _isar.writeTxn(() async {
+        await _isar.categoryCollections.putAll(seeds);
+      });
+      return;
+    }
 
-    final seeds = defaultCategories
-        .map(
-          (c) => CategoryCollection()
-            ..id = c.id
-            ..name = c.name
-            ..iconName = iconNameForDefaultCategory(c)
-            ..colorValue = c.color.value,
-        )
+    final have = existing.map((e) => e.id.toLowerCase()).toSet();
+    final missing = kMilestoneCategorySeeds
+        .where((s) => !have.contains(s.id.toLowerCase()))
+        .map(_categoryCollectionFromSeed)
         .toList();
+    if (missing.isEmpty) return;
 
     await _isar.writeTxn(() async {
-      await _isar.categoryCollections.putAll(seeds);
+      await _isar.categoryCollections.putAll(missing);
     });
   }
 }
-

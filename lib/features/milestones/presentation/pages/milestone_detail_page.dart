@@ -9,6 +9,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../../../core/constants/milestone_categories.dart';
+import '../../../../core/notifiers/people_faces_revision_notifier.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../domain/entities/media_item.dart';
 import '../../../../domain/entities/milestone.dart';
@@ -18,6 +19,7 @@ import '../../data/datasources/isar_person_datasource.dart';
 import '../bloc/delete_milestone_cubit.dart';
 import '../widgets/drive_thumbnail.dart';
 import '../widgets/local_media_thumb.dart';
+import '../widgets/person_avatar_badge.dart';
 import 'add_milestone_page.dart';
 import '../../data/models/local/person_collection.dart';
 
@@ -499,71 +501,64 @@ class _PeopleFacesRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ds = sl<IsarPersonDataSource>();
-    return FutureBuilder(
-      future: ds.fetchByIds(participantIds),
-      builder: (context, snapshot) {
-        final people = snapshot.data ?? const <PersonCollection>[];
-        if (people.isEmpty) return const SizedBox.shrink();
+    return ListenableBuilder(
+      listenable: sl<PeopleFacesRevisionNotifier>(),
+      builder: (context, _) {
+        final revision = sl<PeopleFacesRevisionNotifier>().value;
+        return FutureBuilder<List<PersonCollection>>(
+          key: ValueKey<int>(revision),
+          future: ds.fetchByIds(participantIds),
+          builder: (context, snapshot) {
+            final people = snapshot.data ?? const <PersonCollection>[];
+            if (people.isEmpty) return const SizedBox.shrink();
 
-        final byId = {for (final p in people) p.id: p};
-        final proSet = protagonistIds.toSet();
-        final ordered = participantIds
-            .map((id) => byId[id])
-            .whereType<PersonCollection>()
-            .toList()
-          ..sort((a, b) {
-            final ap = proSet.contains(a.id) ? 1 : 0;
-            final bp = proSet.contains(b.id) ? 1 : 0;
-            return bp.compareTo(ap);
-          });
+            final byId = {for (final p in people) p.id: p};
+            final proSet = protagonistIds.toSet();
+            final ordered = participantIds
+                .map((id) => byId[id])
+                .whereType<PersonCollection>()
+                .toList()
+              ..sort((a, b) {
+                final ap = proSet.contains(a.id) ? 1 : 0;
+                final bp = proSet.contains(b.id) ? 1 : 0;
+                return bp.compareTo(ap);
+              });
 
-        return Wrap(
-          spacing: 10,
-          runSpacing: 8,
-          children: ordered.map((p) {
-            final img = p.faceImagePath;
-            final hasImg = img != null && img.trim().isNotEmpty && File(img).existsSync();
-            final isProtagonist = proSet.contains(p.id);
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(2),
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: isProtagonist
-                        ? Border.all(color: Colors.amber, width: 2)
-                        : null,
-                  ),
-                  child: CircleAvatar(
-                    radius: 18,
-                    backgroundColor: isProtagonist
-                        ? Colors.amber.withValues(alpha: 0.18)
-                        : AppTheme.navy.withValues(alpha: 0.10),
-                    backgroundImage: hasImg ? FileImage(File(img)) : null,
-                    child: hasImg
-                        ? null
-                        : const Icon(
-                            Icons.person_outline,
-                            size: 18,
-                            color: AppTheme.navy,
-                          ),
-                  ),
-                ),
-                const SizedBox(height: 4),
-                SizedBox(
-                  width: 64,
-                  child: Text(
-                    p.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ),
-              ],
+            return Wrap(
+              spacing: 10,
+              runSpacing: 8,
+              children: ordered.map((p) {
+                final isProtagonist = proSet.contains(p.id);
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    PersonCircleAvatar(
+                      key: ValueKey<String>(
+                        '${p.id}|$isProtagonist|'
+                        '${faceImageWidgetCacheKey(p.faceImagePath)}',
+                      ),
+                      faceImagePath: p.faceImagePath,
+                      diameter: 40,
+                      semanticLabel: p.name,
+                      borderWidth: isProtagonist ? 2.0 : 0,
+                      borderColor: isProtagonist ? Colors.amber : null,
+                    ),
+                    const SizedBox(height: 4),
+                    SizedBox(
+                      width: 64,
+                      child: Text(
+                        p.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                  ],
+                );
+              }).toList(),
             );
-          }).toList(),
+          },
         );
       },
     );

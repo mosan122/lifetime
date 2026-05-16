@@ -10,18 +10,21 @@ import '../../core/failures/failure.dart';
 import '../../domain/entities/person.dart';
 import '../../domain/services/face_cropper_service.dart';
 import '../../features/milestones/data/datasources/isar_person_datasource.dart';
-import '../../features/milestones/data/models/local/person_collection.dart';
+import '../../features/milestones/data/datasources/person_group_local_datasource.dart';
 
 class FaceCropperServiceImpl implements FaceCropperService {
   final ImagePicker _picker;
   final ImageCropper _cropper;
   final IsarPersonDataSource _personDs;
+  final PersonGroupLocalDataSource _personGroupDs;
 
   FaceCropperServiceImpl({
     required IsarPersonDataSource personDs,
+    required PersonGroupLocalDataSource personGroupDs,
     ImagePicker? picker,
     ImageCropper? cropper,
   })  : _personDs = personDs,
+        _personGroupDs = personGroupDs,
         _picker = picker ?? ImagePicker(),
         _cropper = cropper ?? ImageCropper();
 
@@ -98,14 +101,14 @@ class FaceCropperServiceImpl implements FaceCropperService {
       final existing = await _personDs.fetchById(personId);
       if (existing == null) return const Left(FaceCropSaveFailure());
 
-      final updated = PersonCollection()
-        ..isarId = existing.isarId
-        ..id = existing.id
-        ..name = existing.name
+      final updated = existing.copyScalars()
         ..faceImagePath = destPath
         ..driveFaceFileId = null;
 
       final saved = await _personDs.upsert(updated);
+      saved.runtimeGroupIds = List<String>.from(
+        await _personGroupDs.groupIdsForPerson(saved.id),
+      );
       return Right(saved.toDomain());
     } catch (_) {
       return const Left(FaceCropSaveFailure());

@@ -7,6 +7,7 @@ import 'package:path_provider_platform_interface/path_provider_platform_interfac
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
 import 'package:lifetime/core/services/cloud_sync_service.dart';
+import 'package:lifetime/core/services/google_drive_reauth_bridge.dart';
 import 'package:lifetime/core/services/google_drive_service.dart';
 import 'package:lifetime/core/services/premium_service.dart';
 import 'package:lifetime/data/datasources/isar_milestone_datasource.dart';
@@ -42,6 +43,11 @@ PersonCollection _makePerson({
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  setUpAll(() {
+    registerFallbackValue(File('fallback.tmp'));
+    registerFallbackValue(_makePerson(id: 'fallback'));
+  });
+
   late MockGoogleDriveService driveService;
   late MockIsarPersonDataSource personDs;
   late CloudSyncService sut;
@@ -60,6 +66,7 @@ void main() {
       MockGoogleSignIn(),
       MockIsarMilestoneDataSource(),
       personDs,
+      GoogleDriveReauthBridge(),
     );
   });
 

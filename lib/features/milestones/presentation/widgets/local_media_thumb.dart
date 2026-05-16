@@ -3,7 +3,6 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:video_thumbnail/video_thumbnail.dart';
 
 import '../../../../core/services/google_drive_service.dart';
@@ -79,20 +78,7 @@ class _LocalMediaThumbState extends State<LocalMediaThumb> {
     setState(() => _downloading = true);
     try {
       final googleSignIn = sl<GoogleSignIn>();
-      final account = await googleSignIn.attemptLightweightAuthentication() ??
-          await googleSignIn.authenticate(
-            scopeHint: const ['https://www.googleapis.com/auth/drive.file'],
-          );
-
-      final authorization = await account.authorizationClient.authorizeScopes(
-        const ['https://www.googleapis.com/auth/drive.file'],
-      );
-      final client = GoogleAuthHttpClient({
-        'Authorization': 'Bearer ${authorization.accessToken}',
-      });
-      final api = drive.DriveApi(client);
-      final service = GoogleDriveService(api);
-
+      final service = GoogleDriveService(googleSignIn);
       await service.downloadFile(driveId, path);
     } catch (_) {
       // Best-effort.
