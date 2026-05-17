@@ -1,5 +1,6 @@
 // lib/data/datasources/isar_milestone_datasource.dart
 import 'package:isar/isar.dart';
+import 'package:path/path.dart' as p;
 import 'package:lifetime/features/milestones/data/models/local/milestone_collection.dart';
 
 abstract class IsarMilestoneDataSource {
@@ -49,6 +50,12 @@ abstract class IsarMilestoneDataSource {
 
   /// Hitos donde [personId] figura en participantes o protagonistas.
   Future<int> countMilestonesContainingPerson(String personId);
+
+  /// Medios locales en hitos activos con [MediaItemEmbed.isSynced] == false.
+  Future<int> countUnsyncedMediaItems();
+
+  /// Hitos activos con metadatos pendientes de Supabase ([isSynced] == false).
+  Future<int> countUnsyncedMilestones();
 }
 
 class IsarMilestoneDataSourceImpl implements IsarMilestoneDataSource {
@@ -87,6 +94,9 @@ class IsarMilestoneDataSourceImpl implements IsarMilestoneDataSource {
           .findFirst();
       if (existing != null) {
         c.isarId = existing.isarId;
+        if (existing.isDeleted) {
+          return existing;
+        }
       }
       await _isar.milestoneCollections.put(c);
     });
@@ -184,7 +194,13 @@ class IsarMilestoneDataSourceImpl implements IsarMilestoneDataSource {
   }) async {
     final item = await fetchCollectionById(milestoneId);
     if (item == null) return;
-    final idx = item.mediaItems.indexWhere((m) => m.localPath == localPath);
+    var idx = item.mediaItems.indexWhere((m) => m.localPath == localPath);
+    if (idx < 0) {
+      final base = p.basename(localPath);
+      idx = item.mediaItems.indexWhere(
+        (m) => p.basename(m.localPath) == base,
+      );
+    }
     if (idx < 0) return;
     item.mediaItems[idx]
       ..isSynced = true
@@ -344,5 +360,36 @@ class IsarMilestoneDataSourceImpl implements IsarMilestoneDataSource {
       }
     }
     return n;
+  }
+
+  @override
+  Future<int> countUnsyncedMediaItems() async {
+    final all = await _isar.milestoneCollections
+        .filter()
+        .isDeletedEqualTo(false)
+        .findAll();
+    var n = 0;
+    for (final m in all) {
+      for (final item in m.mediaItems) {
+        if (!item.isDeleted && !item.isSynced) n++;
+      }
+    }
+    return n;
+  }
+
+  @override
+  Future<int> countUnsyncedMilestones() async {
+    final all = await _isar.milestoneCollections
+        .filter()
+        .isDeletedEqualTo(false)
+        .findAll();
+    return all
+        .where(
+          (m) =>
+              !m.isSynced ||
+              m.supabaseId == null ||
+              m.supabaseId!.trim().isEmpty,
+        )
+        .length;
   }
 }

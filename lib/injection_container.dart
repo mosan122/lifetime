@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:get_it/get_it.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -13,13 +15,20 @@ import 'core/services/local_media_store_web.dart'
     as local_media_store_factory;
 import 'core/services/location_service.dart';
 import 'core/services/cloud_sync_service.dart';
+import 'core/services/cloud_sync_status_store.dart';
+import 'core/services/bitacora_drive_import_probe.dart';
+import 'core/services/drive_milestone_media_restore.dart';
+import 'core/services/milestone_drive_media_downloader.dart';
 import 'core/services/google_drive_reauth_bridge.dart';
 import 'features/sync/data/services/sync_service.dart';
 import 'core/services/cleanup_service.dart';
 import 'core/services/space_cleanup_service.dart';
 import 'core/services/premium_service.dart';
+import 'core/services/storage_metrics_service.dart';
+import 'features/sync/data/services/sync_pending_service.dart';
 import 'core/services/milestone_location_resolver.dart';
 import 'core/constants/milestone_categories.dart';
+import 'core/notifiers/cloud_sync_activity_notifier.dart';
 import 'core/notifiers/people_faces_revision_notifier.dart';
 import 'core/services/local_user_settings_service.dart';
 import 'data/datasources/google_drive_datasource.dart';
@@ -65,6 +74,8 @@ import 'features/milestones/presentation/bloc/create_milestone_cubit.dart';
 import 'features/milestones/presentation/bloc/delete_milestone_cubit.dart';
 import 'features/milestones/presentation/bloc/edit_milestone_cubit.dart';
 import 'features/milestones/presentation/bloc/map_cubit.dart';
+import 'features/milestones/presentation/bloc/group_graph_cubit.dart';
+import 'features/milestones/presentation/bloc/relationship_tree_cubit.dart';
 import 'features/milestones/presentation/bloc/milestone_timeline_cubit.dart';
 import 'features/settings/presentation/bloc/export_cubit.dart';
 import 'features/settings/presentation/bloc/import_cubit.dart';
@@ -230,8 +241,37 @@ Future<void> init() async {
   final premiumService = PremiumService();
   await premiumService.init();
   sl.registerLazySingleton<PremiumService>(() => premiumService);
+  sl.registerLazySingleton<SyncPendingService>(
+    () => SyncPendingService(
+      sl<IsarMilestoneDataSource>(),
+      sl<IsarPersonDataSource>(),
+      sl<IsarRelationshipDataSource>(),
+    ),
+  );
+  sl.registerLazySingleton<StorageMetricsService>(
+    () => StorageMetricsService(
+      sl<GoogleSignIn>(),
+      sl<SyncPendingService>(),
+    ),
+  );
   sl.registerLazySingleton<GoogleDriveReauthBridge>(
     GoogleDriveReauthBridge.new,
+  );
+  sl.registerLazySingleton<CloudSyncActivityNotifier>(
+    CloudSyncActivityNotifier.new,
+  );
+  sl.registerLazySingleton<MilestoneDriveMediaDownloader>(
+    () => MilestoneDriveMediaDownloader(sl<GoogleSignIn>()),
+  );
+  sl.registerLazySingleton<BitacoraDriveImportProbe>(
+    () => BitacoraDriveImportProbe(
+      sl<PremiumService>(),
+      sl<GoogleSignIn>(),
+      DriveMilestoneMediaRestore(
+        sl<IsarMilestoneDataSource>(),
+        sl<LocalMediaStore>(),
+      ),
+    ),
   );
   sl.registerLazySingleton<LocalUserSettingsService>(
     () => LocalUserSettingsService(),
@@ -243,6 +283,11 @@ Future<void> init() async {
     ),
   );
   // Note: DriveApi is constructed per-sync with fresh auth headers.
+  sl.registerLazySingleton<CloudSyncStatusStore>(() {
+    final store = CloudSyncStatusStore();
+    unawaited(store.hydrate());
+    return store;
+  });
   sl.registerLazySingleton<CloudSyncService>(
     () => CloudSyncService(
       sl(),
@@ -250,6 +295,8 @@ Future<void> init() async {
       sl<IsarMilestoneDataSource>(),
       sl<IsarPersonDataSource>(),
       sl<GoogleDriveReauthBridge>(),
+      sl<LocalMediaStore>(),
+      sl<CloudSyncActivityNotifier>(),
     ),
   );
   if (sl.isRegistered<Isar>()) {
@@ -258,13 +305,18 @@ Future<void> init() async {
         sl<SupabaseClient>(),
         sl<Isar>(),
         sl<PremiumService>(),
-        sl<MilestoneRemoteDataSource>(),
         sl<ProfileRemoteDataSource>(),
         sl<CloudSyncService>(),
+        sl<MilestoneRemoteDataSource>(),
         sl<IsarMilestoneDataSource>(),
         sl<IsarPersonDataSource>(),
         sl<IsarRelationshipDataSource>(),
+        sl<PersonGroupLocalDataSource>(),
+        sl<IsarCategoryDataSource>(),
+        sl<IsarSavedLocationDataSource>(),
         sl<LocalMediaStore>(),
+        sl<CloudSyncActivityNotifier>(),
+        sl<CloudSyncStatusStore>(),
       ),
     );
   }
@@ -351,7 +403,7 @@ Future<void> init() async {
   // ─── Cubits ───────────────────────────────────────────────────────────────
   sl.registerFactory<MilestoneTimelineCubit>(() => MilestoneTimelineCubit(sl()));
   sl.registerFactory<CreateMilestoneCubit>(
-      () => CreateMilestoneCubit(sl(), sl(), sl()));
+      () => CreateMilestoneCubit(sl(), sl()));
   sl.registerFactory<EditMilestoneCubit>(() => EditMilestoneCubit(sl()));
   sl.registerFactory<DeleteMilestoneCubit>(() => DeleteMilestoneCubit(sl()));
   sl.registerFactory<ExportCubit>(() => ExportCubit(sl()));
@@ -368,6 +420,20 @@ Future<void> init() async {
             sl<ProfileRemoteDataSource>(),
           ));
   sl.registerFactory<MapCubit>(() => MapCubit(sl()));
+  sl.registerFactory<RelationshipTreeCubit>(
+    () => RelationshipTreeCubit(
+      sl<IsarRelationshipDataSource>(),
+      sl<IsarPersonDataSource>(),
+      sl<RelationshipService>(),
+    ),
+  );
+  sl.registerFactory<GroupGraphCubit>(
+    () => GroupGraphCubit(
+      sl<PersonGroupLocalDataSource>(),
+      sl<IsarPersonDataSource>(),
+      sl<IsarMilestoneDataSource>(),
+    ),
+  );
   sl.registerFactory<AuthCubit>(
     () => AuthCubit(
       sl<AuthRepository>(),
@@ -618,6 +684,27 @@ class _WebMilestoneDataSource implements IsarMilestoneDataSource {
     }
     return n;
   }
+
+  @override
+  Future<int> countUnsyncedMediaItems() async {
+    var n = 0;
+    for (final m in _store) {
+      if (m.isDeleted) continue;
+      for (final item in m.mediaItems) {
+        if (!item.isDeleted && !item.isSynced) n++;
+      }
+    }
+    return n;
+  }
+
+  @override
+  Future<int> countUnsyncedMilestones() async {
+    var n = 0;
+    for (final m in _store) {
+      if (!m.isDeleted && !m.isSynced) n++;
+    }
+    return n;
+  }
 }
 
 class _WebPersonDataSource implements IsarPersonDataSource {
@@ -686,6 +773,15 @@ class _WebPersonDataSource implements IsarPersonDataSource {
       return;
     }
     await hardDelete(item);
+  }
+
+  @override
+  Future<int> countUnsynced() async {
+    var n = 0;
+    for (final p in _store) {
+      if (!p.isDeleted && !p.isSynced) n++;
+    }
+    return n;
   }
 }
 
@@ -791,6 +887,16 @@ class _WebRelationshipDataSource implements IsarRelationshipDataSource {
   final List<RelationshipCollection> _store = [];
 
   @override
+  Future<RelationshipCollection?> fetchById(String id) async {
+    final needle = id.trim();
+    if (needle.isEmpty) return null;
+    for (final r in _store) {
+      if (r.id == needle && !r.isDeleted) return r;
+    }
+    return null;
+  }
+
+  @override
   Future<List<RelationshipCollection>> fetchAll() async =>
       List.unmodifiable(_store.where((r) => !r.isDeleted));
 
@@ -860,6 +966,15 @@ class _WebRelationshipDataSource implements IsarRelationshipDataSource {
     _store.removeWhere(
       (r) => r.personId == pid || r.relatedPersonId == pid,
     );
+  }
+
+  @override
+  Future<int> countUnsynced() async {
+    var n = 0;
+    for (final r in _store) {
+      if (!r.isDeleted && !r.isSynced) n++;
+    }
+    return n;
   }
 }
 

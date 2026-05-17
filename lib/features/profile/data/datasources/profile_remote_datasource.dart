@@ -26,6 +26,11 @@ abstract class ProfileRemoteDataSource {
     DateTime? birthDate,
     String? avatarUrl,
   });
+
+  Future<void> updateIsPremium({
+    required String userId,
+    required bool isPremium,
+  });
 }
 
 class ProfileRemoteDataSourceImpl implements ProfileRemoteDataSource {
@@ -122,6 +127,17 @@ class ProfileRemoteDataSourceImpl implements ProfileRemoteDataSource {
           '${birthDate.day.toString().padLeft(2, '0')}';
     }
     await _supabase.from('profiles').update(map).eq('id', userId);
+  }
+
+  @override
+  Future<void> updateIsPremium({
+    required String userId,
+    required bool isPremium,
+  }) async {
+    await _supabase.from('profiles').update({
+      'is_premium': isPremium,
+      'updated_at': DateTime.now().toUtc().toIso8601String(),
+    }).eq('id', userId);
   }
 
   static UserProfileDetails rowToDetails(

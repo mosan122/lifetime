@@ -14,6 +14,10 @@ abstract class UserProfileLocalDataSource {
     required bool linked,
     String? accountEmail,
   });
+  Future<void> patchIsPremium({
+    required String userId,
+    required bool isPremium,
+  });
   Future<void> put(UserProfileDetails details);
 }
 
@@ -32,6 +36,12 @@ class NoOpUserProfileLocalDataSource implements UserProfileLocalDataSource {
     required String userId,
     required bool linked,
     String? accountEmail,
+  }) async {}
+
+  @override
+  Future<void> patchIsPremium({
+    required String userId,
+    required bool isPremium,
   }) async {}
 
   @override
@@ -55,7 +65,7 @@ class IsarUserProfileLocalDataSourceImpl implements UserProfileLocalDataSource {
       lastName: row.lastName,
       birthDate: row.birthDate,
       avatarUrl: row.avatarUrl,
-      isPremium: false,
+      isPremium: row.isPremium,
       googleDriveLinked: row.googleDriveLinked,
       googleDriveAccountEmail: row.googleDriveAccountEmail,
     );
@@ -102,6 +112,21 @@ class IsarUserProfileLocalDataSourceImpl implements UserProfileLocalDataSource {
   }
 
   @override
+  Future<void> patchIsPremium({
+    required String userId,
+    required bool isPremium,
+  }) async {
+    var row = await _isar.userProfileCollections.getByUserId(userId);
+    row ??= UserProfileCollection()
+      ..userId = userId
+      ..displayName = '';
+    row.isPremium = isPremium;
+    await _isar.writeTxn(() async {
+      await _isar.userProfileCollections.putByUserId(row!);
+    });
+  }
+
+  @override
   Future<void> put(UserProfileDetails d) async {
     final existing = await _isar.userProfileCollections.getByUserId(d.userId);
     final row = UserProfileCollection()
@@ -113,7 +138,8 @@ class IsarUserProfileLocalDataSourceImpl implements UserProfileLocalDataSource {
       ..avatarUrl = d.avatarUrl
       ..localAvatarPath = existing?.localAvatarPath
       ..googleDriveLinked = d.googleDriveLinked
-      ..googleDriveAccountEmail = d.googleDriveAccountEmail;
+      ..googleDriveAccountEmail = d.googleDriveAccountEmail
+      ..isPremium = d.isPremium;
     await _isar.writeTxn(() async {
       await _isar.userProfileCollections.putByUserId(row);
     });

@@ -1,5 +1,5 @@
+import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
@@ -11,6 +11,13 @@ import 'package:supabase_flutter/supabase_flutter.dart' show SupabaseClient;
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/person_ui_filters.dart';
 import '../../../../core/utils/bitacora_backup_json.dart';
+import '../../../../core/utils/picked_file_utf8_text.dart';
+import '../../../../core/services/bitacora_drive_import_probe.dart';
+import '../../../../core/services/cloud_sync_service.dart';
+import '../../../../core/services/cloud_sync_status_store.dart';
+import '../../../../core/services/premium_service.dart';
+import '../../../sync/data/services/sync_service.dart';
+import '../../../sync/schedule_cloud_sync.dart';
 import '../../../../injection_container.dart';
 import '../../../profile/domain/entities/user_profile_details.dart';
 import '../../../profile/domain/repositories/profile_repository.dart';
@@ -26,6 +33,8 @@ import '../bloc/import_cubit.dart';
 import '../bloc/people_cubit.dart';
 import '../widgets/account_settings_widgets.dart';
 import '../widgets/google_drive_reauth_banner.dart';
+import '../../../premium/presentation/pages/paywall_view.dart';
+import '../../../premium/presentation/pages/premium_dashboard_view.dart';
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
@@ -42,6 +51,38 @@ class SettingsPage extends StatelessWidget {
   }
 }
 
+Future<void> _handleBitacoraImportSuccess(
+  BuildContext context,
+  ImportSuccess state,
+) async {
+  var message = state.imported == 0
+      ? 'Importación completada (0 hitos nuevos).'
+      : 'Importados ${state.imported} hito${state.imported == 1 ? '' : 's'}.';
+
+  final auth = context.read<AuthCubit>().state;
+  if (auth is AuthAuthenticated && auth.isPremium) {
+    if (sl.isRegistered<SyncService>()) {
+      await sl<SyncService>().markAllLocalRowsPending();
+      scheduleCloudDataSyncAfterLocalRestore();
+    }
+    if (sl.isRegistered<CloudSyncService>()) {
+      final restore =
+          await sl<CloudSyncService>().restoreMilestoneMediaFromDrive(force: true);
+      if (restore.anyWork) {
+        message +=
+            ' Medios enlazados desde Drive: ${restore.filesLinked} archivo(s) '
+            'en ${restore.milestonesTouched} hito(s).';
+      }
+    }
+  }
+
+  if (!context.mounted) return;
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(content: Text(message)),
+  );
+  context.read<ImportCubit>().reset();
+}
+
 class _SettingsView extends StatelessWidget {
   const _SettingsView();
 
@@ -52,20 +93,27 @@ class _SettingsView extends StatelessWidget {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: const ['json'],
-      withData: true,
     );
     if (!context.mounted) return;
     if (result == null || result.files.isEmpty) return;
 
-    final bytes = result.files.first.bytes;
-    if (bytes == null || bytes.isEmpty) {
+    final picked = result.files.first;
+    String? text;
+    try {
+      text = await readPickedFileAsUtf8Text(picked);
+    } on FormatException {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('El archivo no es UTF-8 válido.')),
+      );
+      return;
+    }
+    if (text == null || text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('No se pudo leer el archivo.')),
       );
       return;
     }
-
-    final text = utf8.decode(bytes);
     final n = BitacoraBackupJson.countMilestones(text);
     if (!context.mounted) return;
     if (n == 0) {
@@ -77,6 +125,19 @@ class _SettingsView extends StatelessWidget {
       return;
     }
 
+    var driveFolderHint = '';
+    if (sl<PremiumService>().isPremium &&
+        sl.isRegistered<BitacoraDriveImportProbe>()) {
+      final probe = await sl<BitacoraDriveImportProbe>().probeFromJson(text);
+      if (probe.hasMatches && context.mounted) {
+        driveFolderHint =
+            '\n\nCarpetas de imágenes anteriores detectadas en Google Drive '
+            '(LifeTime_App/Media): ${probe.count} hito(s) con archivos que coinciden '
+            'por id. Tras importar se intentará reconstruir los medios desde la nube.';
+      }
+    }
+    if (!context.mounted) return;
+
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -84,7 +145,8 @@ class _SettingsView extends StatelessWidget {
         content: Text(
           'Se importarán $n hito(s). En archivos v3 también se fusionan personas, '
           'categorías personalizadas, lugares favoritos, grupos, enlaces y relaciones '
-          'cuando el JSON las incluya. Los hitos con el mismo id sustituyen al local.\n\n'
+          'cuando el JSON las incluya. Los hitos con el mismo id sustituyen al local.'
+          '$driveFolderHint\n\n'
           '¿Continuar?',
         ),
         actions: [
@@ -125,16 +187,7 @@ class _SettingsView extends StatelessWidget {
         BlocListener<ImportCubit, ImportState>(
           listener: (context, state) {
             if (state is ImportSuccess) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    state.imported == 0
-                        ? 'Importación completada (0 hitos nuevos).'
-                        : 'Importados ${state.imported} hito${state.imported == 1 ? '' : 's'}.',
-                  ),
-                ),
-              );
-              context.read<ImportCubit>().reset();
+              unawaited(_handleBitacoraImportSuccess(context, state));
             }
             if (state is ImportError) {
               ScaffoldMessenger.of(context).showSnackBar(
@@ -249,7 +302,50 @@ class _SettingsView extends StatelessWidget {
                 ),
               ),
             ),
+            BlocBuilder<AuthCubit, AuthState>(
+              builder: (context, auth) {
+                if (auth is! AuthAuthenticated) {
+                  return const SizedBox.shrink();
+                }
+                return Column(
+                  children: [
+                    const SettingsSectionHeader(label: 'Premium'),
+                    ListTile(
+                      leading: Icon(
+                        auth.isPremium
+                            ? Icons.workspace_premium_outlined
+                            : Icons.star_outline,
+                        color: AppTheme.navy,
+                      ),
+                      title: Text(
+                        auth.isPremium ? 'Panel Premium' : 'Pasar a Premium',
+                      ),
+                      subtitle: Text(
+                        auth.isPremium
+                            ? 'Almacenamiento, Drive y sincronización'
+                            : 'Respaldo en la nube y funciones avanzadas',
+                      ),
+                      trailing: const Icon(
+                        Icons.chevron_right,
+                        color: AppTheme.navy,
+                      ),
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => auth.isPremium
+                                ? const PremiumDashboardView()
+                                : const PaywallView(),
+                          ),
+                        );
+                      },
+                    ),
+                    const Divider(height: 1),
+                  ],
+                );
+              },
+            ),
             const SettingsSectionHeader(label: 'Copia de seguridad'),
+            const _CloudBackupStatusTile(),
             const _ExportTile(),
             const _ImportTile(),
           ],
@@ -500,6 +596,51 @@ class _UpcomingBirthdaysTileState extends State<_UpcomingBirthdaysTile> {
                   ),
                 ],
               ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class _CloudBackupStatusTile extends StatefulWidget {
+  const _CloudBackupStatusTile();
+
+  @override
+  State<_CloudBackupStatusTile> createState() => _CloudBackupStatusTileState();
+}
+
+class _CloudBackupStatusTileState extends State<_CloudBackupStatusTile> {
+  @override
+  void initState() {
+    super.initState();
+    if (sl.isRegistered<CloudSyncStatusStore>()) {
+      unawaited(sl<CloudSyncStatusStore>().hydrate());
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<AuthCubit, AuthState>(
+      builder: (context, auth) {
+        if (auth is! AuthAuthenticated || !auth.isPremium) {
+          return const SizedBox.shrink();
+        }
+        if (!sl.isRegistered<CloudSyncStatusStore>()) {
+          return const SizedBox.shrink();
+        }
+        final store = sl<CloudSyncStatusStore>();
+        return ValueListenableBuilder<DateTime?>(
+          valueListenable: store.lastSuccessUtc,
+          builder: (context, lastUtc, _) {
+            final subtitle = lastUtc == null
+                ? 'Aún no hay una copia completa en la nube. Sincroniza con Premium.'
+                : 'Última copia en nube: ${CloudSyncStatusStore.formatForDisplay(lastUtc)}';
+            return ListTile(
+              leading: const Icon(Icons.cloud_done_outlined, color: AppTheme.navy),
+              title: const Text('Respaldo en la nube'),
+              subtitle: Text(subtitle),
             );
           },
         );

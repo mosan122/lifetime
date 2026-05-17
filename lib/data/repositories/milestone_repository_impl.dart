@@ -1,4 +1,5 @@
 // lib/data/repositories/milestone_repository_impl.dart
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -72,23 +73,67 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
       if (local.isNotEmpty) {
         return Right(local.map((c) => c.toDomain()).toList());
       }
+
+      // Hitos borrados localmente (soft-delete): no reimportar desde Supabase
+      // o el último hito "resucita" al refrescar el timeline.
+      if ((await _local.fetchDeleted()).isNotEmpty) {
+        return const Right([]);
+      }
+
       if (!_premium.isPremium) {
         return const Right([]);
       }
-      // Premium + empty local → seed from Supabase
+      // Premium + vacío real → seed from Supabase
       final remoteModels = await _remote.fetchMilestones();
       for (final model in remoteModels) {
+        final existing = await _local.fetchCollectionById(model.id);
+        if (existing?.isDeleted == true) continue;
         await _local.upsert(
             MilestoneCollection.fromMilestone(model, SyncStatus.synced));
       }
-      return Right(List<Milestone>.from(remoteModels));
+      final seeded = await _local.fetchAll();
+      return Right(seeded.map((c) => c.toDomain()).toList());
     } on AuthException {
       return const Left(AuthFailure());
     } on PostgrestException catch (e) {
-      return Left(DatabaseFailure(e.message, code: e.code));
+      final cached = await _local.fetchAll();
+      if (cached.isNotEmpty) {
+        return Right(cached.map((c) => c.toDomain()).toList());
+      }
+      if (_isRemoteSchemaMismatch(e)) {
+        return const Right([]);
+      }
+      return Left(
+        DatabaseFailure(_friendlyPostgrestMessage(e), code: e.code),
+      );
     } catch (e) {
       return Left(NetworkFailure(e.toString()));
     }
+  }
+
+  static bool _isRemoteSchemaMismatch(PostgrestException e) {
+    final code = e.code ?? '';
+    final msg = e.message.toLowerCase();
+    if (code == 'PGRST204') return true;
+    if (msg.contains('schema cache')) return true;
+    if (msg.contains('relationship') && msg.contains('media_assets')) {
+      return true;
+    }
+    return false;
+  }
+
+  static String _friendlyPostgrestMessage(PostgrestException e) {
+    final msg = e.message;
+    if (msg.contains('milestone_date')) {
+      return 'Falta la columna milestone_date en Supabase. Ejecuta: supabase db push';
+    }
+    if (msg.contains('category')) {
+      return 'Falta la columna category en Supabase. Ejecuta: supabase db push';
+    }
+    if (msg.contains('media_assets')) {
+      return 'Esquema de hitos desactualizado. Actualiza la app y ejecuta supabase db push';
+    }
+    return msg;
   }
 
   @override
@@ -97,6 +142,8 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
     try {
       final remoteModels = await _remote.fetchMilestones();
       for (final model in remoteModels) {
+        final existing = await _local.fetchCollectionById(model.id);
+        if (existing?.isDeleted == true) continue;
         await _local.upsert(MilestoneCollection.fromMilestone(
           model,
           SyncStatus.synced,
@@ -193,134 +240,86 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
       );
     }
 
-    // Premium path — try remote, fall back to local on any error
-    String? aiTitle;
-    String? narrative;
-    try {
-      final bio = await _remote.callBiographerNarrative(
-        userNote: userNote,
-        date: eventDate,
-        location: locationName,
-        imageBase64: imageBase64,
-      );
-      aiTitle = bio.title;
-      narrative = bio.narrative;
+    // Premium: local-first; Supabase + Drive en segundo plano (SyncService).
+    final initialTitle = (title == null || title.trim().isEmpty)
+        ? milestoneFallbackTitleFromDescription(userNote)
+        : title.trim();
 
-      final chosenTitle = (title == null || title.trim().isEmpty)
-          ? (bio.title.trim().isNotEmpty
-              ? bio.title.trim()
-              : milestoneFallbackTitleFromDescription(userNote))
-          : title.trim();
+    final localResult = await _saveLocalOnly(
+      title: initialTitle,
+      description: userNote,
+      userId: userId,
+      eventDate: eventDate,
+      savedLocationId: savedLocationId,
+      locationName: locationName,
+      locationCity: locationCity,
+      locationCountry: locationCountry,
+      latitude: latitude,
+      longitude: longitude,
+      categoryId: safeCategoryId,
+      participants: participants,
+      participantIds: participantIds,
+      protagonistIds: safeProtagonists,
+      tags: tags,
+      isPublic: isPublic,
+      driveFileId: driveFileId,
+      localMediaPaths: localMediaPaths,
+      localMediaTypes: localMediaTypes,
+    );
 
-      final insertData = MilestoneModel.toInsertMap(
-        title: chosenTitle,
-        description: narrative,
-        participants: participants,
-        participantIds: participantIds,
-        protagonistIds: safeProtagonists,
-        tags: tags,
-        eventDate: eventDate,
-        locationName: locationName,
-        latitude: latitude,
-        longitude: longitude,
-        categoryId: safeCategoryId,
-        isPublic: isPublic,
-        driveFileId: driveFileId,
-      );
-      final remoteModel = await _remote.insertMilestone(insertData);
-      final collection =
-          MilestoneCollection.fromMilestone(remoteModel, SyncStatus.synced);
-      if (locationName != null &&
-          locationName.trim().isNotEmpty &&
-          (latitude != null && longitude != null)) {
-        collection.location = MilestoneLocationDataEmbed()
-          ..name = locationName.trim()
-          ..city = (locationCity?.trim().isEmpty ?? true)
-              ? null
-              : locationCity?.trim()
-          ..country = (locationCountry?.trim().isEmpty ?? true)
-              ? null
-              : locationCountry?.trim()
-          ..latitude = latitude
-          ..longitude = longitude;
-      } else if (locationName != null && locationName.trim().isNotEmpty) {
-        collection.location = MilestoneLocationDataEmbed()
-          ..name = locationName.trim()
-          ..city = (locationCity?.trim().isEmpty ?? true)
-              ? null
-              : locationCity?.trim()
-          ..country = (locationCountry?.trim().isEmpty ?? true)
-              ? null
-              : locationCountry?.trim()
-          ..latitude = latitude
-          ..longitude = longitude;
-      }
-      if (localMediaPaths.isNotEmpty) {
-        try {
-          final items = await _persistLocalMediaItems(
-            date: eventDate,
-            milestoneId: remoteModel.id,
-            paths: localMediaPaths,
-            types: localMediaTypes,
-          );
-          collection.mediaItems = items.map(MediaItemEmbed.fromDomain).toList();
-        } catch (_) {
-          // Best-effort local media persistence.
-        }
-      }
-      await _local.upsert(collection);
-
-      // Post-local upsert to Supabase (premium). Best-effort.
-      try {
-        await _remote.upsertMilestone(
-          remoteModel.id,
-          MilestoneModel.toInsertMap(
-            title: remoteModel.title,
-            description: remoteModel.description,
-            participants: participants,
-            participantIds: participantIds,
-            protagonistIds: safeProtagonists,
-            tags: tags,
+    return localResult.fold(
+      Left.new,
+      (saved) {
+        unawaited(
+          _enrichMilestoneWithBiographer(
+            milestoneId: saved.id,
+            title: title,
+            userNote: userNote,
             eventDate: eventDate,
             locationName: locationName,
-            latitude: latitude,
-            longitude: longitude,
-            categoryId: safeCategoryId,
-            isPublic: isPublic,
-            driveFileId: driveFileId,
+            imageBase64: imageBase64,
           ),
         );
-      } catch (_) {
-        // Best-effort upsert.
-      }
+        return Right(saved);
+      },
+    );
+  }
 
-      return Right(remoteModel);
+  /// Narrativa IA en segundo plano; no bloquea guardar el hito.
+  Future<void> _enrichMilestoneWithBiographer({
+    required String milestoneId,
+    required String? title,
+    required String userNote,
+    required DateTime eventDate,
+    required String? locationName,
+    required String? imageBase64,
+  }) async {
+    try {
+      final bio = await _remote
+          .callBiographerNarrative(
+            userNote: userNote,
+            date: eventDate,
+            location: locationName,
+            imageBase64: imageBase64,
+          )
+          .timeout(const Duration(seconds: 45));
+      final raw = await _local.fetchCollectionById(milestoneId);
+      if (raw == null) return;
+
+      final aiTitle = bio.title.trim();
+      if ((title == null || title.trim().isEmpty) && aiTitle.isNotEmpty) {
+        raw.title = aiTitle;
+      }
+      final narrative = bio.narrative.trim();
+      if (narrative.isNotEmpty) {
+        raw.description = narrative;
+      }
+      raw.syncStatus = SyncStatus.pending;
+      raw.isSynced = false;
+      await _local.upsert(raw);
+      scheduleCloudDataSync();
     } catch (_) {
-      return _saveLocalOnly(
-        title: (title == null || title.trim().isEmpty)
-            ? ((aiTitle != null && aiTitle.trim().isNotEmpty)
-                ? aiTitle.trim()
-                : milestoneFallbackTitleFromDescription(userNote))
-            : title.trim(),
-        description: narrative ?? userNote,
-        userId: userId,
-        eventDate: eventDate,
-        savedLocationId: savedLocationId,
-        locationName: locationName,
-        locationCity: locationCity,
-        locationCountry: locationCountry,
-        latitude: latitude,
-        longitude: longitude,
-        categoryId: safeCategoryId,
-        participants: participants,
-        participantIds: participantIds,
-        protagonistIds: safeProtagonists,
-        tags: tags,
-        isPublic: isPublic,
-        driveFileId: driveFileId,
-        localMediaPaths: localMediaPaths,
-        localMediaTypes: localMediaTypes,
-      );
+      // Biographer opcional; el hito ya está en Isar.
     }
   }
 
@@ -332,22 +331,23 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
     String? accessToken,
   }) async {
     try {
+      final existing = await _local.fetchById(id);
+      if (existing == null) {
+        return const Right(null);
+      }
+
       final premium = _premium.isPremium;
       if (premium) {
         await _local.deleteById(id, softDelete: true);
         scheduleCloudDataSync();
-        return const Right(null);
+      } else {
+        await _local.deleteById(id);
       }
 
-      final existing = await _local.fetchById(id);
-      await _local.deleteById(id);
-
-      if (existing != null) {
-        try {
-          await _localMedia.deleteFolder(existing.eventDate, id);
-        } catch (_) {
-          // Best-effort local media cleanup.
-        }
+      try {
+        await _localMedia.deleteFolder(existing.eventDate, id);
+      } catch (_) {
+        // Best-effort local media cleanup.
       }
 
       return const Right(null);
@@ -449,92 +449,6 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
       if (categoryId != null) existing.categoryId = categoryId;
       await _local.upsert(existing);
       scheduleCloudDataSync();
-
-      if (_premium.isPremium) {
-        try {
-          final safeCategoryId = categoryId?.trim().toLowerCase();
-          final updateData = MilestoneModel.toUpdateMap(
-            title: title,
-            description: description,
-            eventDate: eventDate,
-            locationName: locationName,
-            latitude: latitude,
-            longitude: longitude,
-            participantIds: existing.participants,
-            protagonistIds: existing.protagonists,
-            tags: existing.tags,
-            categoryId: safeCategoryId,
-          );
-          final remoteModel = await _remote.updateMilestone(id, updateData);
-          final prevLoc = existing.location;
-          existing
-            ..title = remoteModel.title
-            ..description = remoteModel.description
-            ..eventDate = remoteModel.eventDate
-            ..locationName = remoteModel.locationName
-            ..latitude = remoteModel.latitude
-            ..longitude = remoteModel.longitude
-            ..categoryId = remoteModel.categoryId
-            ..participants = List<String>.from(remoteModel.participantIds)
-            ..protagonists = existing.protagonists
-            ..tags = List<String>.from(remoteModel.tags)
-            ..isPublic = remoteModel.isPublic
-            ..driveFileId = remoteModel.driveFileId
-            ..media = remoteModel.media
-                .map(MediaAssetEmbed.fromEntity)
-                .toList()
-            ..syncStatus = SyncStatus.synced
-            ..isSynced = true
-            ..supabaseId = remoteModel.id;
-          final name = remoteModel.locationName ?? prevLoc?.name;
-          final lat = remoteModel.latitude ?? prevLoc?.latitude;
-          final lon = remoteModel.longitude ?? prevLoc?.longitude;
-          existing.location = (name == null || name.trim().isEmpty) &&
-                  lat == null &&
-                  lon == null
-              ? null
-              : (MilestoneLocationDataEmbed()
-                ..name = name
-                ..city = prevLoc?.city
-                ..country = prevLoc?.country
-                ..latitude = lat
-                ..longitude = lon);
-          await _local.upsert(existing);
-          return Right(existing.toDomain());
-        } catch (_) {
-          // Remote failed — already saved locally as pending
-        }
-      }
-
-      // Post-local upsert to Supabase (premium). Best-effort.
-      if (_premium.isPremium) {
-        try {
-          final safeCategoryId = (existing.categoryId == null ||
-                  existing.categoryId!.trim().isEmpty)
-              ? 'otros'
-              : existing.categoryId!.trim().toLowerCase();
-          await _remote.upsertMilestone(
-            existing.id,
-            MilestoneModel.toInsertMap(
-              title: existing.title,
-              description: existing.description,
-              participants: const [],
-              participantIds: existing.participants,
-              protagonistIds: existing.protagonists,
-              tags: existing.tags,
-              eventDate: existing.eventDate,
-              locationName: existing.locationName,
-              latitude: existing.latitude,
-              longitude: existing.longitude,
-              categoryId: safeCategoryId,
-              isPublic: existing.isPublic,
-              driveFileId: existing.driveFileId,
-            ),
-          );
-        } catch (_) {
-          // Best-effort upsert.
-        }
-      }
 
       return Right(existing.toDomain());
     } catch (e) {
@@ -667,6 +581,7 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
       final locName = (map['name'] as String?)?.trim();
       if (locName == null || locName.isEmpty) continue;
       final row = SavedLocationCollection()
+        ..clientId = (map['client_id'] as String?)?.trim() ?? const Uuid().v4()
         ..name = locName
         ..city = (map['city'] as String?)?.trim()
         ..country = (map['country'] as String?)?.trim()

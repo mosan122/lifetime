@@ -20,6 +20,8 @@ import '../bloc/delete_milestone_cubit.dart';
 import '../widgets/drive_thumbnail.dart';
 import '../widgets/local_media_thumb.dart';
 import '../widgets/person_avatar_badge.dart';
+import '../widgets/app_bar_cloud_sync_indicator.dart';
+import '../widgets/milestone_sync_badge.dart';
 import 'add_milestone_page.dart';
 import '../../data/models/local/person_collection.dart';
 
@@ -219,6 +221,7 @@ class _DetailScaffoldState extends State<_DetailScaffold> {
         onPressed: () => Navigator.pop(context),
       ),
       actions: [
+        const AppBarCloudSyncIndicator(iconColor: Colors.white),
         IconButton(
           tooltip: 'Editar',
           icon: const Icon(Icons.edit, color: Colors.white),
@@ -329,8 +332,17 @@ class _DetailScaffoldState extends State<_DetailScaffold> {
           Row(
             children: [
               _CategoryChip(categoryId: _milestone.categoryId),
+              const SizedBox(width: 6),
+              MilestoneSyncBadge(milestone: _milestone),
               const Spacer(),
-              Text(formatted, style: theme.textTheme.bodySmall),
+              Flexible(
+                child: Text(
+                  formatted,
+                  style: theme.textTheme.bodySmall,
+                  textAlign: TextAlign.end,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 16),

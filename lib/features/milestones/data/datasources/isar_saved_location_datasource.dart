@@ -1,4 +1,5 @@
 import 'package:isar/isar.dart';
+import 'package:uuid/uuid.dart';
 
 import '../models/local/saved_location_collection.dart';
 
@@ -23,6 +24,9 @@ class IsarSavedLocationDataSourceImpl implements IsarSavedLocationDataSource {
 
   @override
   Future<SavedLocationCollection> upsert(SavedLocationCollection c) async {
+    if (c.clientId.trim().isEmpty) {
+      c.clientId = const Uuid().v4();
+    }
     await _isar.writeTxn(() async {
       await _isar.savedLocationCollections.put(c);
     });

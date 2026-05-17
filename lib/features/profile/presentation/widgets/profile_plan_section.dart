@@ -3,6 +3,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../auth/presentation/bloc/auth_cubit.dart';
+import '../../../premium/presentation/pages/paywall_view.dart';
+import '../../../premium/presentation/pages/premium_dashboard_view.dart';
 
 /// Bloque Plan en Mi perfil (Standard vs Premium).
 class ProfilePlanSection extends StatelessWidget {
@@ -43,22 +45,29 @@ class ProfilePlanSection extends StatelessWidget {
                       height: 1.45,
                     ),
               ),
-              if (!isPremium) ...[
-                const SizedBox(height: 20),
-                FilledButton(
-                  onPressed: () =>
-                      context.read<AuthCubit>().setPremium(true),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AppTheme.navy,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
+              const SizedBox(height: 20),
+              FilledButton(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => isPremium
+                          ? const PremiumDashboardView()
+                          : const PaywallView(),
                     ),
+                  );
+                },
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppTheme.navy,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                  child: const Text('Pasar a Premium'),
                 ),
-              ],
+                child: Text(
+                  isPremium ? 'Panel Premium' : 'Pasar a Premium',
+                ),
+              ),
             ],
           ),
         );

@@ -2,10 +2,9 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:google_sign_in/google_sign_in.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
 
-import '../../../../core/services/google_drive_service.dart';
+import '../../../../core/services/milestone_drive_media_downloader.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../domain/entities/media_item.dart';
 import '../../../../injection_container.dart';
@@ -77,9 +76,10 @@ class _LocalMediaThumbState extends State<LocalMediaThumb> {
 
     setState(() => _downloading = true);
     try {
-      final googleSignIn = sl<GoogleSignIn>();
-      final service = GoogleDriveService(googleSignIn);
-      await service.downloadFile(driveId, path);
+      await sl<MilestoneDriveMediaDownloader>().downloadIfMissing(
+        driveFileId: driveId,
+        localPath: path,
+      );
     } catch (_) {
       // Best-effort.
     } finally {

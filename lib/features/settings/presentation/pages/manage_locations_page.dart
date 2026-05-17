@@ -295,6 +295,7 @@ class _LocationEditorSheetState extends State<_LocationEditorSheet> {
                     }
                     final c = SavedLocationCollection()
                       ..isarId = widget.initial.isarId
+                      ..clientId = widget.initial.clientId
                       ..name = name
                       ..city = trimOrNull(p?.city ?? widget.initial.city)
                       ..country = trimOrNull(p?.country ?? widget.initial.country)

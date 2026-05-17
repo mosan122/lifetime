@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/widgets/lifetime_logo.dart';
 import '../bloc/auth_cubit.dart';
 import 'login_page.dart';
 import 'register_page.dart';
@@ -24,10 +25,12 @@ class AuthPage extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const SizedBox(height: 32),
-              Icon(
-                Icons.auto_stories_outlined,
-                size: 80,
-                color: AppTheme.navy.withValues(alpha: 0.85),
+              // ── Logo (anillos del tiempo) ─────────────────────────────
+              const Center(
+                child: LifeTimeLogo(
+                  size: 80,
+                  color: AppTheme.navy,
+                ),
               ),
               const SizedBox(height: 28),
               Text(

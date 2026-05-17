@@ -145,6 +145,7 @@ class MilestoneCollection {
       isPublic: isPublic,
       createdAt: createdAt,
       driveFileId: driveFileId,
+      isSynced: isSynced,
     );
   }
 }

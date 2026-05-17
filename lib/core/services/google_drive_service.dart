@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 
 import 'google_drive_auth.dart';
+import 'google_drive_scope_auth.dart';
 import 'google_sign_in_silent.dart';
 
 class GoogleDriveService {
@@ -53,9 +54,13 @@ class GoogleDriveService {
       );
     }
 
-    final authorization = await account.authorizationClient.authorizeScopes(
-      driveScopes,
-    );
+    final authorization = await driveAuthorizationSilently(account);
+    if (authorization == null) {
+      throw const GoogleDriveAuthException(
+        401,
+        'Drive no autorizado (conéctalo desde Ajustes o el panel Premium)',
+      );
+    }
     return GoogleAuthHttpClient(<String, String>{
       'Authorization': 'Bearer ${authorization.accessToken}',
     });
@@ -69,9 +74,86 @@ class GoogleDriveService {
     }
   }
 
+  /// Nombres de carpeta raíz conocidos (actual e histórico).
+  static const backupFolderNames = ['LifeTime_App', 'LifeTime'];
+
   /// Busca en la raíz del Drive del usuario [backupFolderName] o la crea.
   Future<String> getOrCreateBackupFolder() async {
     return getOrCreateFolder(backupFolderName, parentId: 'root');
+  }
+
+  /// Carpeta raíz existente sin crearla (`LifeTime_App` o `LifeTime`).
+  Future<String?> findExistingBackupFolder() async {
+    for (final name in backupFolderNames) {
+      final id = await findFolderByName(name, parentId: 'root');
+      if (id != null) return id;
+    }
+    return null;
+  }
+
+  /// Busca una subcarpeta por nombre; no crea si no existe.
+  Future<String?> findFolderByName(
+    String folderName, {
+    String parentId = 'root',
+  }) async {
+    return _withApi((api) async {
+      final q = <String>[
+        "mimeType = 'application/vnd.google-apps.folder'",
+        "name = '${folderName.replaceAll("'", "\\'")}'",
+        "trashed = false",
+        "'$parentId' in parents",
+      ].join(' and ');
+
+      final existing = await api.files.list(
+        q: q,
+        $fields: 'files(id)',
+        spaces: 'drive',
+        pageSize: 1,
+      );
+      final files = existing.files ?? const <drive.File>[];
+      if (files.isEmpty || files.first.id == null) return null;
+      return files.first.id;
+    });
+  }
+
+  /// Lista hijos directos de una carpeta (paginado).
+  Future<DriveFolderListing> listFolderChildren(String parentId) async {
+    return _withApi((api) async {
+      final folders = <DriveListedFolder>[];
+      final files = <DriveListedFile>[];
+      String? pageToken;
+
+      do {
+        final page = await api.files.list(
+          q: "'$parentId' in parents and trashed = false",
+          $fields: 'nextPageToken, files(id, name, mimeType)',
+          spaces: 'drive',
+          pageSize: 200,
+          pageToken: pageToken,
+        );
+
+        for (final entry in page.files ?? const <drive.File>[]) {
+          final id = entry.id;
+          final name = entry.name;
+          if (id == null || name == null) continue;
+          final mime = entry.mimeType ?? '';
+          if (mime == 'application/vnd.google-apps.folder') {
+            folders.add(DriveListedFolder(id: id, name: name));
+          } else if (!mime.startsWith('application/vnd.google-apps.')) {
+            files.add(
+              DriveListedFile(
+                id: id,
+                name: name,
+                mimeType: mime,
+              ),
+            );
+          }
+        }
+        pageToken = page.nextPageToken;
+      } while (pageToken != null);
+
+      return DriveFolderListing(folders: folders, files: files);
+    });
   }
 
   Future<String> getOrCreateFolder(
@@ -115,9 +197,35 @@ class GoogleDriveService {
     });
   }
 
-  Future<String> uploadFile(File file, String folderId) async {
+  /// Si ya existe un archivo con el mismo nombre en la carpeta, devuelve su id
+  /// (evita duplicados por re-sincronización).
+  Future<String?> findFileIdByNameInFolder(
+    String folderId,
+    String fileName,
+  ) async {
     return _withApi((api) async {
-      final name = p.basename(file.path);
+      final escaped = fileName.replaceAll("'", r"\'");
+      final q =
+          "name = '$escaped' and '$folderId' in parents and trashed = false";
+      final page = await api.files.list(
+        q: q,
+        $fields: 'files(id)',
+        spaces: 'drive',
+        pageSize: 1,
+      );
+      final files = page.files;
+      if (files == null || files.isEmpty) return null;
+      final id = files.first.id;
+      return (id == null || id.isEmpty) ? null : id;
+    });
+  }
+
+  Future<String> uploadFile(File file, String folderId) async {
+    final name = p.basename(file.path);
+    final existing = await findFileIdByNameInFolder(folderId, name);
+    if (existing != null) return existing;
+
+    return _withApi((api) async {
       final length = await file.length();
 
       final media = drive.Media(
@@ -179,6 +287,23 @@ class GoogleDriveService {
     });
   }
 
+  /// Cuota de almacenamiento de la cuenta Google vinculada (`about.storageQuota`).
+  Future<GoogleDriveStorageQuota> fetchStorageQuota() async {
+    return _withApi((api) async {
+      final about = await api.about.get($fields: 'storageQuota');
+      final q = about.storageQuota;
+      return GoogleDriveStorageQuota(
+        usageBytes: _parseQuotaBytes(q?.usage) ?? 0,
+        limitBytes: _parseQuotaBytes(q?.limit),
+      );
+    });
+  }
+
+  static int? _parseQuotaBytes(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return null;
+    return int.tryParse(raw.trim());
+  }
+
   static String _contentTypeFromPath(String name) {
     final ext = p.extension(name).toLowerCase();
     if (ext == '.png') return 'image/png';
@@ -189,6 +314,47 @@ class GoogleDriveService {
     if (ext == '.mov') return 'video/quicktime';
     return 'application/octet-stream';
   }
+}
+
+class DriveListedFolder {
+  const DriveListedFolder({required this.id, required this.name});
+
+  final String id;
+  final String name;
+}
+
+class DriveListedFile {
+  const DriveListedFile({
+    required this.id,
+    required this.name,
+    required this.mimeType,
+  });
+
+  final String id;
+  final String name;
+  final String mimeType;
+}
+
+class DriveFolderListing {
+  const DriveFolderListing({
+    required this.folders,
+    required this.files,
+  });
+
+  final List<DriveListedFolder> folders;
+  final List<DriveListedFile> files;
+}
+
+class GoogleDriveStorageQuota {
+  const GoogleDriveStorageQuota({
+    required this.usageBytes,
+    this.limitBytes,
+  });
+
+  final int usageBytes;
+  final int? limitBytes;
+
+  bool get hasLimit => limitBytes != null && limitBytes! > 0;
 }
 
 class GoogleAuthHttpClient extends http.BaseClient {

@@ -10,6 +10,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState, AuthUser
 
 import '../../../../core/failures/failure.dart';
 import '../../../../core/services/google_drive_reauth_bridge.dart';
+import '../../../../core/services/google_sign_in_silent.dart';
 import '../../../../core/services/premium_service.dart';
 import '../../data/datasources/auth_local_persistence.dart';
 import '../../domain/entities/auth_user.dart';
@@ -18,6 +19,8 @@ import '../../domain/services/auth_session_policy.dart';
 import '../../../profile/data/datasources/user_profile_local_datasource.dart';
 import '../../../profile/domain/entities/user_profile_details.dart';
 import '../../../profile/domain/repositories/profile_repository.dart';
+import '../../../../core/services/cloud_sync_service.dart';
+import '../../../../injection_container.dart';
 import '../../../sync/schedule_cloud_sync.dart';
 
 part 'auth_state.dart';
@@ -121,6 +124,7 @@ class AuthCubit extends Cubit<AuthState> {
           linked: true,
           accountEmail: email,
         );
+        googleSignInSessionCache.invalidate();
         emit(
           _authenticatedFrom(
             s,
@@ -128,6 +132,12 @@ class AuthCubit extends Cubit<AuthState> {
             googleDriveLinked: true,
           ),
         );
+        onPremiumSessionStarted();
+        if (sl.isRegistered<CloudSyncService>()) {
+          unawaited(
+            sl<CloudSyncService>().restoreMilestoneMediaFromDrive(force: true),
+          );
+        }
         return const Right(unit);
       },
     );
@@ -202,7 +212,7 @@ class AuthCubit extends Cubit<AuthState> {
           googleDriveLinked: localProfile?.googleDriveLinked,
         ),
       );
-      if (cached.isPremiumCached) scheduleCloudDataSync();
+      if (cached.isPremiumCached) onPremiumSessionStarted();
       _refreshProfileInBackground(cached.userId, cached.email);
       return;
     }
@@ -275,7 +285,7 @@ class AuthCubit extends Cubit<AuthState> {
           googleDriveLinked: details?.googleDriveLinked,
         ),
       );
-      if (isPremium) scheduleCloudDataSync();
+      if (isPremium) onPremiumSessionStarted();
     } else {
       await _premiumService.init();
       emit(
@@ -325,7 +335,7 @@ class AuthCubit extends Cubit<AuthState> {
             googleDriveLinked: details?.googleDriveLinked,
           ),
         );
-        if (isPremium) scheduleCloudDataSync();
+        if (isPremium) onPremiumSessionStarted();
       }
     } catch (_) {
       // offline
@@ -385,7 +395,7 @@ class AuthCubit extends Cubit<AuthState> {
         requiresGoogleReauth: s.requiresGoogleReauth,
       ),
     );
-    if (saved.isPremium) scheduleCloudDataSync();
+    if (saved.isPremium) onPremiumSessionStarted();
     return const Right(unit);
   }
 
@@ -484,6 +494,35 @@ class AuthCubit extends Cubit<AuthState> {
     if (s is AuthAuthenticated) {
       emit(_authenticatedFrom(s, isPremium: value));
     }
+  }
+
+  /// Simula la suscripción Premium: Isar, Supabase `profiles` y caché local.
+  Future<Either<Failure, Unit>> activatePremium() async {
+    final s = state;
+    if (s is! AuthAuthenticated) {
+      return const Left(AuthFailure('Inicia sesión para activar Premium'));
+    }
+
+    final result = await _profileRepository.setUserPremium(
+      userId: s.user.id,
+      isPremium: true,
+    );
+
+    return result.fold(
+      Left.new,
+      (_) async {
+        await _premiumService.setPremium(true);
+        await _persistence.save(
+          userId: s.user.id,
+          email: s.user.email,
+          isPremiumCached: true,
+          emailVerified: s.user.emailVerified,
+        );
+        emit(_authenticatedFrom(s, isPremium: true));
+        scheduleCloudDataSync(forceResync: true);
+        return const Right(unit);
+      },
+    );
   }
 
   Future<void> refreshAfterEmailVerification() async {

@@ -25,19 +25,26 @@ class MilestoneModel extends Milestone {
     super.isPublic = false,
     required super.createdAt,
     super.driveFileId,
+    super.isSynced = true,
   });
 
   factory MilestoneModel.fromJson(Map<String, dynamic> json) {
     double? latitude;
     double? longitude;
 
-    final coords = json['location_coords'];
-    if (coords is Map) {
-      // PostgREST devuelve GEOGRAPHY como GeoJSON: {"type":"Point","coordinates":[lng, lat]}
-      final rawCoords = coords['coordinates'];
-      if (rawCoords is List && rawCoords.length >= 2) {
-        longitude = (rawCoords[0] as num).toDouble();
-        latitude = (rawCoords[1] as num).toDouble();
+    final latRaw = json['latitude'];
+    final lngRaw = json['longitude'];
+    if (latRaw is num && lngRaw is num) {
+      latitude = latRaw.toDouble();
+      longitude = lngRaw.toDouble();
+    } else {
+      final coords = json['location_coords'];
+      if (coords is Map) {
+        final rawCoords = coords['coordinates'];
+        if (rawCoords is List && rawCoords.length >= 2) {
+          longitude = (rawCoords[0] as num).toDouble();
+          latitude = (rawCoords[1] as num).toDouble();
+        }
       }
     }
 
@@ -46,9 +53,12 @@ class MilestoneModel extends Milestone {
       userId: json['user_id'] as String,
       title: json['title'] as String,
       description: json['description'] as String?,
-      participants: List<String>.from(json['participants'] as List? ?? []),
-      participantIds:
-          List<String>.from(json['participant_ids'] as List? ?? []),
+      participants: List<String>.from(
+        json['participant_ids'] as List? ?? json['participants'] as List? ?? [],
+      ),
+      participantIds: List<String>.from(
+        json['participant_ids'] as List? ?? json['participants'] as List? ?? [],
+      ),
       // Backend does not persist this (yet). It remains local-only.
       protagonistIds: const [],
       tags: List<String>.from(json['tags'] as List? ?? []),
@@ -57,7 +67,7 @@ class MilestoneModel extends Milestone {
           .toList(),
       galleryCoverIndex:
           (json['gallery_cover_index'] as num?)?.toInt() ?? 0,
-      eventDate: DateTime.parse(json['event_date'] as String),
+      eventDate: _parseRemoteEventDate(json),
       // Backend does not persist this (yet). It remains local-only.
       savedLocationId: null,
       locationName: json['location_name'] as String?,
@@ -70,7 +80,22 @@ class MilestoneModel extends Milestone {
       isPublic: json['is_public'] as bool? ?? false,
       createdAt: DateTime.parse(json['created_at'] as String),
       driveFileId: json['drive_file_id'] as String?,
+      isSynced: true,
     );
+  }
+
+  static DateTime _parseRemoteEventDate(Map<String, dynamic> json) {
+    final raw = json['milestone_date'];
+    if (raw is String && raw.trim().isNotEmpty) {
+      return DateTime.parse(raw);
+    }
+    throw const FormatException('Missing milestone_date');
+  }
+
+  static String _remoteDateIso(DateTime date) => date.toUtc().toIso8601String();
+
+  static void _putRemoteDate(Map<String, dynamic> map, DateTime eventDate) {
+    map['milestone_date'] = _remoteDateIso(eventDate);
   }
 
   static String? _categoryIdFromRemote(String? raw) {
@@ -113,7 +138,6 @@ class MilestoneModel extends Milestone {
   static Map<String, dynamic> toInsertMap({
     required String title,
     required String? description,
-    required List<String> participants,
     List<String> participantIds = const [],
     List<String> protagonistIds = const [],
     List<String> tags = const [],
@@ -127,17 +151,17 @@ class MilestoneModel extends Milestone {
   }) {
     final map = <String, dynamic>{
       'title': title,
-      'participants': participants,
       'participant_ids': participantIds,
       'tags': tags,
-      'event_date': eventDate.toIso8601String(),
       'category': categoryId,
       'is_public': isPublic,
     };
+    _putRemoteDate(map, eventDate);
     if (description != null) map['description'] = description;
     if (locationName != null) map['location_name'] = locationName;
     if (latitude != null && longitude != null) {
-      map['location_coords'] = 'POINT($longitude $latitude)';
+      map['latitude'] = latitude;
+      map['longitude'] = longitude;
     }
     if (driveFileId != null) map['drive_file_id'] = driveFileId;
     return map;
@@ -158,10 +182,11 @@ class MilestoneModel extends Milestone {
     final map = <String, dynamic>{'description': description};
     if (title != null) map['title'] = title;
     if (categoryId != null) map['category'] = categoryId;
-    if (eventDate != null) map['event_date'] = eventDate.toIso8601String();
+    if (eventDate != null) _putRemoteDate(map, eventDate);
     if (locationName != null) map['location_name'] = locationName;
     if (latitude != null && longitude != null) {
-      map['location_coords'] = 'POINT($longitude $latitude)';
+      map['latitude'] = latitude;
+      map['longitude'] = longitude;
     }
     if (participantIds != null) map['participant_ids'] = participantIds;
     // protagonistIds is local-only for now.

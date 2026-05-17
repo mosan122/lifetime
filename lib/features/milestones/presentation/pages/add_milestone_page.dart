@@ -432,12 +432,6 @@ class _CreateMilestoneViewState extends State<_CreateMilestoneView> {
     final note = _noteController.text.trim();
     if (note.isEmpty) return;
 
-    String? accessToken;
-    final authState = context.read<AuthCubit>().state;
-    if (authState is AuthAuthenticated) {
-      accessToken = authState.user.accessToken;
-    }
-
     final title = _titleController.text.trim();
     final picked = _pickedPlace;
     final usePicked = picked != null;
@@ -450,7 +444,6 @@ class _CreateMilestoneViewState extends State<_CreateMilestoneView> {
           categoryId: _categoryId,
           mediaFiles: _selectedMedia.map((e) => e.file).toList(),
           mediaTypes: _selectedMedia.map((e) => e.type).toList(),
-          accessToken: accessToken,
           savedLocationId: _savedLocationId,
           locationName: usePicked ? picked.name.trim() : null,
           locationCity: usePicked ? picked.city : null,

@@ -10,6 +10,8 @@ import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthUser;
 
 import '../../../../core/config/supabase_auth_config.dart';
+import '../../../../core/services/google_drive_scope_auth.dart';
+import '../../../../core/services/google_sign_in_silent.dart';
 import '../../domain/entities/auth_user.dart';
 import '../../domain/services/auth_session_policy.dart';
 
@@ -149,13 +151,13 @@ class AuthService {
 
     String? accessToken;
     try {
-      final g = await _googleSignIn.attemptLightweightAuthentication();
+      final g = await googleSignInSilently(_googleSignIn);
       if (g != null) {
-        final auth = await g.authorizationClient.authorizeScopes(_driveScopes);
-        accessToken = auth.accessToken;
+        final auth = await driveAuthorizationSilently(g);
+        accessToken = auth?.accessToken;
       }
     } catch (_) {
-      // Drive opcional hasta que el usuario autorice.
+      // Drive opcional hasta que el usuario autorice explícitamente.
     }
 
     final meta = user.userMetadata ?? {};
@@ -201,6 +203,7 @@ class AuthService {
   }
 
   Future<void> signOut() async {
+    googleSignInSessionCache.invalidate();
     await _googleSignIn.signOut();
     await _supabase.auth.signOut();
   }

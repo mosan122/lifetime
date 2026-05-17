@@ -157,6 +157,7 @@ void main() {
       stubPremium(false);
       when(() => mockLocal.fetchAll())
           .thenAnswer((_) async => [tCollection]);
+      when(() => mockLocal.fetchDeleted()).thenAnswer((_) async => []);
 
       final result = await repository.getMilestones();
 
@@ -171,6 +172,7 @@ void main() {
     test('returns empty list for free user with empty Isar', () async {
       stubPremium(false);
       when(() => mockLocal.fetchAll()).thenAnswer((_) async => []);
+      when(() => mockLocal.fetchDeleted()).thenAnswer((_) async => []);
 
       final result = await repository.getMilestones();
 
@@ -182,7 +184,14 @@ void main() {
     test('seeds from Supabase when premium + Isar empty, then returns those milestones',
         () async {
       stubPremium(true);
-      when(() => mockLocal.fetchAll()).thenAnswer((_) async => []);
+      var fetchAllCalls = 0;
+      when(() => mockLocal.fetchAll()).thenAnswer((_) async {
+        fetchAllCalls++;
+        return fetchAllCalls == 1 ? <MilestoneCollection>[] : [tCollection];
+      });
+      when(() => mockLocal.fetchDeleted()).thenAnswer((_) async => []);
+      when(() => mockLocal.fetchCollectionById(any()))
+          .thenAnswer((_) async => null);
       when(() => mockRemote.fetchMilestones())
           .thenAnswer((_) async => [tMilestoneModel]);
       when(() => mockLocal.upsert(any()))
@@ -198,10 +207,25 @@ void main() {
       });
     });
 
+    test('does not re-seed from Supabase when only soft-deleted milestones remain',
+        () async {
+      stubPremium(true);
+      when(() => mockLocal.fetchAll()).thenAnswer((_) async => []);
+      when(() => mockLocal.fetchDeleted())
+          .thenAnswer((_) async => [tCollection..isDeleted = true]);
+
+      final result = await repository.getMilestones();
+
+      verifyNever(() => mockRemote.fetchMilestones());
+      expect(result.isRight(), isTrue);
+      result.fold((_) => fail('Expected Right'), (list) => expect(list, isEmpty));
+    });
+
     test('does NOT call remote when premium + Isar non-empty', () async {
       stubPremium(true);
       when(() => mockLocal.fetchAll())
           .thenAnswer((_) async => [tCollection]);
+      when(() => mockLocal.fetchDeleted()).thenAnswer((_) async => []);
 
       final result = await repository.getMilestones();
 
@@ -276,14 +300,16 @@ void main() {
   group('createMilestone — premium online', () {
     setUp(() => stubPremium(true));
 
-    test('calls biographer + remote insert, upserts locally as synced', () async {
+    test('saves local-first as pending; biographer updates; no remote insert',
+        () async {
       stubBiographerSuccess();
-      when(() => mockRemote.insertMilestone(any()))
-          .thenAnswer((_) async => tMilestoneModel);
       MilestoneCollection? captured;
       when(() => mockLocal.upsert(any())).thenAnswer((inv) async {
         captured = inv.positionalArguments[0] as MilestoneCollection;
         return captured!;
+      });
+      when(() => mockLocal.fetchCollectionById(any())).thenAnswer((_) async {
+        return captured;
       });
 
       final result = await repository.createMilestone(
@@ -293,21 +319,23 @@ void main() {
         participants: ['Ana'],
       );
 
-      expect(result, Right(tMilestoneModel));
-      expect(captured!.syncStatus, equals(SyncStatus.synced));
+      expect(result.isRight(), isTrue);
+      verifyNever(() => mockRemote.insertMilestone(any()));
+      expect(captured!.syncStatus, equals(SyncStatus.pending));
+      expect(captured!.isSynced, isFalse);
       expect(captured!.eventDate, equals(tDate));
       expect(captured!.locationName, equals(tLocationName));
     });
 
-    test('insert map contains POINT WKT when lat/lng provided', () async {
+    test('persists lat/lng on local location embed when provided', () async {
       stubBiographerSuccess();
-      Map<String, dynamic>? capturedData;
-      when(() => mockRemote.insertMilestone(any())).thenAnswer((inv) async {
-        capturedData = inv.positionalArguments[0] as Map<String, dynamic>;
-        return tMilestoneModel;
+      MilestoneCollection? captured;
+      when(() => mockLocal.upsert(any())).thenAnswer((inv) async {
+        captured = inv.positionalArguments[0] as MilestoneCollection;
+        return captured!;
       });
-      when(() => mockLocal.upsert(any()))
-          .thenAnswer((_) async => tCollection);
+      when(() => mockLocal.fetchCollectionById(any()))
+          .thenAnswer((_) async => captured);
 
       await repository.createMilestone(
         userNote: tUserNote,
@@ -316,25 +344,9 @@ void main() {
         longitude: -3.7038,
       );
 
-      expect(capturedData!['location_coords'], equals('POINT(-3.7038 40.4168)'));
-    });
-
-    test('insert map omits location_coords when lat/lng are null', () async {
-      stubBiographerSuccess();
-      Map<String, dynamic>? capturedData;
-      when(() => mockRemote.insertMilestone(any())).thenAnswer((inv) async {
-        capturedData = inv.positionalArguments[0] as Map<String, dynamic>;
-        return tMilestoneModel;
-      });
-      when(() => mockLocal.upsert(any()))
-          .thenAnswer((_) async => tCollection);
-
-      await repository.createMilestone(
-        userNote: tUserNote,
-        eventDate: tDate,
-      );
-
-      expect(capturedData!.containsKey('location_coords'), isFalse);
+      expect(captured!.location?.latitude, closeTo(40.4168, 0.0001));
+      expect(captured!.location?.longitude, closeTo(-3.7038, 0.0001));
+      verifyNever(() => mockRemote.insertMilestone(any()));
     });
   });
 
@@ -343,26 +355,8 @@ void main() {
   group('createMilestone — premium offline', () {
     setUp(() => stubPremium(true));
 
-    test('returns Right and saves as pending when remote insert throws', () async {
-      stubBiographerSuccess();
-      when(() => mockRemote.insertMilestone(any()))
-          .thenThrow(Exception('Network error'));
-      MilestoneCollection? captured;
-      when(() => mockLocal.upsert(any())).thenAnswer((inv) async {
-        captured = inv.positionalArguments[0] as MilestoneCollection;
-        return captured!;
-      });
-
-      final result = await repository.createMilestone(
-        userNote: tUserNote,
-        eventDate: tDate,
-      );
-
-      expect(result.isRight(), isTrue);
-      expect(captured!.syncStatus, equals(SyncStatus.pending));
-    });
-
-    test('saves as pending when biographer also throws (full offline)', () async {
+    test('returns Right and saves as pending when biographer throws after local save',
+        () async {
       when(() => mockRemote.callBiographerNarrative(
             userNote: any(named: 'userNote'),
             date: any(named: 'date'),
@@ -382,9 +376,9 @@ void main() {
 
       expect(result.isRight(), isTrue);
       expect(captured!.syncStatus, equals(SyncStatus.pending));
-      verify(() => mockLocal.upsert(any())).called(1);
       verifyNever(() => mockRemote.insertMilestone(any()));
     });
+
   });
 
   // ─── deleteMilestone ─────────────────────────────────────────────────────
@@ -410,14 +404,17 @@ void main() {
 
     test('premium user: soft-deletes locally (sync purges remote later)', () async {
       stubPremium(true);
+      when(() => mockLocal.fetchById('ms-1'))
+          .thenAnswer((_) async => tCollection);
       when(() => mockLocal.deleteById('ms-1', softDelete: true))
           .thenAnswer((_) async {});
+      when(() => mockLocalMedia.deleteFolder(any(), any())).thenAnswer((_) async {});
 
       final result = await repository.deleteMilestone('ms-1');
 
       expect(result.isRight(), isTrue);
       verify(() => mockLocal.deleteById('ms-1', softDelete: true)).called(1);
-      verifyNever(() => mockLocalMedia.deleteFolder(any(), any()));
+      verify(() => mockLocalMedia.deleteFolder(tDate, 'ms-1')).called(1);
       verifyNever(() => mockRemote.deleteMilestone(any()));
     });
 

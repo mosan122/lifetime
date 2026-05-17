@@ -156,7 +156,7 @@ abstract final class BitacoraBackupJson {
   static int countMilestones(String json) {
     try {
       final decoded = jsonDecode(json);
-      if (decoded is! Map<String, dynamic>) return 0;
+      if (decoded is! Map) return 0;
       final list = decoded['milestones'];
       if (list is! List) return 0;
       return list.whereType<Map>().length;
@@ -384,6 +384,7 @@ abstract final class BitacoraBackupJson {
       isPublic: isPublic,
       createdAt: createdAt,
       driveFileId: driveFileId,
+      isSynced: m['is_synced'] as bool? ?? false,
     );
   }
 

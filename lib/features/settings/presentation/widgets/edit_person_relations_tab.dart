@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/services/premium_service.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../domain/relationships/relationship_reciprocity.dart';
 import '../../../../domain/relationships/relationship_type_codes.dart';
@@ -7,6 +8,7 @@ import '../../../../injection_container.dart';
 import '../../../milestones/data/datasources/isar_person_datasource.dart';
 import '../../../milestones/data/models/local/person_collection.dart';
 import '../../../milestones/domain/services/relationship_service.dart';
+import '../../../milestones/presentation/pages/relationship_tree_view.dart';
 import '../../../milestones/presentation/widgets/person_avatar_badge.dart';
 import '../../../milestones/presentation/widgets/person_relationships_block.dart';
 
@@ -235,12 +237,35 @@ class _EditPersonRelationsTabState extends State<EditPersonRelationsTab> {
     }
   }
 
+  void _openGenealogyTree(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => RelationshipTreeView(personId: widget.subject.id),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final premium = sl<PremiumService>().isPremium;
+
     return ListView(
       key: ValueKey<int>(_listEpoch),
       padding: const EdgeInsets.all(16),
       children: [
+        if (premium)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: OutlinedButton.icon(
+              onPressed: () => _openGenealogyTree(context),
+              icon: const Icon(Icons.hub_outlined),
+              label: const Text('Árbol genealógico'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppTheme.navy,
+                side: BorderSide(color: AppTheme.navy.withValues(alpha: 0.35)),
+              ),
+            ),
+          ),
         Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [

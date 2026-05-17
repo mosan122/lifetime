@@ -14,6 +14,8 @@ import '../../data/models/local/category_collection.dart';
 import '../widgets/drive_thumbnail.dart';
 import '../widgets/face_stack.dart';
 import '../widgets/local_media_thumb.dart';
+import '../widgets/app_bar_cloud_sync_indicator.dart';
+import '../widgets/milestone_sync_badge.dart';
 import '../../../../features/settings/presentation/bloc/people_cubit.dart';
 import '../../../../features/settings/presentation/pages/manage_people_page.dart';
 import '../../../../features/settings/presentation/pages/settings_page.dart';
@@ -42,6 +44,7 @@ class _AuthenticatedTimelineView extends StatelessWidget {
       appBar: AppBar(
         title: const Text('LifeTime'),
         actions: [
+          const AppBarCloudSyncIndicator(),
           IconButton(
             icon: const Icon(Icons.map_outlined),
             tooltip: 'Mapa de hitos',
@@ -469,6 +472,11 @@ class _LocalMediaCard extends StatelessWidget {
                     ),
                   ),
                   Positioned(
+                    left: 10,
+                    top: 10,
+                    child: MilestoneSyncBadgeOverlay(milestone: milestone),
+                  ),
+                  Positioned(
                     right: 10,
                     bottom: 10,
                     child: _DatePill(text: formatted),
@@ -616,6 +624,11 @@ class _MediaCard extends StatelessWidget {
                       stops: [0.4, 1.0],
                     ),
                   ),
+                ),
+                Positioned(
+                  left: 10,
+                  top: 10,
+                  child: MilestoneSyncBadgeOverlay(milestone: milestone),
                 ),
                 Positioned(
                   right: 10,
@@ -794,6 +807,8 @@ class _TextCard extends StatelessWidget {
                   Row(
                     children: [
                       Text(formatted, style: theme.textTheme.bodySmall),
+                      const SizedBox(width: 6),
+                      MilestoneSyncBadge(milestone: milestone),
                       if (milestone.locationName != null) ...[
                         const SizedBox(width: 10),
                         Icon(Icons.place_outlined,

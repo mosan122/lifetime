@@ -4,6 +4,7 @@ import '../../../sync/schedule_cloud_sync.dart';
 import '../models/local/relationship_collection.dart';
 
 abstract class IsarRelationshipDataSource {
+  Future<RelationshipCollection?> fetchById(String id);
   Future<List<RelationshipCollection>> fetchAll();
   Future<List<RelationshipCollection>> fetchDeleted();
 
@@ -12,6 +13,8 @@ abstract class IsarRelationshipDataSource {
   Future<void> deleteById(String id, {bool softDelete = false});
   Future<void> deleteAllInvolvingPerson(String personId, {bool softDelete = false});
   Future<void> hardDelete(RelationshipCollection item);
+
+  Future<int> countUnsynced();
 }
 
 class IsarRelationshipDataSourceImpl implements IsarRelationshipDataSource {
@@ -21,6 +24,13 @@ class IsarRelationshipDataSourceImpl implements IsarRelationshipDataSource {
 
   Future<RelationshipCollection?> _findByIdAny(String id) =>
       _isar.relationshipCollections.filter().idEqualTo(id).findFirst();
+
+  @override
+  Future<RelationshipCollection?> fetchById(String id) async {
+    final item = await _findByIdAny(id);
+    if (item == null || item.isDeleted) return null;
+    return item;
+  }
 
   @override
   Future<List<RelationshipCollection>> fetchAll() =>
@@ -123,5 +133,21 @@ class IsarRelationshipDataSourceImpl implements IsarRelationshipDataSource {
       }
     });
     if (softDelete) scheduleCloudDataSync();
+  }
+
+  @override
+  Future<int> countUnsynced() async {
+    final all = await _isar.relationshipCollections
+        .filter()
+        .isDeletedEqualTo(false)
+        .findAll();
+    return all
+        .where(
+          (r) =>
+              !r.isSynced ||
+              r.supabaseId == null ||
+              r.supabaseId!.trim().isEmpty,
+        )
+        .length;
   }
 }

@@ -19,4 +19,6 @@ class UserProfileCollection {
   /// Cuenta Google vinculada solo para Drive (email/Apple + linkGoogleAccount).
   bool googleDriveLinked = false;
   String? googleDriveAccountEmail;
+
+  bool isPremium = false;
 }

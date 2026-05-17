@@ -4,16 +4,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/failures/failure.dart';
+import '../../../../core/services/premium_service.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../domain/services/face_cropper_service.dart';
 import '../../../../injection_container.dart';
 import '../../../milestones/data/models/local/group_collection.dart';
 import '../../../milestones/data/models/local/person_collection.dart';
+import '../../../milestones/presentation/pages/group_constellation_view.dart';
 import '../../../milestones/presentation/widgets/face_source_bottom_sheet.dart';
 import '../../../milestones/presentation/widgets/face_stack.dart';
 import '../../../milestones/presentation/widgets/person_avatar_badge.dart';
 import '../../../milestones/presentation/widgets/person_relationships_block.dart';
 import '../bloc/people_cubit.dart';
+import '../widgets/manage_people_relations_tab.dart';
 import 'add_person_page.dart';
 import 'edit_person_page.dart';
 
@@ -34,7 +37,16 @@ class _ManagePeoplePageState extends State<ManagePeoplePage>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
+    _tabController.addListener(() {
+      if (_tabController.indexIsChanging) return;
+      if (mounted) setState(() {});
+    });
+  }
+
+  bool _personIsSyncedToCloud(PersonCollection p) {
+    return p.isSynced ||
+        (p.driveFaceFileId != null && p.driveFaceFileId!.trim().isNotEmpty);
   }
 
   @override
@@ -71,16 +83,19 @@ class _ManagePeoplePageState extends State<ManagePeoplePage>
           tabs: const [
             Tab(text: 'Personas'),
             Tab(text: 'Grupos'),
+            Tab(text: 'Relaciones'),
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        tooltip: 'Añadir persona',
-        backgroundColor: AppTheme.navy,
-        foregroundColor: AppTheme.cream,
-        onPressed: () => _addPerson(context),
-        child: const Icon(Icons.person_add_outlined),
-      ),
+      floatingActionButton: _tabController.index == 0
+          ? FloatingActionButton(
+              tooltip: 'Añadir persona',
+              backgroundColor: AppTheme.navy,
+              foregroundColor: AppTheme.cream,
+              onPressed: () => _addPerson(context),
+              child: const Icon(Icons.person_add_outlined),
+            )
+          : null,
       body: BlocBuilder<PeopleCubit, PeopleState>(
         builder: (context, state) {
           if (state is PeopleLoading) {
@@ -95,6 +110,7 @@ class _ManagePeoplePageState extends State<ManagePeoplePage>
             children: [
               _buildPersonasTab(context, people, groups),
               _buildGruposTab(context, people, groups),
+              const ManagePeopleRelationsTab(),
             ],
           );
         },
@@ -274,12 +290,6 @@ class _ManagePeoplePageState extends State<ManagePeoplePage>
                               color: Colors.black54,
                             ),
                       ),
-                    if (p.driveFaceFileId != null &&
-                        p.driveFaceFileId!.trim().isNotEmpty)
-                      const Padding(
-                        padding: EdgeInsets.only(top: 2),
-                        child: Text('Foto sincronizada en la nube'),
-                      ),
                   ],
                 ),
               );
@@ -325,6 +335,8 @@ class _ManagePeoplePageState extends State<ManagePeoplePage>
             (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
           );
 
+        final premium = sl<PremiumService>().isPremium;
+
         return Card(
           margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
           child: ExpansionTile(
@@ -356,6 +368,23 @@ class _ManagePeoplePageState extends State<ManagePeoplePage>
               style: Theme.of(context).textTheme.bodySmall,
             ),
             children: [
+              if (premium)
+                ListTile(
+                  dense: true,
+                  leading: const Icon(
+                    Icons.bubble_chart_outlined,
+                    color: AppTheme.navy,
+                  ),
+                  title: const Text('Ver constelación del grupo'),
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) =>
+                            GroupConstellationView(groupId: g.id),
+                      ),
+                    );
+                  },
+                ),
               if (members.isEmpty)
                 const Padding(
                   padding: EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -390,58 +419,6 @@ class _ManagePeoplePageState extends State<ManagePeoplePage>
                   ),
             ],
           ),
-        );
-      },
-    );
-  }
-
-  Future<void> _confirmDeletePerson(
-    BuildContext parentContext,
-    PersonCollection p,
-  ) async {
-    final ok = await showDialog<bool>(
-      context: parentContext,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Eliminar persona'),
-        content: Text(
-          'Se borrará «${p.name}» de este dispositivo, sus grupos y relaciones.\n\n'
-          'No podrás eliminarla si sigue apareciendo en algún hito.\n\n'
-          'Esta acción no se puede deshacer.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: Colors.red.shade700,
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Eliminar'),
-          ),
-        ],
-      ),
-    );
-    if (ok != true || !parentContext.mounted) return;
-
-    final cubit = parentContext.read<PeopleCubit>();
-    final result = await cubit.deletePerson(p.id);
-    if (!parentContext.mounted) return;
-
-    result.fold(
-      (f) {
-        ScaffoldMessenger.of(parentContext).showSnackBar(
-          SnackBar(
-            content: Text(f.message),
-            backgroundColor: Colors.red.shade700,
-          ),
-        );
-      },
-      (_) {
-        ScaffoldMessenger.of(parentContext).showSnackBar(
-          SnackBar(content: Text('«${p.name}» eliminada.')),
         );
       },
     );
@@ -576,6 +553,27 @@ class _ManagePeoplePageState extends State<ManagePeoplePage>
                                 ],
                               ),
                             ],
+                            if (_personIsSyncedToCloud(p)) ...[
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.check_circle,
+                                    size: 18,
+                                    color: Colors.green.shade700,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'Sincronizado',
+                                    style:
+                                        theme.textTheme.bodySmall?.copyWith(
+                                      color: Colors.green.shade800,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
                           ],
                         ),
                       ),
@@ -629,17 +627,6 @@ class _ManagePeoplePageState extends State<ManagePeoplePage>
                             if (email.isNotEmpty) detailLine('Email', email),
                             if (notes.isNotEmpty)
                               detailLine('Notas', notes),
-                            if (p.driveFaceFileId != null &&
-                                p.driveFaceFileId!.trim().isNotEmpty)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 12),
-                                child: Text(
-                                  'Foto de perfil sincronizada en la nube',
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: Colors.black54,
-                                  ),
-                                ),
-                              ),
                             if (fichaEmpty)
                               Text(
                                 'Pulsa el lápiz para completar la ficha o toca la foto en la lista para asignar imagen.',
@@ -647,23 +634,6 @@ class _ManagePeoplePageState extends State<ManagePeoplePage>
                                   color: Colors.black54,
                                 ),
                               ),
-                            const SizedBox(height: 20),
-                            OutlinedButton.icon(
-                              onPressed: () {
-                                Navigator.pop(sheetContext);
-                                _confirmDeletePerson(parentContext, p);
-                              },
-                              icon: Icon(Icons.delete_outline,
-                                  color: Colors.red.shade700),
-                              label: Text(
-                                'Eliminar persona',
-                                style: TextStyle(color: Colors.red.shade700),
-                              ),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.red.shade700,
-                                side: BorderSide(color: Colors.red.shade700),
-                              ),
-                            ),
                           ],
                         ),
                       ),

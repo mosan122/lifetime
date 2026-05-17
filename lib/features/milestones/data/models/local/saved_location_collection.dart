@@ -6,6 +6,10 @@ part 'saved_location_collection.g.dart';
 class SavedLocationCollection {
   Id isarId = Isar.autoIncrement;
 
+  /// Id estable para sync Supabase (`saved_locations.client_id`).
+  @Index(unique: true)
+  late String clientId;
+
   late String name;
   String? city;
   String? country;

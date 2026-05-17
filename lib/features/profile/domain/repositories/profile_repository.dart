@@ -21,4 +21,10 @@ abstract class ProfileRepository {
     required UserProfileDetails details,
     Uint8List? newAvatarBytes,
   });
+
+  /// Activa o desactiva Premium en Supabase y en Isar ([UserProfileCollection]).
+  Future<Either<Failure, Unit>> setUserPremium({
+    required String userId,
+    required bool isPremium,
+  });
 }

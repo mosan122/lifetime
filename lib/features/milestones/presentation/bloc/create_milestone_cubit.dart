@@ -6,23 +6,19 @@ import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:image/image.dart' as img;
 
-import '../../../../core/failures/failure.dart';
 import '../../../../core/services/premium_service.dart';
 import '../../../../domain/entities/media_item.dart';
 import '../../../../domain/entities/milestone.dart';
 import '../../domain/usecases/create_milestone_usecase.dart';
-import '../../domain/usecases/upload_media_usecase.dart';
 
 part 'create_milestone_state.dart';
 
 class CreateMilestoneCubit extends Cubit<CreateMilestoneState> {
   final CreateMilestoneUseCase _createMilestone;
-  final UploadMediaUseCase _uploadMedia;
   final PremiumService _premium;
 
   CreateMilestoneCubit(
     this._createMilestone,
-    this._uploadMedia,
     this._premium,
   ) : super(const CreateMilestoneInitial());
 
@@ -32,7 +28,6 @@ class CreateMilestoneCubit extends Cubit<CreateMilestoneState> {
     required DateTime eventDate,
     List<File> mediaFiles = const [],
     List<MediaType> mediaTypes = const [],
-    String? accessToken,
     int? savedLocationId,
     String? locationName,
     String? locationCity,
@@ -44,36 +39,19 @@ class CreateMilestoneCubit extends Cubit<CreateMilestoneState> {
     List<String> protagonistIds = const [],
     bool isPublic = false,
   }) async {
-    String? driveFileId;
     String? imageBase64;
     final primaryFile = mediaFiles.isNotEmpty ? mediaFiles.first : null;
 
-    // ── Step 1: Drive upload (premium + auth; evita crear carpeta/archivos en Drive
-    // para usuarios gratuitos aunque tengan sesión Google por login).
-    if (primaryFile != null && accessToken != null && _premium.isPremium) {
-      emit(const CreateMilestoneSubmitting('Subiendo imagen...'));
-      final uploadResult = await _uploadMedia(UploadMediaParams(
-        file: primaryFile,
-        accessToken: accessToken,
-        mimeType: _mimeFromPath(primaryFile.path),
-      ));
-      final failure = uploadResult.fold<Failure?>((f) => f, (_) => null);
-      if (failure != null) {
-        emit(CreateMilestoneError(failure.message, code: failure.code));
-        return;
-      }
-      driveFileId = uploadResult.fold((_) => null, (id) => id);
-    }
+    // Drive: subida diferida vía CloudSyncService (OAuth Google Sign-In con scope Drive).
+    // No usar el token de sesión Supabase aquí (provoca "Expected OAuth 2 access token").
 
-    // ── Step 2: Encode image for Gemini Vision ────────────────────────────────
-    // Runs regardless of Drive auth: Vision and Drive are independent.
-    // The image is resized to ≤1024px before encoding to keep payload small.
+    emit(CreateMilestoneSubmitting(
+      _premium.isPremium ? 'Guardando hito…' : 'Redactando historia...',
+    ));
+
     if (primaryFile != null) {
       imageBase64 = await _encodeForVision(primaryFile);
     }
-
-    // ── Step 3: Biographer narrative + DB insert ──────────────────────────────
-    emit(const CreateMilestoneSubmitting());
     final result = await _createMilestone(CreateMilestoneParams(
       title: title,
       userNote: userNote,
@@ -88,7 +66,6 @@ class CreateMilestoneCubit extends Cubit<CreateMilestoneState> {
       participants: participants,
       protagonistIds: protagonistIds,
       isPublic: isPublic,
-      driveFileId: driveFileId,
       imageBase64: imageBase64,
       localMediaPaths: mediaFiles.map((f) => f.path).toList(),
       localMediaTypes: mediaTypes,
@@ -130,12 +107,4 @@ class CreateMilestoneCubit extends Cubit<CreateMilestoneState> {
     }
   }
 
-  static String _mimeFromPath(String path) {
-    final ext = path.split('.').last.toLowerCase();
-    if (ext == 'png') return 'image/png';
-    if (ext == 'gif') return 'image/gif';
-    if (ext == 'webp') return 'image/webp';
-    if (ext == 'heic' || ext == 'heif') return 'image/heic';
-    return 'image/jpeg';
-  }
 }

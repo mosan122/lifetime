@@ -24,6 +24,14 @@ class MilestoneRemoteDataSourceImpl implements MilestoneRemoteDataSource {
 
   const MilestoneRemoteDataSourceImpl(this._supabase);
 
+  /// Medios en local + Drive; no usar embed `media_assets` (evita error de relación).
+  static const _milestoneColumns = '''
+id, user_id, title, description, participant_ids, tags,
+milestone_date, location_name, latitude, longitude, category,
+is_public,
+drive_file_id, created_at
+''';
+
   @override
   Future<BiographerResult> callBiographerNarrative({
     required String userNote,
@@ -65,7 +73,7 @@ class MilestoneRemoteDataSourceImpl implements MilestoneRemoteDataSource {
     final response = await _supabase
         .from('milestones')
         .insert({...data, 'user_id': userId})
-        .select('*, media_assets(*)')
+        .select(_milestoneColumns)
         .single();
     return MilestoneModel.fromJson(response);
   }
@@ -78,7 +86,7 @@ class MilestoneRemoteDataSourceImpl implements MilestoneRemoteDataSource {
     final response = await _supabase
         .from('milestones')
         .upsert({...data, 'id': id, 'user_id': userId})
-        .select('*, media_assets(*)')
+        .select(_milestoneColumns)
         .single();
     return MilestoneModel.fromJson(response);
   }
@@ -90,9 +98,9 @@ class MilestoneRemoteDataSourceImpl implements MilestoneRemoteDataSource {
     final userId = user.id;
     final response = await _supabase
         .from('milestones')
-        .select('*, media_assets(*)')
+        .select(_milestoneColumns)
         .eq('user_id', userId)
-        .order('event_date', ascending: false);
+        .order('milestone_date', ascending: false);
     return response.map(MilestoneModel.fromJson).toList();
   }
 
@@ -102,7 +110,7 @@ class MilestoneRemoteDataSourceImpl implements MilestoneRemoteDataSource {
     if (user == null) throw const AuthException('No authenticated user');
     final response = await _supabase
         .from('milestones')
-        .select('*, media_assets(*)')
+        .select(_milestoneColumns)
         .eq('id', id)
         .single();
     return MilestoneModel.fromJson(response);
@@ -129,7 +137,7 @@ class MilestoneRemoteDataSourceImpl implements MilestoneRemoteDataSource {
         .update(data)
         .eq('id', id)
         .eq('user_id', user.id)
-        .select('*, media_assets(*)')
+        .select(_milestoneColumns)
         .single();
     return MilestoneModel.fromJson(response);
   }

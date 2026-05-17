@@ -32,6 +32,8 @@ class Milestone extends Equatable {
   final bool isPublic;
   final DateTime createdAt;
   final String? driveFileId;
+  /// Metadatos del hito subidos a Supabase (Premium).
+  final bool isSynced;
 
   const Milestone({
     required this.id,
@@ -56,7 +58,15 @@ class Milestone extends Equatable {
     this.isPublic = false,
     required this.createdAt,
     this.driveFileId,
+    this.isSynced = false,
   });
+
+  /// Medios locales aún no subidos a Drive.
+  bool get hasUnsyncedMedia =>
+      mediaItems.any((m) => !m.isDeleted && !m.isSynced);
+
+  /// Supabase + Drive (si hay archivos) al día.
+  bool get isFullySyncedToCloud => isSynced && !hasUnsyncedMedia;
 
   @override
   List<Object?> get props => [
@@ -82,5 +92,6 @@ class Milestone extends Equatable {
         isPublic,
         createdAt,
         driveFileId,
+        isSynced,
       ];
 }

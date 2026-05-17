@@ -15,6 +15,8 @@ abstract class IsarPersonDataSource {
   Future<PersonCollection> upsert(PersonCollection c);
   Future<void> deleteById(String id, {bool softDelete = false});
   Future<void> hardDelete(PersonCollection item);
+
+  Future<int> countUnsynced();
 }
 
 class IsarPersonDataSourceImpl implements IsarPersonDataSource {
@@ -113,5 +115,21 @@ class IsarPersonDataSourceImpl implements IsarPersonDataSource {
       return;
     }
     await hardDelete(existing);
+  }
+
+  @override
+  Future<int> countUnsynced() async {
+    final all = await _isar.personCollections
+        .filter()
+        .isDeletedEqualTo(false)
+        .findAll();
+    return all
+        .where(
+          (p) =>
+              !p.isSynced ||
+              p.supabaseId == null ||
+              p.supabaseId!.trim().isEmpty,
+        )
+        .length;
   }
 }

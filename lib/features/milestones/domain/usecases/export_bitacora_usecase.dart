@@ -111,6 +111,7 @@ class ExportBitacoraUseCase implements UseCase<ExportResult, NoParams> {
         for (final loc in locs) {
           savedLocationMaps.add({
             'ref': 'sl_${loc.isarId}',
+            'client_id': loc.clientId,
             'source_isar_id': loc.isarId,
             'name': loc.name,
             'city': loc.city,

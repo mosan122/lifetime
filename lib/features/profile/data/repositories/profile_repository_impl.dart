@@ -299,4 +299,23 @@ class ProfileRepositoryImpl implements ProfileRepository {
     }
     return ('image/jpeg', 'jpg');
   }
+
+  @override
+  Future<Either<Failure, Unit>> setUserPremium({
+    required String userId,
+    required bool isPremium,
+  }) async {
+    try {
+      await _profileLocal.patchIsPremium(
+        userId: userId,
+        isPremium: isPremium,
+      );
+      await _remote.updateIsPremium(userId: userId, isPremium: isPremium);
+      return const Right(unit);
+    } on PostgrestException catch (e) {
+      return Left(DatabaseFailure(e.message, code: e.code));
+    } catch (e) {
+      return Left(NetworkFailure(e.toString()));
+    }
+  }
 }

@@ -6,9 +6,11 @@ import 'package:mocktail/mocktail.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
+import 'package:lifetime/core/notifiers/cloud_sync_activity_notifier.dart';
 import 'package:lifetime/core/services/cloud_sync_service.dart';
 import 'package:lifetime/core/services/google_drive_reauth_bridge.dart';
 import 'package:lifetime/core/services/google_drive_service.dart';
+import 'package:lifetime/core/services/local_media_store.dart';
 import 'package:lifetime/core/services/premium_service.dart';
 import 'package:lifetime/data/datasources/isar_milestone_datasource.dart';
 import 'package:lifetime/features/milestones/data/datasources/isar_person_datasource.dart';
@@ -19,6 +21,7 @@ class MockIsarPersonDataSource extends Mock implements IsarPersonDataSource {}
 class MockPremiumService extends Mock implements PremiumService {}
 class MockGoogleSignIn extends Mock implements GoogleSignIn {}
 class MockIsarMilestoneDataSource extends Mock implements IsarMilestoneDataSource {}
+class MockLocalMediaStore extends Mock implements LocalMediaStore {}
 
 class _FakePath extends PathProviderPlatform with MockPlatformInterfaceMixin {
   _FakePath(this._path);
@@ -67,6 +70,8 @@ void main() {
       MockIsarMilestoneDataSource(),
       personDs,
       GoogleDriveReauthBridge(),
+      MockLocalMediaStore(),
+      CloudSyncActivityNotifier(),
     );
   });
 
