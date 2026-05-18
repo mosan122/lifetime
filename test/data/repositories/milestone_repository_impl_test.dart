@@ -9,7 +9,6 @@ import 'package:lifetime/data/datasources/isar_milestone_datasource.dart';
 import 'package:lifetime/data/datasources/milestone_remote_datasource.dart';
 import 'package:lifetime/data/models/milestone_model.dart';
 import 'package:lifetime/data/repositories/milestone_repository_impl.dart';
-import 'package:lifetime/domain/repositories/drive_repository.dart';
 import 'package:lifetime/features/milestones/data/datasources/isar_category_datasource.dart';
 import 'package:lifetime/features/milestones/data/datasources/isar_person_datasource.dart';
 import 'package:lifetime/features/milestones/data/datasources/isar_relationship_datasource.dart';
@@ -24,7 +23,6 @@ class MockMilestoneRemoteDataSource extends Mock
     implements MilestoneRemoteDataSource {}
 
 class MockPremiumService extends Mock implements PremiumService {}
-class MockDriveRepository extends Mock implements DriveRepository {}
 class MockLocalMediaStore extends Mock implements LocalMediaStore {}
 class MockIsarPersonDataSource extends Mock implements IsarPersonDataSource {}
 class MockIsarCategoryDataSource extends Mock implements IsarCategoryDataSource {}
@@ -45,7 +43,6 @@ void main() {
   late MockIsarMilestoneDataSource mockLocal;
   late MockMilestoneRemoteDataSource mockRemote;
   late MockPremiumService mockPremium;
-  late MockDriveRepository mockDrive;
   late MockLocalMediaStore mockLocalMedia;
   late MockIsarPersonDataSource mockPerson;
   late MockIsarCategoryDataSource mockCategory;
@@ -115,7 +112,6 @@ void main() {
     mockLocal = MockIsarMilestoneDataSource();
     mockRemote = MockMilestoneRemoteDataSource();
     mockPremium = MockPremiumService();
-    mockDrive = MockDriveRepository();
     mockLocalMedia = MockLocalMediaStore();
     mockPerson = MockIsarPersonDataSource();
     mockCategory = MockIsarCategoryDataSource();
@@ -127,7 +123,6 @@ void main() {
       mockRemote,
       mockPremium,
       () => 'user-1',
-      mockDrive,
       mockLocalMedia,
       mockPerson,
       mockCategory,

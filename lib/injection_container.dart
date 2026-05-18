@@ -357,7 +357,6 @@ Future<void> init() async {
       sl<MilestoneRemoteDataSource>(),
       sl<PremiumService>(),
       () => Supabase.instance.client.auth.currentUser?.id ?? '',
-      sl<DriveRepository>(),
       sl<LocalMediaStore>(),
       sl<IsarPersonDataSource>(),
       sl<IsarCategoryDataSource>(),

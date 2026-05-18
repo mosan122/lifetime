@@ -72,6 +72,20 @@ void main() {
     test('is a Milestone entity', () {
       expect(MilestoneModel.fromJson(tJsonWithCoords), isA<Milestone>());
     });
+
+    test('preserves custom category client_id (UUID)', () {
+      const customId = 'a1b2c3d4-e5f6-4789-a012-3456789abcde';
+      final model = MilestoneModel.fromJson({
+        ...tJsonWithCoords,
+        'category': customId,
+      });
+      expect(model.categoryId, customId);
+    });
+
+    test('maps legacy category label general to otros', () {
+      final model = MilestoneModel.fromJson(tJsonNoCoords);
+      expect(model.categoryId, 'otros');
+    });
   });
 
   group('toInsertMap', () {

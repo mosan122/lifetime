@@ -109,6 +109,7 @@ class _SettingsView extends StatelessWidget {
       return;
     }
     if (text == null || text.isEmpty) {
+      if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('No se pudo leer el archivo.')),
       );

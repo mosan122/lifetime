@@ -78,6 +78,9 @@ class SyncService {
         for (final s in kMilestoneCategorySeeds) s.id.toLowerCase(),
       };
 
+  /// ARGB 32 bits sin signo (Flutter puede usar int con bit alto a 1).
+  static int _colorArgbForSupabase(int colorValue) => colorValue & 0xFFFFFFFF;
+
   static const _logName = 'SyncService';
   var _running = false;
 
@@ -257,6 +260,9 @@ class SyncService {
       if (code == 'PGRST204') {
         if (msg.contains('category')) {
           return 'Falta la columna category en milestones. Ejecuta: supabase db push';
+        }
+        if (msg.contains('color_value')) {
+          return 'Columna color_value debe ser bigint. Ejecuta: supabase db push';
         }
         if (msg.contains('milestone_date')) {
           return 'Falta la columna milestone_date en milestones. Ejecuta: supabase db push';
@@ -655,7 +661,7 @@ class SyncService {
           'client_id': id,
           'name': c.name,
           'icon_name': c.iconName,
-          'color_value': c.colorValue,
+          'color_value': _colorArgbForSupabase(c.colorValue),
           'updated_at': now,
         },
         onConflict: 'user_id,client_id',

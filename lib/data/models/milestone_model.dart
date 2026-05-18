@@ -1,3 +1,4 @@
+import '../../core/constants/milestone_category_seeds.dart';
 import '../../domain/entities/milestone.dart';
 import 'media_asset_model.dart';
 
@@ -98,34 +99,24 @@ class MilestoneModel extends Milestone {
     map['milestone_date'] = _remoteDateIso(eventDate);
   }
 
+  static final Set<String> _builtInCategoryIds = {
+    for (final s in kMilestoneCategorySeeds) s.id.toLowerCase(),
+  };
+
+  static final RegExp _customCategoryClientId = RegExp(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+  );
+
   static String? _categoryIdFromRemote(String? raw) {
     final v = (raw ?? '').trim().toLowerCase();
     if (v.isEmpty) return null;
 
-    // If backend already stores ids (e.g. "familia"), keep it.
-    const known = <String>{
-      'familia',
-      'amigos',
-      'amor',
-      'mascotas',
-      'viajes',
-      'naturaleza',
-      'ocio',
-      'trabajo',
-      'formacion',
-      'finanzas',
-      'salud',
-      'deporte',
-      'hogar',
-      'gastronomia',
-      'diy',
-      'nacimiento',
-      'defuncion',
-      'otros',
-    };
-    if (known.contains(v)) return v;
+    if (_builtInCategoryIds.contains(v)) return v;
 
-    // Legacy mapping (older strings).
+    // Categorías personalizadas: client_id en custom_categories (UUID).
+    if (_customCategoryClientId.hasMatch(v)) return v;
+
+    // Textos legacy (antes de ids estables).
     if (v == 'general') return 'otros';
     if (v == 'cumpleaños' || v == 'cumpleanos') return 'familia';
     if (v == 'boda') return 'amor';

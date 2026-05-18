@@ -78,7 +78,7 @@ class PremiumCloudPull {
       groups = g.$1;
       groupLinks = g.$2;
     } catch (e, st) {
-      errors.add('Grupos: $e');
+      errors.add('Grupos o enlaces persona–grupo: $e');
       developer.log('pull groups', name: _logName, error: e, stackTrace: st);
     }
 
@@ -205,29 +205,20 @@ class PremiumCloudPull {
         .eq('user_id', userId);
 
     var groups = 0;
-    await _isar.writeTxn(() async {
-      for (final raw in groupRows) {
-        final map = Map<String, dynamic>.from(raw as Map);
-        final clientId = (map['client_id'] as String?)?.trim();
-        if (clientId == null || clientId.isEmpty) continue;
+    for (final raw in groupRows) {
+      final map = Map<String, dynamic>.from(raw as Map);
+      final clientId = (map['client_id'] as String?)?.trim();
+      if (clientId == null || clientId.isEmpty) continue;
 
-        final existing = await _isar.groupCollections
-            .filter()
-            .idEqualTo(clientId)
-            .findFirst();
-
-        final row = existing ?? GroupCollection();
-        row
-          ..id = clientId
-          ..name = (map['name'] as String?)?.trim().isNotEmpty == true
-              ? (map['name'] as String).trim()
-              : clientId
-          ..builtIn = map['built_in'] as bool? ?? false;
-
-        await _isar.groupCollections.put(row);
-        groups++;
-      }
-    });
+      final row = GroupCollection()
+        ..id = clientId
+        ..name = (map['name'] as String?)?.trim().isNotEmpty == true
+            ? (map['name'] as String).trim()
+            : clientId
+        ..builtIn = map['built_in'] as bool? ?? false;
+      await _personGroupDs.upsertGroup(row);
+      groups++;
+    }
 
     final linkRows = await _supabase
         .from('contact_person_group_links')
@@ -377,8 +368,8 @@ class PremiumCloudPull {
   }
 
   static int _colorValue(Object? raw) {
-    if (raw is int) return raw;
-    if (raw is num) return raw.toInt();
+    if (raw is int) return raw & 0xFFFFFFFF;
+    if (raw is num) return raw.toInt() & 0xFFFFFFFF;
     return 0xFF000000;
   }
 }

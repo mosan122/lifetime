@@ -235,9 +235,15 @@ class PersonGroupLocalDataSourceImpl implements PersonGroupLocalDataSource {
     final pid = personId.trim();
     final gid = groupId.trim();
     if (pid.isEmpty || gid.isEmpty) return;
+    final lk = linkKeyOf(pid, gid);
     await _isar.writeTxn(() async {
-      final row = PersonGroupLinkCollection()
-        ..linkKey = linkKeyOf(pid, gid)
+      final existing = await _isar.personGroupLinkCollections
+          .filter()
+          .linkKeyEqualTo(lk)
+          .findFirst();
+      final row = existing ?? PersonGroupLinkCollection();
+      row
+        ..linkKey = lk
         ..personId = pid
         ..groupId = gid;
       await _isar.personGroupLinkCollections.put(row);

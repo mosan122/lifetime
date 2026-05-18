@@ -15,13 +15,10 @@ import '../../core/services/text_metadata_extractor.dart';
 import '../../core/services/premium_service.dart';
 import '../../domain/entities/media_item.dart';
 import '../../domain/entities/milestone.dart';
-import '../../domain/repositories/drive_repository.dart';
 import '../../domain/repositories/milestone_repository.dart';
 import '../datasources/isar_milestone_datasource.dart';
 import '../datasources/milestone_remote_datasource.dart';
-import '../models/milestone_model.dart';
 import '../../features/milestones/data/models/local/milestone_collection.dart';
-import '../../features/milestones/data/models/local/media_asset_embed.dart';
 import '../../features/milestones/data/models/local/media_item_embed.dart';
 import '../../features/milestones/data/datasources/isar_category_datasource.dart';
 import '../../features/milestones/data/datasources/isar_person_datasource.dart';
@@ -40,7 +37,6 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
   final MilestoneRemoteDataSource _remote;
   final PremiumService _premium;
   final String Function() _getUserId;
-  final DriveRepository _drive;
   final LocalMediaStore _localMedia;
   final IsarPersonDataSource _personDs;
   final IsarCategoryDataSource _categoryDs;
@@ -53,7 +49,6 @@ class MilestoneRepositoryImpl implements MilestoneRepository {
     this._remote,
     this._premium,
     this._getUserId,
-    this._drive,
     this._localMedia,
     this._personDs,
     this._categoryDs,
