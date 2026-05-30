@@ -6,6 +6,7 @@ import 'core/config/supabase_auth_config.dart';
 import 'core/theme/app_theme.dart';
 import 'features/auth/presentation/bloc/auth_cubit.dart';
 import 'features/auth/presentation/widgets/auth_gate.dart';
+import 'features/sync/presentation/bloc/sync_status_cubit.dart';
 import 'injection_container.dart' as di;
 
 // Pass credentials via --dart-define at build/run time:
@@ -40,13 +41,20 @@ class LifeTimeApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return BlocProvider<AuthCubit>(
-      create: (_) {
-        final c = di.sl<AuthCubit>();
-        c.listenToSupabaseAuth();
-        c.checkCurrentUser();
-        return c;
-      },
+    return MultiBlocProvider(
+      providers: [
+        BlocProvider<AuthCubit>(
+          create: (_) {
+            final c = di.sl<AuthCubit>();
+            c.listenToSupabaseAuth();
+            c.checkCurrentUser();
+            return c;
+          },
+        ),
+        BlocProvider<SyncStatusCubit>.value(
+          value: di.sl<SyncStatusCubit>(),
+        ),
+      ],
       child: MaterialApp(
         title: 'LifeTime',
         debugShowCheckedModeBanner: false,

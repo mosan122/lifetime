@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -28,6 +29,21 @@ class StorageMetricsSnapshot {
 
   @Deprecated('Use pending.mediaItems')
   int get unsyncedMediaCount => pending.mediaItems;
+}
+
+/// Suma recursiva en isolate (no bloquea el hilo de UI).
+int directorySizeFromPath(String dirPath) {
+  final dir = Directory(dirPath);
+  if (!dir.existsSync()) return 0;
+  var total = 0;
+  for (final entity in dir.listSync(recursive: true, followLinks: false)) {
+    if (entity is File) {
+      try {
+        total += entity.lengthSync();
+      } catch (_) {}
+    }
+  }
+  return total;
 }
 
 class StorageMetricsService {
@@ -82,22 +98,9 @@ class StorageMetricsService {
     try {
       final dir = await getApplicationDocumentsDirectory();
       if (!dir.existsSync()) return 0;
-      return _directorySize(dir);
+      return compute(directorySizeFromPath, dir.path);
     } catch (_) {
       return 0;
     }
-  }
-
-  int _directorySize(Directory dir) {
-    var total = 0;
-    if (!dir.existsSync()) return 0;
-    for (final entity in dir.listSync(recursive: true, followLinks: false)) {
-      if (entity is File) {
-        try {
-          total += entity.lengthSync();
-        } catch (_) {}
-      }
-    }
-    return total;
   }
 }

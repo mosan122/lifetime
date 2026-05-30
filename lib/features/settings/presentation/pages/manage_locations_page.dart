@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../../core/models/milestone_location_data.dart';
@@ -9,6 +10,8 @@ import '../../../milestones/presentation/widgets/person_name_alert_dialog.dart';
 import '../../../milestones/data/datasources/isar_saved_location_datasource.dart';
 import '../../../milestones/data/models/local/saved_location_collection.dart';
 import '../../../../core/services/place_autocomplete_service.dart';
+import '../../../sync/schedule_cloud_sync.dart';
+import '../../../sync/data/services/sync_service.dart';
 
 class ManageLocationsPage extends StatefulWidget {
   const ManageLocationsPage({super.key});
@@ -19,8 +22,15 @@ class ManageLocationsPage extends StatefulWidget {
 
 class _ManageLocationsPageState extends State<ManageLocationsPage> {
   final _ds = sl<IsarSavedLocationDataSource>();
+  late Future<List<SavedLocationCollection>> _locationsFuture;
 
-  Future<void> _refresh() async => setState(() {});
+  @override
+  void initState() {
+    super.initState();
+    _locationsFuture = _load();
+  }
+
+  void _refresh() => setState(() => _locationsFuture = _load());
 
   Future<List<SavedLocationCollection>> _load() => _ds.fetchAll();
 
@@ -31,7 +41,7 @@ class _ManageLocationsPageState extends State<ManageLocationsPage> {
       backgroundColor: AppTheme.cream,
       appBar: AppBar(title: const Text('Lugares')),
       body: FutureBuilder<List<SavedLocationCollection>>(
-        future: _load(),
+        future: _locationsFuture,
         builder: (context, snapshot) {
           if (!snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
@@ -57,7 +67,7 @@ class _ManageLocationsPageState extends State<ManageLocationsPage> {
             separatorBuilder: (_, __) => const SizedBox(height: 8),
             itemBuilder: (context, i) => _SavedLocationTile(
               item: items[i],
-              onChanged: _refresh,
+              onChanged: () => _refresh(),
             ),
           );
         },
@@ -68,7 +78,7 @@ class _ManageLocationsPageState extends State<ManageLocationsPage> {
 
 class _SavedLocationTile extends StatelessWidget {
   final SavedLocationCollection item;
-  final Future<void> Function() onChanged;
+  final VoidCallback onChanged;
 
   const _SavedLocationTile({required this.item, required this.onChanged});
 
@@ -115,9 +125,34 @@ class _SavedLocationTile extends StatelessWidget {
                 backgroundColor: AppTheme.cream,
                 builder: (_) => _LocationEditorSheet(initial: item),
               );
-              if (didSave == true) await onChanged();
+              if (didSave == true) onChanged();
             }
             if (v == 'delete') {
+              final milestoneCount = await sl<IsarMilestoneDataSource>()
+                  .countMilestonesUsingSavedLocation(item.isarId);
+              if (!context.mounted) return;
+              if (milestoneCount > 0) {
+                await showDialog<void>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    backgroundColor: AppTheme.cream,
+                    title: const Text('No se puede borrar'),
+                    content: Text(
+                      '«${item.name}» está asociado a '
+                      '$milestoneCount '
+                      'hito${milestoneCount == 1 ? '' : 's'}. '
+                      'Quita este lugar de esos hitos antes de borrarlo.',
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        child: const Text('Entendido'),
+                      ),
+                    ],
+                  ),
+                );
+                return;
+              }
               final ok = await showDialog<bool>(
                 context: context,
                 builder: (ctx) => AlertDialog(
@@ -139,9 +174,18 @@ class _SavedLocationTile extends StatelessWidget {
                   ],
                 ),
               );
+              if (!context.mounted) return;
               if (ok == true) {
+                final clientId = item.clientId.trim();
+                if (clientId.isNotEmpty &&
+                    sl.isRegistered<SyncService>()) {
+                  unawaited(
+                    sl<SyncService>().deleteSavedLocationRemote(clientId),
+                  );
+                }
                 await ds.deleteById(item.isarId);
-                await onChanged();
+                scheduleCloudDataSync();
+                onChanged();
               }
             }
           },
@@ -302,6 +346,7 @@ class _LocationEditorSheetState extends State<_LocationEditorSheet> {
                       ..latitude = p?.latitude ?? widget.initial.latitude
                       ..longitude = p?.longitude ?? widget.initial.longitude;
                     await ds.upsert(c);
+                    scheduleCloudDataSync();
                     if (oldName != name ||
                         widget.initial.latitude != c.latitude ||
                         widget.initial.longitude != c.longitude) {

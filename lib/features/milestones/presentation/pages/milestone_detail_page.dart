@@ -22,6 +22,8 @@ import '../widgets/local_media_thumb.dart';
 import '../widgets/person_avatar_badge.dart';
 import '../widgets/app_bar_cloud_sync_indicator.dart';
 import '../widgets/milestone_sync_badge.dart';
+import '../widgets/location_map_modal.dart';
+import '../../../settings/presentation/widgets/person_detail_sheet.dart';
 import 'add_milestone_page.dart';
 import '../../data/models/local/person_collection.dart';
 
@@ -353,23 +355,7 @@ class _DetailScaffoldState extends State<_DetailScaffold> {
             ),
           if (_milestone.locationName != null) ...[
             const SizedBox(height: 8),
-            Row(
-              children: [
-                Icon(
-                  Icons.place_outlined,
-                  size: 14,
-                  color: theme.textTheme.bodySmall?.color,
-                ),
-                const SizedBox(width: 4),
-                Flexible(
-                  child: Text(
-                    _milestone.locationName!,
-                    style: theme.textTheme.bodySmall,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
+            _MilestoneLocationRow(milestone: _milestone),
           ],
           const SizedBox(height: 24),
           const Divider(),
@@ -378,6 +364,94 @@ class _DetailScaffoldState extends State<_DetailScaffold> {
           const SizedBox(height: 18),
           _SemanticChips(milestone: _milestone),
         ],
+      ),
+    );
+  }
+}
+
+// ── Location (tap → map modal) ───────────────────────────────────────────────
+
+class _MilestoneLocationRow extends StatelessWidget {
+  const _MilestoneLocationRow({required this.milestone});
+
+  final Milestone milestone;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final lat = milestone.latitude;
+    final lon = milestone.longitude;
+    final hasCoords = lat != null && lon != null;
+    final name = (milestone.locationName ?? '').trim();
+    final parts = <String>[
+      if ((milestone.locationCity ?? '').trim().isNotEmpty)
+        milestone.locationCity!.trim(),
+      if ((milestone.locationCountry ?? '').trim().isNotEmpty)
+        milestone.locationCountry!.trim(),
+    ];
+    final subtitle = parts.join(', ');
+
+    final child = Row(
+      children: [
+        Icon(
+          Icons.place_outlined,
+          size: 14,
+          color: hasCoords ? AppTheme.navy : theme.textTheme.bodySmall?.color,
+        ),
+        const SizedBox(width: 4),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                name,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: hasCoords ? AppTheme.navy : null,
+                  fontWeight: hasCoords ? FontWeight.w600 : null,
+                  decoration: hasCoords ? TextDecoration.underline : null,
+                  decorationColor: AppTheme.navy.withValues(alpha: 0.45),
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+              if (subtitle.isNotEmpty)
+                Text(
+                  subtitle,
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: Colors.black54,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+            ],
+          ),
+        ),
+        if (hasCoords)
+          Icon(
+            Icons.map_outlined,
+            size: 16,
+            color: AppTheme.navy.withValues(alpha: 0.55),
+          ),
+      ],
+    );
+
+    if (!hasCoords || lat == null || lon == null) return child;
+
+    final latitude = lat;
+    final longitude = lon;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: () => showLocationMapModal(
+          context,
+          latitude: latitude,
+          longitude: longitude,
+          title: name,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: child,
+        ),
       ),
     );
   }
@@ -541,32 +615,52 @@ class _PeopleFacesRow extends StatelessWidget {
               runSpacing: 8,
               children: ordered.map((p) {
                 final isProtagonist = proSet.contains(p.id);
-                return Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    PersonCircleAvatar(
-                      key: ValueKey<String>(
-                        '${p.id}|$isProtagonist|'
-                        '${faceImageWidgetCacheKey(p.faceImagePath)}',
-                      ),
-                      faceImagePath: p.faceImagePath,
-                      diameter: 40,
-                      semanticLabel: p.name,
-                      borderWidth: isProtagonist ? 2.0 : 0,
-                      borderColor: isProtagonist ? Colors.amber : null,
+                return Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () => showPersonDetailSheet(
+                      context,
+                      person: p,
+                      allowEdit: false,
                     ),
-                    const SizedBox(height: 4),
-                    SizedBox(
-                      width: 64,
-                      child: Text(
-                        p.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.bodySmall,
+                    child: Padding(
+                      padding: const EdgeInsets.all(4),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          PersonCircleAvatar(
+                            key: ValueKey<String>(
+                              '${p.id}|$isProtagonist|'
+                              '${faceImageWidgetCacheKey(p.faceImagePath)}',
+                            ),
+                            faceImagePath: p.faceImagePath,
+                            diameter: 40,
+                            borderWidth: isProtagonist ? 2.0 : 0,
+                            borderColor: isProtagonist ? Colors.amber : null,
+                            semanticLabel: p.name,
+                          ),
+                          const SizedBox(height: 4),
+                          SizedBox(
+                            width: 64,
+                            child: Text(
+                              p.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.center,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                    color: AppTheme.navy,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                  ],
+                  ),
                 );
               }).toList(),
             );

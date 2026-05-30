@@ -14,7 +14,7 @@ import '../../data/models/local/category_collection.dart';
 import '../widgets/drive_thumbnail.dart';
 import '../widgets/face_stack.dart';
 import '../widgets/local_media_thumb.dart';
-import '../widgets/app_bar_cloud_sync_indicator.dart';
+import '../widgets/timeline_sync_status_indicator.dart';
 import '../widgets/milestone_sync_badge.dart';
 import '../../../../features/settings/presentation/bloc/people_cubit.dart';
 import '../../../../features/settings/presentation/pages/manage_people_page.dart';
@@ -44,7 +44,7 @@ class _AuthenticatedTimelineView extends StatelessWidget {
       appBar: AppBar(
         title: const Text('LifeTime'),
         actions: [
-          const AppBarCloudSyncIndicator(),
+          const TimelineSyncStatusIndicator(),
           IconButton(
             icon: const Icon(Icons.map_outlined),
             tooltip: 'Mapa de hitos',
@@ -94,26 +94,34 @@ class _AuthenticatedTimelineView extends StatelessWidget {
           ),
         ],
       ),
-      body: BlocBuilder<MilestoneTimelineCubit, MilestoneTimelineState>(
-        builder: (context, state) {
-          if (state is MilestoneTimelineLoading) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (state is MilestoneTimelineLoaded) {
-            if (state.milestones.isEmpty) {
-              return const _EmptyTimeline();
-            }
-            return _MilestoneList(milestones: state.milestones);
-          }
-          if (state is MilestoneTimelineError) {
-            return _ErrorView(
-              message: state.message,
-              onRetry: () =>
-                  context.read<MilestoneTimelineCubit>().loadTimeline(),
-            );
-          }
-          return const SizedBox.shrink();
-        },
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const TimelineSyncMediaProgressBar(),
+          Expanded(
+            child: BlocBuilder<MilestoneTimelineCubit, MilestoneTimelineState>(
+              builder: (context, state) {
+                if (state is MilestoneTimelineLoading) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (state is MilestoneTimelineLoaded) {
+                  if (state.milestones.isEmpty) {
+                    return const _EmptyTimeline();
+                  }
+                  return _MilestoneList(milestones: state.milestones);
+                }
+                if (state is MilestoneTimelineError) {
+                  return _ErrorView(
+                    message: state.message,
+                    onRetry: () =>
+                        context.read<MilestoneTimelineCubit>().loadTimeline(),
+                  );
+                }
+                return const SizedBox.shrink();
+              },
+            ),
+          ),
+        ],
       ),
       floatingActionButton: FloatingActionButton(
         heroTag: 'timeline_add_milestone',
@@ -134,7 +142,7 @@ class _AuthenticatedTimelineView extends StatelessWidget {
   }
 }
 
-// ── List (agrupado por año, cabeceras sticky, índice de años) ────────────────
+// ── List (agrupado por año, un solo sticky) ─────────────────────────────────
 
 /// Conserva el orden del timeline (eventDate descendente) y agrupa por año.
 List<(int year, List<Milestone> items)> _groupMilestonesByYear(
@@ -148,48 +156,36 @@ List<(int year, List<Milestone> items)> _groupMilestonesByYear(
   return [for (final y in years) (y, map[y]!)];
 }
 
-class _TimelineYearHeaderDelegate extends SliverPersistentHeaderDelegate {
-  _TimelineYearHeaderDelegate({required this.year, required this.theme});
+class _TimelineYearHeader extends StatelessWidget {
+  const _TimelineYearHeader({required this.year, required this.theme});
 
   final int year;
   final ThemeData theme;
 
-  static const double headerHeight = 44;
+  static const double height = 44;
 
   @override
-  double get minExtent => headerHeight;
-
-  @override
-  double get maxExtent => headerHeight;
-
-  @override
-  Widget build(
-      BuildContext context, double shrinkOffset, bool overlapsContent) {
-    final softBg =
-        theme.colorScheme.surfaceContainerHighest.withOpacity(0.92);
+  Widget build(BuildContext context) {
+    final softBg = theme.colorScheme.surfaceContainerHighest.withOpacity(0.92);
     return Material(
       color: softBg,
-      elevation: overlapsContent ? 0.5 : 0,
-      shadowColor: theme.dividerColor.withOpacity(0.4),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        child: Align(
-          alignment: Alignment.centerLeft,
-          child: Text(
-            '$year',
-            style: theme.textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w700,
-              color: theme.colorScheme.primary,
+      child: SizedBox(
+        height: height,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              '$year',
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: theme.colorScheme.primary,
+              ),
             ),
           ),
         ),
       ),
     );
-  }
-
-  @override
-  bool shouldRebuild(covariant _TimelineYearHeaderDelegate oldDelegate) {
-    return oldDelegate.year != year || oldDelegate.theme != theme;
   }
 }
 
@@ -204,9 +200,20 @@ class _MilestoneList extends StatefulWidget {
 class _MilestoneListState extends State<_MilestoneList> {
   final ScrollController _scrollController = ScrollController();
   final Map<int, GlobalKey> _yearAnchorKeys = {};
+  int? _stickyYear;
+  bool _showStickyYear = false;
 
   GlobalKey _keyForYear(int year) =>
       _yearAnchorKeys.putIfAbsent(year, GlobalKey.new);
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_updateStickyYearHeader);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _updateStickyYearHeader();
+    });
+  }
 
   @override
   void didUpdateWidget(covariant _MilestoneList oldWidget) {
@@ -215,72 +222,69 @@ class _MilestoneListState extends State<_MilestoneList> {
         .map((e) => e.$1)
         .toSet();
     _yearAnchorKeys.removeWhere((y, _) => !validYears.contains(y));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _updateStickyYearHeader();
+    });
   }
 
   @override
   void dispose() {
+    _scrollController.removeListener(_updateStickyYearHeader);
     _scrollController.dispose();
     super.dispose();
   }
 
-  void _scrollToYear(int year) {
-    final ctx = _yearAnchorKeys[year]?.currentContext;
-    if (ctx == null) return;
-    Scrollable.ensureVisible(
-      ctx,
-      duration: const Duration(milliseconds: 380),
-      curve: Curves.easeInOutCubic,
-      alignment: 0,
-    );
+  double? _yearHeaderDyInViewport(int year) {
+    final headerCtx = _yearAnchorKeys[year]?.currentContext;
+    if (headerCtx == null) return null;
+
+    final headerBox = headerCtx.findRenderObject() as RenderBox?;
+    if (headerBox == null || !headerBox.hasSize) return null;
+
+    final viewportCtx = _scrollController.position.context.storageContext;
+    final viewportBox = viewportCtx.findRenderObject() as RenderBox?;
+    if (viewportBox == null || !viewportBox.hasSize) return null;
+
+    return headerBox
+        .localToGlobal(Offset.zero, ancestor: viewportBox)
+        .dy;
   }
 
-  void _showYearIndexSheet(BuildContext context, List<int> years) {
-    final theme = Theme.of(context);
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (ctx) {
-        return SafeArea(
-          child: ListView.separated(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-            itemCount: years.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 4),
-            itemBuilder: (_, i) {
-              final y = years[i];
-              return ListTile(
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                tileColor: theme.colorScheme.surfaceContainerHighest
-                    .withOpacity(0.5),
-                title: Text(
-                  '$y',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: theme.colorScheme.primary,
-                  ),
-                ),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (mounted) _scrollToYear(y);
-                  });
-                },
-              );
-            },
-          ),
-        );
-      },
-    );
+  void _updateStickyYearHeader() {
+    if (!mounted || !_scrollController.hasClients) return;
+
+    final grouped = _groupMilestonesByYear(widget.milestones);
+    if (grouped.isEmpty) return;
+
+    int activeYear = grouped.first.$1;
+    var showSticky = false;
+
+    for (final (year, _) in grouped) {
+      final dy = _yearHeaderDyInViewport(year);
+      if (dy == null) continue;
+      if (dy <= _TimelineYearHeader.height) {
+        activeYear = year;
+      }
+    }
+
+    final activeDy = _yearHeaderDyInViewport(activeYear);
+    if (activeDy != null && activeDy < 0) {
+      showSticky = true;
+    }
+
+    if (_stickyYear != activeYear || _showStickyYear != showSticky) {
+      setState(() {
+        _stickyYear = activeYear;
+        _showStickyYear = showSticky;
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final grouped = _groupMilestonesByYear(widget.milestones);
-    final years = grouped.map((e) => e.$1).toList();
-    final bottomFabInset =
-        MediaQuery.paddingOf(context).bottom + 72; // encima del FAB principal
+    final stickyYear = _stickyYear ?? grouped.first.$1;
 
     return ListenableBuilder(
       listenable: sl<PeopleFacesRevisionNotifier>(),
@@ -294,13 +298,9 @@ class _MilestoneListState extends State<_MilestoneList> {
               slivers: [
                 const SliverToBoxAdapter(child: SizedBox(height: 20)),
                 for (final (year, items) in grouped) ...[
-                  SliverPersistentHeader(
+                  SliverToBoxAdapter(
                     key: _keyForYear(year),
-                    pinned: true,
-                    delegate: _TimelineYearHeaderDelegate(
-                      year: year,
-                      theme: theme,
-                    ),
+                    child: _TimelineYearHeader(year: year, theme: theme),
                   ),
                   SliverPadding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
@@ -326,16 +326,17 @@ class _MilestoneListState extends State<_MilestoneList> {
                 const SliverToBoxAdapter(child: SizedBox(height: 8)),
               ],
             ),
-            Positioned(
-              right: 16,
-              bottom: bottomFabInset,
-              child: FloatingActionButton.small(
-                heroTag: 'timeline_year_index',
-                tooltip: 'Ir a año',
-                onPressed: () => _showYearIndexSheet(context, years),
-                child: const Icon(Icons.calendar_month_outlined),
+            if (_showStickyYear)
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: Material(
+                  elevation: 0.5,
+                  shadowColor: theme.dividerColor.withOpacity(0.4),
+                  child: _TimelineYearHeader(year: stickyYear, theme: theme),
+                ),
               ),
-            ),
           ],
         );
       },

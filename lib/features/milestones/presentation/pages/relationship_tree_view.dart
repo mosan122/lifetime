@@ -92,6 +92,7 @@ class RelationshipTreeCanvasState extends State<RelationshipTreeCanvas>
   int _lastFocusGeneration = 0;
   Map<String, Offset> _lerpFromByPersonId = const {};
   bool _initialViewportDone = false;
+  double _fitScale = 0.52;
 
   @override
   void initState() {
@@ -112,7 +113,12 @@ class RelationshipTreeCanvasState extends State<RelationshipTreeCanvas>
           setState(() => _lerpFromByPersonId = const {});
         }
       });
-    WidgetsBinding.instance.addPostFrameCallback((_) => _centerViewport());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final state = context.read<RelationshipTreeCubit>().state;
+      if (state.centerPerson != null) {
+        _centerViewport(state);
+      }
+    });
   }
 
   @override
@@ -122,7 +128,31 @@ class RelationshipTreeCanvasState extends State<RelationshipTreeCanvas>
     super.dispose();
   }
 
-  Matrix4 _matrixCenteringCanvas({double scale = 1}) {
+  /// Escala inicial para ver el centro y el primer anillo (cónyuges, etc.).
+  double _computeFitScale(RelationshipTreeState state) {
+    final box = context.findRenderObject() as RenderBox?;
+    if (box == null) return 0.52;
+
+    final maxInQuadrant = [
+      state.parents.length,
+      state.partners.length,
+      state.siblings.length,
+      state.children.length,
+    ].fold(0, (a, b) => a > b ? a : b);
+
+    final spreadExtent =
+        maxInQuadrant <= 1 ? 0.0 : (maxInQuadrant - 1) * _spreadStep;
+    const nodePad = RelationshipTreeNode.width + 48;
+    final halfW = _orbitRadius + nodePad / 2 + spreadExtent / 2;
+    final halfH = _orbitRadius + 96 + spreadExtent / 2;
+
+    final vp = box.size;
+    final scaleW = vp.width / (halfW * 2);
+    final scaleH = vp.height / (halfH * 2);
+    return (scaleW < scaleH ? scaleW : scaleH).clamp(0.35, 0.68);
+  }
+
+  Matrix4 _matrixCenteringCanvas({required double scale}) {
     final box = context.findRenderObject() as RenderBox?;
     if (box == null) {
       return Matrix4.identity()
@@ -138,8 +168,12 @@ class RelationshipTreeCanvasState extends State<RelationshipTreeCanvas>
       ..scale(scale);
   }
 
-  void _centerViewport({bool animated = false}) {
-    final target = _matrixCenteringCanvas();
+  void _centerViewport(
+    RelationshipTreeState state, {
+    bool animated = false,
+  }) {
+    _fitScale = _computeFitScale(state);
+    final target = _matrixCenteringCanvas(scale: _fitScale);
     if (!animated) {
       _transform.value = target;
       return;
@@ -194,7 +228,7 @@ class RelationshipTreeCanvasState extends State<RelationshipTreeCanvas>
     _lastFocusGeneration = state.focusGeneration;
     if (!_initialViewportDone) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _centerViewport(animated: true);
+      if (mounted) _centerViewport(state, animated: true);
     });
   }
 
@@ -235,7 +269,7 @@ class RelationshipTreeCanvasState extends State<RelationshipTreeCanvas>
             state.status == RelationshipTreeStatus.loaded) {
           _initialViewportDone = true;
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) _centerViewport();
+            if (mounted) _centerViewport(state);
           });
         }
       },

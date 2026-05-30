@@ -49,6 +49,8 @@
 	<string>Necesitamos acceso a tus fotos para asignar una foto de perfil.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Necesitamos acceso a la cámara para tomar una foto de perfil.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Necesitamos tu ubicación para centrar el mapa y registrar dónde ocurrió un hito.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

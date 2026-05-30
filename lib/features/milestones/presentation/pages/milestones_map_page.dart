@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_marker_cluster/flutter_map_marker_cluster.dart';
-import 'package:geolocator/geolocator.dart';
+import '../utils/map_location_helpers.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../../../core/constants/milestone_categories.dart';
@@ -64,7 +64,7 @@ class _MilestonesMapPageState extends State<MilestonesMapPage> {
           IconButton(
             icon: const Icon(Icons.my_location),
             tooltip: 'Centrar en mi posición',
-            onPressed: milestones.isEmpty ? null : () => _centerOnMyLocation(),
+            onPressed: () => _centerOnMyLocation(),
           ),
           if (milestones.isNotEmpty)
             Padding(
@@ -82,6 +82,9 @@ class _MilestonesMapPageState extends State<MilestonesMapPage> {
                   options: MapOptions(
                     initialCenter: _centroid(milestones),
                     initialZoom: 4.4,
+                    onMapReady: () {
+                      _mapController.move(_centroid(milestones), 4.4);
+                    },
                     interactionOptions: const InteractionOptions(
                       flags: InteractiveFlag.all,
                     ),
@@ -166,45 +169,7 @@ class _MilestonesMapPageState extends State<MilestonesMapPage> {
   }
 
   Future<void> _centerOnMyLocation() async {
-    try {
-      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Activa la ubicación para centrar el mapa.')),
-        );
-        return;
-      }
-
-      var permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-      if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Permiso de ubicación denegado.'),
-          ),
-        );
-        return;
-      }
-
-      final pos = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.low,
-        ),
-      ).timeout(const Duration(seconds: 8));
-
-      final zoom = _mapController.camera.zoom;
-      _mapController.move(LatLng(pos.latitude, pos.longitude), zoom < 12 ? 12 : zoom);
-    } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No se pudo obtener tu posición actual.')),
-      );
-    }
+    await centerMapOnCurrentLocation(context, _mapController, zoom: 14);
   }
 
   Future<void> _openDetail(

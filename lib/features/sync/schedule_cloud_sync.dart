@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../../core/services/cloud_sync_service.dart';
 import '../../core/services/cloud_sync_status_store.dart';
 import '../../injection_container.dart';
 import 'data/services/sync_service.dart';
@@ -20,7 +21,7 @@ void scheduleCloudDataSyncAfterLocalRestore() {
   scheduleCloudDataSync(forceResync: true);
 }
 
-/// Dispara [SyncService.syncData] en segundo plano (agrupado ~3 s).
+/// Metadatos al instante; medios/Drive diferidos (agrupado ~3 s).
 void scheduleCloudDataSync({bool forceResync = false}) {
   if (!sl.isRegistered<SyncService>()) return;
   if (forceResync) _pendingForceResync = true;
@@ -28,6 +29,12 @@ void scheduleCloudDataSync({bool forceResync = false}) {
   _debounce = Timer(const Duration(seconds: 3), () {
     final force = _pendingForceResync;
     _pendingForceResync = false;
-    unawaited(sl<SyncService>().syncData(forceResync: force));
+    final sync = sl<SyncService>();
+    unawaited(sync.syncMetadata(forceResync: force).then((meta) {
+      if (meta.skipped) return;
+      unawaited(
+        sl<CloudSyncService>().syncMediaDeferred(forceRestore: force),
+      );
+    }));
   });
 }

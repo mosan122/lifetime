@@ -1,9 +1,7 @@
 import 'package:dartz/dartz.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:get_it/get_it.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:lifetime/core/failures/failure.dart';
-import 'package:lifetime/core/services/cloud_sync_service.dart';
 import 'package:lifetime/core/usecases/usecase.dart';
 import 'package:lifetime/data/models/milestone_model.dart';
 import 'package:lifetime/domain/entities/milestone.dart';
@@ -12,11 +10,8 @@ import 'package:lifetime/features/milestones/presentation/bloc/milestone_timelin
 
 class MockGetMilestonesUseCase extends Mock implements GetMilestonesUseCase {}
 
-class MockCloudSyncService extends Mock implements CloudSyncService {}
-
 void main() {
   late MockGetMilestonesUseCase mockGetMilestones;
-  late MockCloudSyncService mockCloudSync;
 
   final tMilestone = MilestoneModel(
     id: 'ms-1',
@@ -57,21 +52,6 @@ void main() {
 
   setUp(() {
     mockGetMilestones = MockGetMilestonesUseCase();
-    mockCloudSync = MockCloudSyncService();
-    when(() => mockCloudSync.syncIfNeeded(any())).thenAnswer((_) async {});
-
-    final g = GetIt.instance;
-    if (g.isRegistered<CloudSyncService>()) {
-      g.unregister<CloudSyncService>();
-    }
-    g.registerSingleton<CloudSyncService>(mockCloudSync);
-  });
-
-  tearDown(() async {
-    final g = GetIt.instance;
-    if (g.isRegistered<CloudSyncService>()) {
-      await g.unregister<CloudSyncService>();
-    }
   });
 
   test('initial state is MilestoneTimelineInitial', () {
@@ -95,7 +75,6 @@ void main() {
     await done;
     await cubit.close();
     verify(() => mockGetMilestones(const NoParams())).called(1);
-    verify(() => mockCloudSync.syncIfNeeded(any())).called(1);
   });
 
   test('emits [Loading, Loaded] with empty list when no milestones exist',

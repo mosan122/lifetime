@@ -8,7 +8,7 @@ class SavedLocationCollection {
 
   /// Id estable para sync Supabase (`saved_locations.client_id`).
   @Index(unique: true)
-  late String clientId;
+  String clientId = '';
 
   late String name;
   String? city;

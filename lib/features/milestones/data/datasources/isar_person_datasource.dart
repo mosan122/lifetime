@@ -7,6 +7,8 @@ import 'package:lifetime/features/sync/schedule_cloud_sync.dart';
 abstract class IsarPersonDataSource {
   Future<PersonCollection?> fetchByName(String name);
   Future<PersonCollection?> fetchById(String id);
+  /// Incluye registros con [PersonCollection.isDeleted] (tombstones locales).
+  Future<PersonCollection?> fetchByIdIncludingDeleted(String id);
   Future<List<PersonCollection>> fetchByIds(List<String> ids);
   /// Persona vinculada a la cuenta LifeTime (`linkedUserId` = id Supabase).
   Future<PersonCollection?> fetchByLinkedUserId(String linkedUserId);
@@ -44,6 +46,10 @@ class IsarPersonDataSourceImpl implements IsarPersonDataSource {
     if (item == null || item.isDeleted) return null;
     return item;
   }
+
+  @override
+  Future<PersonCollection?> fetchByIdIncludingDeleted(String id) =>
+      _findByIdAny(id);
 
   @override
   Future<List<PersonCollection>> fetchByIds(List<String> ids) async {

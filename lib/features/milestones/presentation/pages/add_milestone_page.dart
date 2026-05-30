@@ -38,6 +38,7 @@ import '../widgets/face_source_bottom_sheet.dart';
 import '../widgets/milestone_participant_picker_sheet.dart';
 import '../widgets/person_avatar_badge.dart';
 import '../widgets/person_name_alert_dialog.dart';
+import '../../../sync/schedule_cloud_sync.dart';
 import 'location_picker_page.dart';
 
 int _clampGalleryCoverIndexForCount(int coverIndex, int mediaCount) {
@@ -1337,6 +1338,10 @@ class _PlacePickerSheetState extends State<_PlacePickerSheet> {
     if (name.isEmpty) return null;
     try {
       final ds = sl<IsarSavedLocationDataSource>();
+      SavedLocationCollection? existing;
+      if (existingIsarId != null) {
+        existing = await ds.fetchById(existingIsarId);
+      }
       final c = SavedLocationCollection()
         ..name = name
         ..city = (picked.city ?? '').trim().isEmpty ? null : picked.city!.trim()
@@ -1345,14 +1350,82 @@ class _PlacePickerSheetState extends State<_PlacePickerSheet> {
             : picked.country!.trim()
         ..latitude = picked.latitude
         ..longitude = picked.longitude;
-      if (existingIsarId != null) c.isarId = existingIsarId;
+      if (existing != null) {
+        c
+          ..isarId = existing.isarId
+          ..clientId = existing.clientId;
+      }
       final saved = await ds.upsert(c);
+      scheduleCloudDataSync();
       await _loadSaved();
       return saved.isarId;
-    } catch (_) {
-      // Best-effort.
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('No se pudo guardar el lugar: $e'),
+            backgroundColor: Colors.red.shade700,
+          ),
+        );
+      }
     }
     return null;
+  }
+
+  Future<MilestoneLocationData?> _promptFriendlyPlaceName(
+    MilestoneLocationData picked,
+  ) async {
+    if (!_saveToMyPlaces) return picked;
+    final friendly = await showPersonNameAlertDialog(
+      context: context,
+      title: 'Nombre del lugar',
+      initialValue: picked.name,
+      hintText: 'Nombre amigable',
+      submitLabel: 'Guardar',
+      textCapitalization: TextCapitalization.sentences,
+      useRootNavigator: true,
+    );
+    final name = (friendly ?? '').trim();
+    if (name.isEmpty) return picked;
+    return MilestoneLocationData(
+      name: name,
+      city: picked.city,
+      country: picked.country,
+      latitude: picked.latitude,
+      longitude: picked.longitude,
+    );
+  }
+
+  /// Guarda en «Mis lugares» si la estrella está activa y hay selección.
+  Future<void> _persistSelectionIfSaving() async {
+    if (!_saveToMyPlaces) return;
+    final base = _selected;
+    if (base == null) return;
+
+    final named = await _promptFriendlyPlaceName(base);
+    if (!mounted || named == null) return;
+
+    final savedId = await _maybePersistToMyPlaces(
+      named,
+      existingIsarId: _selectedSavedLocationId,
+    );
+    if (!mounted) return;
+
+    setState(() {
+      _selected = named;
+      if (savedId != null) _selectedSavedLocationId = savedId;
+      _savedExpanded = true;
+      _ctrl.text = named.name;
+      _ctrl.selection = TextSelection.collapsed(offset: _ctrl.text.length);
+    });
+    if (savedId != null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('«${named.name}» guardado en Mis lugares'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
   }
 
   @override
@@ -1372,6 +1445,7 @@ class _PlacePickerSheetState extends State<_PlacePickerSheet> {
       if (!mounted) return;
       setState(() {
         _saved = items.where((e) => e.name.trim().isNotEmpty).toList();
+        if (_saved.isNotEmpty) _savedExpanded = true;
       });
     } catch (_) {
       // Ignore: saved places are best-effort.
@@ -1591,28 +1665,10 @@ class _PlacePickerSheetState extends State<_PlacePickerSheet> {
                     ? null
                     : () async {
                         var picked = _resolvePickedForAccept(q);
-
-                        // If saving as favorite, ask for a friendly name.
                         if (_saveToMyPlaces) {
-                          final friendly = await showPersonNameAlertDialog(
-                            context: context,
-                            title: 'Nombre del lugar',
-                            initialValue: picked.name,
-                            hintText: 'Nombre amigable',
-                            submitLabel: 'Guardar',
-                            textCapitalization: TextCapitalization.sentences,
-                            useRootNavigator: true,
-                          );
-                          final name = (friendly ?? '').trim();
-                          if (name.isNotEmpty) {
-                            picked = MilestoneLocationData(
-                              name: name,
-                              city: picked.city,
-                              country: picked.country,
-                              latitude: picked.latitude,
-                              longitude: picked.longitude,
-                            );
-                          }
+                          final named = await _promptFriendlyPlaceName(picked);
+                          if (!context.mounted) return;
+                          picked = named ?? picked;
                         }
 
                         final savedId = await _maybePersistToMyPlaces(
@@ -1655,10 +1711,12 @@ class _PlacePickerSheetState extends State<_PlacePickerSheet> {
                 if (picked != null) {
                   setState(() {
                     _selected = picked;
+                    _selectedSavedLocationId = null;
                     _ctrl.text = picked.name;
                     _ctrl.selection =
                         TextSelection.collapsed(offset: _ctrl.text.length);
                   });
+                  await _persistSelectionIfSaving();
                 }
               },
               icon: const Icon(Icons.map_outlined, size: 18),
@@ -1705,7 +1763,11 @@ class _PlacePickerSheetState extends State<_PlacePickerSheet> {
               ),
               const SizedBox(width: 8),
               TextButton.icon(
-                onPressed: () => setState(() => _saveToMyPlaces = !_saveToMyPlaces),
+                onPressed: () async {
+                  final enabling = !_saveToMyPlaces;
+                  setState(() => _saveToMyPlaces = enabling);
+                  if (enabling) await _persistSelectionIfSaving();
+                },
                 icon: Icon(_saveToMyPlaces ? Icons.star : Icons.star_border),
                 label: const Text('Guardar'),
                 style: TextButton.styleFrom(
@@ -1878,6 +1940,7 @@ class _PlacePickerSheetState extends State<_PlacePickerSheet> {
                           _ctrl.selection =
                               TextSelection.collapsed(offset: _ctrl.text.length);
                         });
+                        await _persistSelectionIfSaving();
                       },
                       child: Padding(
                         padding:
@@ -1988,6 +2051,7 @@ class _PlacePickerSheetState extends State<_PlacePickerSheet> {
                       _ctrl.selection =
                           TextSelection.collapsed(offset: _ctrl.text.length);
                     });
+                    await _persistSelectionIfSaving();
                   },
                   child: Padding(
                     padding:

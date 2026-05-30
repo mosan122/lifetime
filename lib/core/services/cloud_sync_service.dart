@@ -11,6 +11,7 @@ import '../../core/notifiers/cloud_sync_activity_notifier.dart';
 import '../../features/milestones/data/datasources/isar_person_datasource.dart';
 import '../../features/milestones/data/models/local/milestone_collection.dart';
 import '../../features/milestones/data/models/local/milestone_media_prune.dart';
+import '../../features/sync/presentation/bloc/sync_status_cubit.dart';
 import 'drive_milestone_media_restore.dart';
 import 'google_drive_auth.dart';
 import 'google_drive_reauth_bridge.dart';
@@ -28,6 +29,7 @@ class CloudSyncService {
     this._reauthBridge,
     this._localMedia,
     this._syncActivity,
+    this._syncStatus,
   );
 
   final PremiumService _premium;
@@ -37,15 +39,71 @@ class CloudSyncService {
   final GoogleDriveReauthBridge _reauthBridge;
   final LocalMediaStore _localMedia;
   final CloudSyncActivityNotifier _syncActivity;
+  final SyncStatusCubit _syncStatus;
 
   static const _logName = 'CloudSyncService';
   static const _syncIfNeededMinInterval = Duration(minutes: 2);
   static const _mediaRestoreCooldown = Duration(minutes: 10);
 
   var _running = false;
+  var _mediaDeferredRunning = false;
   var _mediaRestoreRunning = false;
   DateTime? _lastSyncIfNeededAt;
   DateTime? _lastMediaRestoreAt;
+
+  /// Fase 2: Drive y medios, diferida para no competir con el arranque de la UI.
+  Future<void> syncMediaDeferred({
+    Duration initialDelay = const Duration(seconds: 5),
+    bool forceRestore = false,
+  }) async {
+    if (!_premium.isPremium) return;
+    if (_mediaDeferredRunning) return;
+    _mediaDeferredRunning = true;
+
+    try {
+      await Future<void>.delayed(initialDelay);
+      await syncMediaNow(forceRestore: forceRestore);
+    } finally {
+      _mediaDeferredRunning = false;
+    }
+  }
+
+  /// Subida/restauración en Drive sin retraso (p. ej. botón «Sincronizar ahora»).
+  Future<void> syncMediaNow({bool forceRestore = false}) async {
+    if (!_premium.isPremium) return;
+
+    _syncStatus.startMedia();
+    _syncActivity.acquire();
+    var hadError = false;
+
+    try {
+      _syncStatus.updateMediaMessage('Comprobando archivos eliminados en Drive…');
+      await purgeDeletedFromDrive();
+
+      final collections = await _milestones.fetchAll();
+      if (collections.isNotEmpty) {
+        _syncStatus.updateMediaMessage('Subiendo fotos y vídeos a Google Drive…');
+        final domain =
+            collections.map((m) => m.toDomain()).toList(growable: false);
+        await syncIfNeeded(domain);
+      }
+
+      _syncStatus.updateMediaMessage('Descargando medios desde Drive…');
+      await restoreMilestoneMediaFromDrive(force: forceRestore);
+
+      _syncStatus.updateMediaMessage('Sincronizando fotos de perfil…');
+      await restoreMissingFaces();
+    } catch (e) {
+      hadError = true;
+      _syncStatus.reportError(e.toString());
+      developer.log('syncMediaNow: $e', name: _logName);
+    } finally {
+      _syncActivity.release();
+      if (!hadError) {
+        _syncStatus.markIdleWithSuccess();
+      }
+    }
+  }
 
   Future<GoogleDriveService?> _openDriveServiceSilently() async {
     final account = await googleSignInSilently(_googleSignIn);

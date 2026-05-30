@@ -126,8 +126,11 @@ class PremiumCloudPull {
       final clientId = (map['client_id'] as String?)?.trim();
       if (clientId == null || clientId.isEmpty) continue;
 
-      final existing = await _personDs.fetchById(clientId);
-      if (existing != null && !existing.isSynced) continue;
+      final existing = await _personDs.fetchByIdIncludingDeleted(clientId);
+      if (existing != null) {
+        if (existing.isDeleted) continue;
+        if (!existing.isSynced) continue;
+      }
 
       final row = PersonCollection()
         ..id = clientId

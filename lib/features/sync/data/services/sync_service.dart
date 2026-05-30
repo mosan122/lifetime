@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:developer' as developer;
 import 'dart:io';
 
@@ -24,6 +25,7 @@ import '../../../milestones/data/models/local/person_collection.dart';
 import '../../../milestones/data/models/local/relationship_collection.dart';
 import '../../../profile/data/datasources/profile_remote_datasource.dart';
 import '../../domain/sync_run_result.dart';
+import '../../presentation/bloc/sync_status_cubit.dart';
 import 'premium_cloud_pull.dart';
 
 /// Sincronización incremental Isar → nube (Drive + Supabase), solo premium.
@@ -43,7 +45,8 @@ class SyncService {
     this._savedLocationDs,
     this._localMedia,
     this._syncActivity,
-    this._syncStatus,
+    this._syncStatusStore,
+    this._syncStatusCubit,
   );
 
   final SupabaseClient _supabase;
@@ -60,7 +63,8 @@ class SyncService {
   final IsarSavedLocationDataSource _savedLocationDs;
   final LocalMediaStore _localMedia;
   final CloudSyncActivityNotifier _syncActivity;
-  final CloudSyncStatusStore _syncStatus;
+  final CloudSyncStatusStore _syncStatusStore;
+  final SyncStatusCubit _syncStatusCubit;
 
   PremiumCloudPull get _cloudPull => PremiumCloudPull(
         _supabase,
@@ -82,15 +86,34 @@ class SyncService {
   static int _colorArgbForSupabase(int colorValue) => colorValue & 0xFFFFFFFF;
 
   static const _logName = 'SyncService';
-  var _running = false;
+  var _metadataRunning = false;
+  var _lastPullMilestoneCount = 0;
 
   SyncRunResult? lastResult;
 
-  /// Primera apertura del timeline tras login premium: pull + push completos.
+  /// Primera apertura del timeline tras login premium (sin bloquear la UI).
   Future<void> syncIfNeededForTimelineOpen() async {
     if (!await _resolveIsPremium()) return;
-    if (!await _syncStatus.consumeNeedsTimelinePull()) return;
-    await syncData();
+    if (!await _syncStatusStore.consumeNeedsTimelinePull()) return;
+    unawaited(
+      _runBackgroundSync(
+        forceResync: true,
+        forceRestore: true,
+      ),
+    );
+  }
+
+  Future<void> _runBackgroundSync({
+    bool forceResync = false,
+    bool forceRestore = false,
+  }) async {
+    final meta = await syncMetadata(forceResync: forceResync);
+    if (meta.skipped) return;
+    unawaited(
+      _cloudSync.syncMediaDeferred(
+        forceRestore: forceRestore || _lastPullMilestoneCount > 0,
+      ),
+    );
   }
 
   /// Marca todo el contenido local activo como pendiente de subir a Supabase.
@@ -126,11 +149,40 @@ class SyncService {
     });
   }
 
+  /// Sincronización completa (metadatos + Drive), p. ej. desde el panel Premium.
   Future<SyncRunResult> syncData({bool forceResync = false}) async {
-    if (_running) {
+    final meta = await syncMetadata(forceResync: forceResync);
+    if (meta.skipped) return meta;
+
+    try {
+      await _cloudSync.syncMediaNow(
+        forceRestore: forceResync || _lastPullMilestoneCount > 0,
+      );
+    } catch (e) {
+      final merged = [...meta.errors, _formatError(e)];
+      final failed = SyncRunResult(
+        peopleSynced: meta.peopleSynced,
+        peopleFailed: meta.peopleFailed,
+        relationshipsSynced: meta.relationshipsSynced,
+        relationshipsFailed: meta.relationshipsFailed,
+        milestonesSynced: meta.milestonesSynced,
+        milestonesFailed: meta.milestonesFailed,
+        errors: merged,
+      );
+      lastResult = failed;
+      return failed;
+    }
+
+    lastResult = meta;
+    return meta;
+  }
+
+  /// Fase 1: Supabase (hitos, personas, relaciones, catálogo y purgas).
+  Future<SyncRunResult> syncMetadata({bool forceResync = false}) async {
+    if (_metadataRunning) {
       return const SyncRunResult(
         skipped: true,
-        skipReason: 'Ya hay una sincronización en curso.',
+        skipReason: 'Ya hay una sincronización de metadatos en curso.',
       );
     }
 
@@ -154,7 +206,8 @@ class SyncService {
       );
     }
 
-    _running = true;
+    _metadataRunning = true;
+    _syncStatusCubit.startMetadata();
     _syncActivity.acquire();
     final errors = <String>[];
     var peopleSynced = 0;
@@ -163,12 +216,15 @@ class SyncService {
     var relFailed = 0;
     var msSynced = 0;
     var msFailed = 0;
+    _lastPullMilestoneCount = 0;
 
     try {
+      _syncStatusCubit.updateMetadataMessage('Descargando datos de la nube…');
       final pull = await _cloudPull.pullAll(user.id);
+      _lastPullMilestoneCount = pull.milestones;
       errors.addAll(pull.errors);
       developer.log(
-        'Pull nube: ${pull.total} filas (hitos ${pull.milestones}, personas ${pull.people})',
+        'Pull nube: ${pull.total} filas (hitos ${pull.milestones}, personas ${pull.people}, lugares ${pull.locations})',
         name: _logName,
       );
 
@@ -176,47 +232,46 @@ class SyncService {
         await markAllLocalRowsPending();
       }
 
-      await _cloudSync.purgeDeletedFromDrive();
+      _syncStatusCubit.updateMetadataMessage('Aplicando borrados en la nube…');
       await _purgeDeletedFromSupabase(user.id);
 
+      _syncStatusCubit.updateMetadataMessage(
+        'Sincronizando lugares favoritos y catálogo…',
+      );
       await _syncCatalog(user.id);
 
+      _syncStatusCubit.updateMetadataMessage('Sincronizando personas…');
       final pr = await _syncPeople(user.id);
       peopleSynced = pr.$1;
       peopleFailed = pr.$2;
       errors.addAll(pr.$3);
 
+      _syncStatusCubit.updateMetadataMessage('Sincronizando relaciones…');
       final rr = await _syncRelationships(user.id);
       relSynced = rr.$1;
       relFailed = rr.$2;
       errors.addAll(rr.$3);
 
+      _syncStatusCubit.updateMetadataMessage('Sincronizando hitos…');
       final mr = await _syncMilestones(user.id);
       msSynced = mr.$1;
       msFailed = mr.$2;
       errors.addAll(mr.$3);
-
-      final milestones = await _milestoneDs.fetchAll();
-      if (msFailed == 0 && milestones.isNotEmpty) {
-        final domain = milestones.map((m) => m.toDomain()).toList();
-        await _cloudSync.syncIfNeeded(domain);
-      }
-
-      await _cloudSync.restoreMilestoneMediaFromDrive(
-        force: forceResync || pull.milestones > 0,
-      );
-      await _cloudSync.restoreMissingFaces();
     } catch (e, st) {
       developer.log(
-        'Error en sincronización: $e',
+        'Error en sincronización de metadatos: $e',
         name: _logName,
         error: e,
         stackTrace: st,
       );
       errors.add(_formatError(e));
+      _syncStatusCubit.reportError(_formatError(e));
     } finally {
-      _running = false;
+      _metadataRunning = false;
       _syncActivity.release();
+      if (errors.isEmpty) {
+        _syncStatusCubit.markIdle();
+      }
     }
 
     final result = SyncRunResult(
@@ -230,7 +285,11 @@ class SyncService {
     );
     lastResult = result;
     if (!result.skipped && !result.hasErrors) {
-      await _syncStatus.recordSuccess(DateTime.now().toUtc());
+      await _syncStatusStore.recordSuccess(DateTime.now().toUtc());
+    } else if (result.hasErrors) {
+      _syncStatusCubit.reportError(
+        result.errors.isNotEmpty ? result.errors.first : 'Error de sincronización',
+      );
     }
     return result;
   }
@@ -671,10 +730,12 @@ class SyncService {
     final locations = await _savedLocationDs.fetchAll();
     for (final loc in locations) {
       final saved = await _savedLocationDs.upsert(loc);
+      final clientId = saved.clientId.trim();
+      if (clientId.isEmpty) continue;
       await _supabase.from('saved_locations').upsert(
         {
           'user_id': userId,
-          'client_id': saved.clientId,
+          'client_id': clientId,
           'name': saved.name,
           if (saved.city != null) 'city': saved.city,
           if (saved.country != null) 'country': saved.country,
@@ -683,6 +744,28 @@ class SyncService {
           'updated_at': now,
         },
         onConflict: 'user_id,client_id',
+      );
+    }
+  }
+
+  /// Borra un lugar favorito en Supabase (p. ej. al eliminarlo en Ajustes).
+  Future<void> deleteSavedLocationRemote(String clientId) async {
+    final id = clientId.trim();
+    if (id.isEmpty) return;
+    final userId = _supabase.auth.currentUser?.id;
+    if (userId == null) return;
+    try {
+      await _supabase
+          .from('saved_locations')
+          .delete()
+          .eq('user_id', userId)
+          .eq('client_id', id);
+    } catch (e, st) {
+      developer.log(
+        'No se pudo borrar lugar $id en Supabase: $e',
+        name: _logName,
+        error: e,
+        stackTrace: st,
       );
     }
   }

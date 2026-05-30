@@ -51,6 +51,9 @@ abstract class IsarMilestoneDataSource {
   /// Hitos donde [personId] figura en participantes o protagonistas.
   Future<int> countMilestonesContainingPerson(String personId);
 
+  /// Hitos activos que usan el lugar favorito [savedLocationId].
+  Future<int> countMilestonesUsingSavedLocation(int savedLocationId);
+
   /// Medios locales en hitos activos con [MediaItemEmbed.isSynced] == false.
   Future<int> countUnsyncedMediaItems();
 
@@ -358,6 +361,20 @@ class IsarMilestoneDataSourceImpl implements IsarMilestoneDataSource {
       if (m.participants.contains(pid) || m.protagonists.contains(pid)) {
         n++;
       }
+    }
+    return n;
+  }
+
+  @override
+  Future<int> countMilestonesUsingSavedLocation(int savedLocationId) async {
+    if (savedLocationId <= 0) return 0;
+    final all = await _isar.milestoneCollections
+        .filter()
+        .isDeletedEqualTo(false)
+        .findAll();
+    var n = 0;
+    for (final m in all) {
+      if (m.savedLocationId == savedLocationId) n++;
     }
     return n;
   }

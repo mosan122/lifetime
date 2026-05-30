@@ -11,12 +11,18 @@ abstract class IsarSavedLocationDataSource {
 }
 
 class IsarSavedLocationDataSourceImpl implements IsarSavedLocationDataSource {
-  final Isar _isar;
   IsarSavedLocationDataSourceImpl(this._isar);
 
+  final Isar _isar;
+
   @override
-  Future<List<SavedLocationCollection>> fetchAll() =>
-      _isar.savedLocationCollections.where().sortByName().findAll();
+  Future<List<SavedLocationCollection>> fetchAll() async {
+    final rows = await _isar.savedLocationCollections.where().findAll();
+    rows.sort(
+      (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+    );
+    return rows;
+  }
 
   @override
   Future<SavedLocationCollection?> fetchById(Id isarId) =>
@@ -24,10 +30,16 @@ class IsarSavedLocationDataSourceImpl implements IsarSavedLocationDataSource {
 
   @override
   Future<SavedLocationCollection> upsert(SavedLocationCollection c) async {
-    if (c.clientId.trim().isEmpty) {
-      c.clientId = const Uuid().v4();
-    }
     await _isar.writeTxn(() async {
+      if (c.isarId != Isar.autoIncrement) {
+        final existing = await _isar.savedLocationCollections.get(c.isarId);
+        if (existing != null && c.clientId.trim().isEmpty) {
+          c.clientId = existing.clientId;
+        }
+      }
+      if (c.clientId.trim().isEmpty) {
+        c.clientId = const Uuid().v4();
+      }
       await _isar.savedLocationCollections.put(c);
     });
     return c;
@@ -40,4 +52,3 @@ class IsarSavedLocationDataSourceImpl implements IsarSavedLocationDataSource {
     });
   }
 }
-

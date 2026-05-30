@@ -15,6 +15,7 @@ import 'package:lifetime/core/services/premium_service.dart';
 import 'package:lifetime/data/datasources/isar_milestone_datasource.dart';
 import 'package:lifetime/features/milestones/data/datasources/isar_person_datasource.dart';
 import 'package:lifetime/features/milestones/data/models/local/person_collection.dart';
+import 'package:lifetime/features/sync/presentation/bloc/sync_status_cubit.dart';
 
 class MockGoogleDriveService extends Mock implements GoogleDriveService {}
 class MockIsarPersonDataSource extends Mock implements IsarPersonDataSource {}
@@ -72,6 +73,7 @@ void main() {
       GoogleDriveReauthBridge(),
       MockLocalMediaStore(),
       CloudSyncActivityNotifier(),
+      SyncStatusCubit(),
     );
   });
 

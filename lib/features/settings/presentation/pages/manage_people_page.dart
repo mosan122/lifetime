@@ -3,22 +3,16 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../../../../core/failures/failure.dart';
-import '../../../../core/services/premium_service.dart';
 import '../../../../core/theme/app_theme.dart';
-import '../../../../domain/services/face_cropper_service.dart';
-import '../../../../injection_container.dart';
 import '../../../milestones/data/models/local/group_collection.dart';
 import '../../../milestones/data/models/local/person_collection.dart';
 import '../../../milestones/presentation/pages/group_constellation_view.dart';
-import '../../../milestones/presentation/widgets/face_source_bottom_sheet.dart';
 import '../../../milestones/presentation/widgets/face_stack.dart';
 import '../../../milestones/presentation/widgets/person_avatar_badge.dart';
-import '../../../milestones/presentation/widgets/person_relationships_block.dart';
 import '../bloc/people_cubit.dart';
 import '../widgets/manage_people_relations_tab.dart';
+import '../widgets/person_detail_sheet.dart';
 import 'add_person_page.dart';
-import 'edit_person_page.dart';
 
 class ManagePeoplePage extends StatefulWidget {
   const ManagePeoplePage({super.key});
@@ -29,10 +23,7 @@ class ManagePeoplePage extends StatefulWidget {
 
 class _ManagePeoplePageState extends State<ManagePeoplePage>
     with SingleTickerProviderStateMixin {
-  static const String _kFilterAll = '__all__';
-
   late final TabController _tabController;
-  String _filterGroupId = _kFilterAll;
 
   @override
   void initState() {
@@ -42,11 +33,6 @@ class _ManagePeoplePageState extends State<ManagePeoplePage>
       if (_tabController.indexIsChanging) return;
       if (mounted) setState(() {});
     });
-  }
-
-  bool _personIsSyncedToCloud(PersonCollection p) {
-    return p.isSynced ||
-        (p.driveFaceFileId != null && p.driveFaceFileId!.trim().isNotEmpty);
   }
 
   @override
@@ -60,14 +46,6 @@ class _ManagePeoplePageState extends State<ManagePeoplePage>
     final last = (p.lastName ?? '').trim();
     final full = [first, last].where((s) => s.isNotEmpty).join(' ');
     return full;
-  }
-
-  String _groupsLabelForPerson(PersonCollection p, List<GroupCollection> groups) {
-    final byId = {for (final g in groups) g.id: g.name};
-    return p.runtimeGroupIds
-        .map((id) => byId[id] ?? '')
-        .where((n) => n.trim().isNotEmpty)
-        .join(', ');
   }
 
   @override
@@ -166,137 +144,81 @@ class _ManagePeoplePageState extends State<ManagePeoplePage>
       );
     }
 
-    final orderedAll = [...people]
+    final ordered = [...people]
       ..sort(
         (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
       );
 
-    final filterItems = <DropdownMenuItem<String>>[
-      const DropdownMenuItem(
-        value: _kFilterAll,
-        child: Text('Todos los grupos'),
-      ),
-      ...groups.map(
-        (g) => DropdownMenuItem(
-          value: g.id,
-          child: Text(g.name),
-        ),
-      ),
-    ];
+    return ListView.separated(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      itemCount: ordered.length,
+      separatorBuilder: (_, __) =>
+          const Divider(height: 1, indent: 72, endIndent: 16),
+      itemBuilder: (context, index) {
+        final p = ordered[index];
+        final img = p.faceImagePath;
+        final hasImg = img != null &&
+            img.trim().isNotEmpty &&
+            File(img).existsSync();
 
-    var effectiveFilter = _filterGroupId;
-    if (!filterItems.any((e) => e.value == effectiveFilter)) {
-      effectiveFilter = _kFilterAll;
-    }
+        final full = _fullName(p);
+        final linked =
+            p.linkedUserId != null && p.linkedUserId!.trim().isNotEmpty;
 
-    final filtered = effectiveFilter == _kFilterAll
-        ? orderedAll
-        : orderedAll
-            .where((p) => p.runtimeGroupIds.contains(effectiveFilter))
-            .toList();
-
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-          child: Row(
+        return ListTile(
+          onTap: () => showPersonDetailSheet(context, person: p, groups: groups),
+          leading: CircleAvatar(
+            radius: 22,
+            backgroundColor: AppTheme.navy.withValues(alpha: 0.10),
+            child: hasImg
+                ? ClipOval(
+                    child: Image(
+                      key: ValueKey<String>(
+                        faceImageWidgetCacheKey(img),
+                      ),
+                      width: 44,
+                      height: 44,
+                      fit: BoxFit.cover,
+                      gaplessPlayback: true,
+                      image: FileImage(File(img)),
+                    ),
+                  )
+                : const Icon(Icons.person_outline, color: AppTheme.navy),
+          ),
+          title: Row(
             children: [
-              const Icon(Icons.filter_list, color: AppTheme.navy),
-              const SizedBox(width: 10),
               Expanded(
-                // ignore: deprecated_member_use
-                child: DropdownButtonFormField<String>(
-                  value: effectiveFilter,
-                  items: filterItems,
-                  onChanged: (v) =>
-                      setState(() => _filterGroupId = v ?? _kFilterAll),
-                  decoration: const InputDecoration(
-                    isDense: true,
-                    labelText: 'Filtrar por grupo',
-                  ),
+                child: Text(
+                  p.name,
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w700),
                 ),
               ),
+              if (linked)
+                const Icon(
+                  Icons.bolt,
+                  size: 18,
+                  color: Colors.blue,
+                ),
             ],
           ),
-        ),
-        const SizedBox(height: 4),
-        Expanded(
-          child: ListView.separated(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            itemCount: filtered.length,
-            separatorBuilder: (_, __) =>
-                const Divider(height: 1, indent: 72, endIndent: 16),
-            itemBuilder: (context, index) {
-              final p = filtered[index];
-              final img = p.faceImagePath;
-              final hasImg = img != null &&
-                  img.trim().isNotEmpty &&
-                  File(img).existsSync();
-
-              final full = _fullName(p);
-              final linked = p.linkedUserId != null &&
-                  p.linkedUserId!.trim().isNotEmpty;
-
-              return ListTile(
-                onTap: () => _openPersonDetailSheet(context, p, groups),
-                leading: GestureDetector(
-                  onTap: () => _assignPhoto(context, p),
-                  child: CircleAvatar(
-                    radius: 22,
-                    backgroundColor: AppTheme.navy.withValues(alpha: 0.10),
-                    child: hasImg
-                        ? ClipOval(
-                            child: Image(
-                              key: ValueKey<String>(
-                                faceImageWidgetCacheKey(img),
-                              ),
-                              width: 44,
-                              height: 44,
-                              fit: BoxFit.cover,
-                              gaplessPlayback: true,
-                              image: FileImage(File(img)),
-                            ),
-                          )
-                        : const Icon(Icons.person_outline, color: AppTheme.navy),
-                  ),
-                ),
-                title: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        p.name,
-                        style: Theme.of(context)
-                            .textTheme
-                            .titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w700),
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (full.isNotEmpty)
+                Text(
+                  full,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Colors.black54,
                       ),
-                    ),
-                    if (linked)
-                      const Icon(
-                        Icons.bolt,
-                        size: 18,
-                        color: Colors.blue,
-                      ),
-                  ],
                 ),
-                subtitle: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (full.isNotEmpty)
-                      Text(
-                        full,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Colors.black54,
-                            ),
-                      ),
-                  ],
-                ),
-              );
-            },
+            ],
           ),
-        ),
-      ],
+        );
+      },
     );
   }
 
@@ -323,9 +245,10 @@ class _ManagePeoplePageState extends State<ManagePeoplePage>
         (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
       );
 
-    return ListView.builder(
+    return ListView.separated(
       padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
       itemCount: sortedGroups.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 4),
       itemBuilder: (context, index) {
         final g = sortedGroups[index];
         final members = people
@@ -335,11 +258,10 @@ class _ManagePeoplePageState extends State<ManagePeoplePage>
             (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
           );
 
-        final premium = sl<PremiumService>().isPremium;
-
         return Card(
-          margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-          child: ExpansionTile(
+          margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          clipBehavior: Clip.antiAlias,
+          child: ListTile(
             leading: members.isEmpty
                 ? CircleAvatar(
                     radius: 20,
@@ -351,7 +273,7 @@ class _ManagePeoplePageState extends State<ManagePeoplePage>
                   )
                 : FaceStack(
                     people: members,
-                    diameter: 32,
+                    diameter: 40,
                     overlap: 10,
                   ),
             title: Text(
@@ -367,294 +289,17 @@ class _ManagePeoplePageState extends State<ManagePeoplePage>
                   : '${members.length} integrante${members.length == 1 ? '' : 's'}',
               style: Theme.of(context).textTheme.bodySmall,
             ),
-            children: [
-              if (premium)
-                ListTile(
-                  dense: true,
-                  leading: const Icon(
-                    Icons.bubble_chart_outlined,
-                    color: AppTheme.navy,
-                  ),
-                  title: const Text('Ver constelación del grupo'),
-                  onTap: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) =>
-                            GroupConstellationView(groupId: g.id),
-                      ),
-                    );
-                  },
-                ),
-              if (members.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(16, 0, 16, 16),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      'Añade personas a este grupo desde Editar persona → Grupos.',
-                      style: TextStyle(color: Colors.black54),
-                    ),
-                  ),
-                )
-              else
-                for (final p in members)
-                  ListTile(
-                    dense: true,
-                    leading: PersonCircleAvatar(
-                      key: ValueKey<String>(
-                        '${p.id}|${faceImageWidgetCacheKey(p.faceImagePath)}',
-                      ),
-                      faceImagePath: p.faceImagePath,
-                      diameter: 40,
-                      semanticLabel: p.name,
-                    ),
-                    title: Text(p.name),
-                    subtitle: _fullName(p).isEmpty
-                        ? null
-                        : Text(
-                            _fullName(p),
-                            style: const TextStyle(color: Colors.black54),
-                          ),
-                    onTap: () => _openPersonDetailSheet(context, p, groups),
-                  ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Future<void> _openPersonDetailSheet(
-    BuildContext parentContext,
-    PersonCollection p,
-    List<GroupCollection> groups,
-  ) async {
-    final theme = Theme.of(parentContext);
-    final groupsLabel = _groupsLabelForPerson(p, groups);
-    await showModalBottomSheet<void>(
-      context: parentContext,
-      backgroundColor: AppTheme.cream,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (sheetContext) {
-        final bottomInset = MediaQuery.paddingOf(sheetContext).bottom;
-        final img = p.faceImagePath;
-        final hasImg = img != null &&
-            img.trim().isNotEmpty &&
-            File(img).existsSync();
-        final full = _fullName(p);
-        final linked = p.linkedUserId != null &&
-            p.linkedUserId!.trim().isNotEmpty;
-        final email = (p.linkedUserEmail ?? '').trim();
-        final notes = p.notes.trim();
-        final birth = p.birthDate;
-
-        Widget detailLine(String label, String value) {
-          return Padding(
-            padding: const EdgeInsets.only(top: 10),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    color: Colors.black54,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                SelectableText(
-                  value,
-                  style: theme.textTheme.bodyLarge,
-                ),
-              ],
+            trailing: Icon(
+              Icons.chevron_right,
+              color: AppTheme.navy.withValues(alpha: 0.45),
             ),
-          );
-        }
-
-        final maxH = MediaQuery.sizeOf(sheetContext).height * 0.88;
-        final fichaEmpty = groupsLabel.isEmpty &&
-            birth == null &&
-            email.isEmpty &&
-            notes.isEmpty &&
-            (p.driveFaceFileId == null || p.driveFaceFileId!.trim().isEmpty);
-
-        return ConstrainedBox(
-          constraints: BoxConstraints(maxHeight: maxH),
-          child: DefaultTabController(
-            length: 2,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 4, 12, 0),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      CircleAvatar(
-                        radius: 40,
-                        backgroundColor:
-                            AppTheme.navy.withValues(alpha: 0.10),
-                        child: hasImg
-                            ? ClipOval(
-                                child: Image(
-                                  key: ValueKey<String>(
-                                    faceImageWidgetCacheKey(img),
-                                  ),
-                                  width: 80,
-                                  height: 80,
-                                  fit: BoxFit.cover,
-                                  gaplessPlayback: true,
-                                  image: FileImage(File(img)),
-                                ),
-                              )
-                            : const Icon(Icons.person_outline,
-                                size: 44, color: AppTheme.navy),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              p.name,
-                              style: theme.textTheme.titleLarge?.copyWith(
-                                fontWeight: FontWeight.w700,
-                                color: AppTheme.navy,
-                              ),
-                            ),
-                            if (full.isNotEmpty) ...[
-                              const SizedBox(height: 4),
-                              Text(
-                                full,
-                                style: theme.textTheme.bodyMedium?.copyWith(
-                                  color: Colors.black54,
-                                ),
-                              ),
-                            ],
-                            if (linked) ...[
-                              const SizedBox(height: 8),
-                              Row(
-                                children: [
-                                  const Icon(Icons.bolt,
-                                      size: 18, color: Colors.blue),
-                                  const SizedBox(width: 6),
-                                  Expanded(
-                                    child: Text(
-                                      'Cuenta LifeTime vinculada',
-                                      style:
-                                          theme.textTheme.bodySmall?.copyWith(
-                                        color: Colors.black87,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                            if (_personIsSyncedToCloud(p)) ...[
-                              const SizedBox(height: 8),
-                              Row(
-                                children: [
-                                  Icon(
-                                    Icons.check_circle,
-                                    size: 18,
-                                    color: Colors.green.shade700,
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    'Sincronizado',
-                                    style:
-                                        theme.textTheme.bodySmall?.copyWith(
-                                      color: Colors.green.shade800,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: 'Editar',
-                        icon: const Icon(Icons.edit_outlined,
-                            color: AppTheme.navy),
-                        onPressed: () {
-                          Navigator.pop(sheetContext);
-                          WidgetsBinding.instance.addPostFrameCallback((_) {
-                            if (parentContext.mounted) {
-                              _edit(parentContext, p);
-                            }
-                          });
-                        },
-                      ),
-                    ],
-                  ),
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => GroupConstellationView(groupId: g.id),
                 ),
-                TabBar(
-                  labelColor: AppTheme.navy,
-                  unselectedLabelColor: AppTheme.navy.withValues(alpha: 0.45),
-                  indicatorColor: AppTheme.navy,
-                  tabs: const [
-                    Tab(text: 'Ficha'),
-                    Tab(text: 'Relaciones'),
-                  ],
-                ),
-                Expanded(
-                  child: TabBarView(
-                    children: [
-                      SingleChildScrollView(
-                        padding: EdgeInsets.fromLTRB(
-                          20,
-                          12,
-                          20,
-                          20 + bottomInset,
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            if (groupsLabel.isNotEmpty)
-                              detailLine('Grupos', groupsLabel),
-                            if (birth != null)
-                              detailLine(
-                                'Cumpleaños',
-                                '${birth.day.toString().padLeft(2, '0')}/'
-                                    '${birth.month.toString().padLeft(2, '0')}/'
-                                    '${birth.year}',
-                              ),
-                            if (email.isNotEmpty) detailLine('Email', email),
-                            if (notes.isNotEmpty)
-                              detailLine('Notas', notes),
-                            if (fichaEmpty)
-                              Text(
-                                'Pulsa el lápiz para completar la ficha o toca la foto en la lista para asignar imagen.',
-                                style: theme.textTheme.bodyMedium?.copyWith(
-                                  color: Colors.black54,
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                      SingleChildScrollView(
-                        padding: EdgeInsets.fromLTRB(
-                          20,
-                          12,
-                          20,
-                          20 + bottomInset,
-                        ),
-                        child: PersonRelationshipsBlock(
-                          personId: p.id,
-                          dense: true,
-                          allowDelete: false,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
+              );
+            },
           ),
         );
       },
@@ -670,61 +315,6 @@ class _ManagePeoplePageState extends State<ManagePeoplePage>
           child: const AddPersonPage(),
         ),
       ),
-    );
-  }
-
-  Future<void> _edit(BuildContext context, PersonCollection p) async {
-    final cubit = context.read<PeopleCubit>();
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => BlocProvider.value(
-          value: cubit,
-          child: EditPersonPage(person: p),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _assignPhoto(BuildContext context, PersonCollection p) async {
-    final cubit = context.read<PeopleCubit>();
-    final faceCropService = sl<FaceCropperService>();
-
-    final selection = await showFaceSourceBottomSheet(context: context);
-    if (selection == null || !context.mounted) return;
-
-    final cropResult = await faceCropService.pickAndCrop(
-      source: selection.source,
-      milestoneImagePath: selection.milestoneImagePath,
-    );
-
-    if (!context.mounted) return;
-    await cropResult.fold(
-      (failure) async {
-        if (failure is! FaceCropCancelledFailure) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(failure.message),
-              backgroundColor: Colors.red.shade700,
-            ),
-          );
-        }
-      },
-      (file) async {
-        final saveResult = await cubit.saveCroppedFaceForPerson(
-          personId: p.id,
-          croppedFile: file,
-        );
-        if (!context.mounted) return;
-        saveResult.fold(
-          (failure) => ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(failure.message),
-              backgroundColor: Colors.red.shade700,
-            ),
-          ),
-          (_) {},
-        );
-      },
     );
   }
 }

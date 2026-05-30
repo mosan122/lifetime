@@ -21,6 +21,7 @@ import 'core/services/drive_milestone_media_restore.dart';
 import 'core/services/milestone_drive_media_downloader.dart';
 import 'core/services/google_drive_reauth_bridge.dart';
 import 'features/sync/data/services/sync_service.dart';
+import 'features/sync/presentation/bloc/sync_status_cubit.dart';
 import 'core/services/cleanup_service.dart';
 import 'core/services/space_cleanup_service.dart';
 import 'core/services/premium_service.dart';
@@ -288,6 +289,7 @@ Future<void> init() async {
     unawaited(store.hydrate());
     return store;
   });
+  sl.registerLazySingleton<SyncStatusCubit>(SyncStatusCubit.new);
   sl.registerLazySingleton<CloudSyncService>(
     () => CloudSyncService(
       sl(),
@@ -297,6 +299,7 @@ Future<void> init() async {
       sl<GoogleDriveReauthBridge>(),
       sl<LocalMediaStore>(),
       sl<CloudSyncActivityNotifier>(),
+      sl<SyncStatusCubit>(),
     ),
   );
   if (sl.isRegistered<Isar>()) {
@@ -317,6 +320,7 @@ Future<void> init() async {
         sl<LocalMediaStore>(),
         sl<CloudSyncActivityNotifier>(),
         sl<CloudSyncStatusStore>(),
+        sl<SyncStatusCubit>(),
       ),
     );
   }
@@ -685,6 +689,17 @@ class _WebMilestoneDataSource implements IsarMilestoneDataSource {
   }
 
   @override
+  Future<int> countMilestonesUsingSavedLocation(int savedLocationId) async {
+    if (savedLocationId <= 0) return 0;
+    var n = 0;
+    for (final m in _store) {
+      if (m.isDeleted) continue;
+      if (m.savedLocationId == savedLocationId) n++;
+    }
+    return n;
+  }
+
+  @override
   Future<int> countUnsyncedMediaItems() async {
     var n = 0;
     for (final m in _store) {
@@ -718,7 +733,14 @@ class _WebPersonDataSource implements IsarPersonDataSource {
   }
 
   @override
-  Future<PersonCollection?> fetchById(String id) async =>
+  Future<PersonCollection?> fetchById(String id) async {
+    final item = await fetchByIdIncludingDeleted(id);
+    if (item == null || item.isDeleted) return null;
+    return item;
+  }
+
+  @override
+  Future<PersonCollection?> fetchByIdIncludingDeleted(String id) async =>
       _store.where((p) => p.id == id).firstOrNull;
 
   @override
@@ -993,7 +1015,16 @@ class _WebSavedLocationDataSource implements IsarSavedLocationDataSource {
 
   @override
   Future<SavedLocationCollection> upsert(SavedLocationCollection c) async {
-    _store.removeWhere((e) => e.isarId == c.isarId);
+    if (c.isarId != Isar.autoIncrement) {
+      final existing = _store.where((e) => e.isarId == c.isarId).firstOrNull;
+      if (existing != null && c.clientId.trim().isEmpty) {
+        c.clientId = existing.clientId;
+      }
+      _store.removeWhere((e) => e.isarId == c.isarId);
+    }
+    if (c.clientId.trim().isEmpty) {
+      c.clientId = 'web-${DateTime.now().microsecondsSinceEpoch}';
+    }
     if (c.isarId == Isar.autoIncrement) {
       c.isarId = _nextId++;
     } else {

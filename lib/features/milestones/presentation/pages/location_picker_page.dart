@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -5,6 +7,7 @@ import 'package:latlong2/latlong.dart';
 import '../../../../core/models/milestone_location_data.dart';
 import '../../../../core/services/place_autocomplete_service.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../utils/map_location_helpers.dart';
 
 class LocationPickerPage extends StatefulWidget {
   final PlaceAutocompleteService placeService;
@@ -24,11 +27,18 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
   final _mapController = MapController();
   LatLng _center = const LatLng(40.4168, -3.7038); // Madrid fallback
   bool _confirming = false;
+  bool _locating = false;
 
   @override
   void initState() {
     super.initState();
-    if (widget.initialCenter != null) _center = widget.initialCenter!;
+    if (widget.initialCenter != null) {
+      _center = widget.initialCenter!;
+    } else {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_centerOnMyLocation());
+      });
+    }
   }
 
   Future<void> _confirm() async {
@@ -54,11 +64,34 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
     }
   }
 
+  Future<void> _centerOnMyLocation() async {
+    setState(() => _locating = true);
+    final point = await centerMapOnCurrentLocation(context, _mapController);
+    if (!mounted) return;
+    setState(() => _locating = false);
+    if (point != null) {
+      setState(() => _center = point);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Seleccionar ubicación'),
+        actions: [
+          IconButton(
+            tooltip: 'Centrar en mi posición',
+            onPressed: _locating ? null : _centerOnMyLocation,
+            icon: _locating
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.my_location),
+          ),
+        ],
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _confirming ? null : _confirm,
@@ -80,6 +113,7 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
             options: MapOptions(
               initialCenter: _center,
               initialZoom: 15,
+              onMapReady: () => _mapController.move(_center, 15),
               onPositionChanged: (pos, _) {
                 _center = pos.center;
               },
@@ -111,4 +145,3 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
     );
   }
 }
-
