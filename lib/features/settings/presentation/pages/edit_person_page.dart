@@ -6,7 +6,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/failures/failure.dart';
 import '../../../../core/services/cloud_sync_service.dart';
-import '../../../../core/services/premium_service.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../domain/services/face_cropper_service.dart';
 import '../../../../injection_container.dart';
@@ -41,9 +40,6 @@ class _EditPersonPageState extends State<EditPersonPage>
   List<String> _selectedGroupIds = [];
 
   bool _saving = false;
-  bool _verifying = false;
-  String? _verifiedUserId;
-  String? _verifyError;
 
   late TabController _tabController;
 
@@ -69,7 +65,6 @@ class _EditPersonPageState extends State<EditPersonPage>
     _lastNameCtrl = TextEditingController(text: _p.lastName ?? '');
     _notesCtrl = TextEditingController(text: _p.notes);
     _emailCtrl = TextEditingController(text: _p.linkedUserEmail ?? '');
-    _verifiedUserId = _p.linkedUserId;
     _birthDate = _p.birthDate;
     _tabController = TabController(length: 3, vsync: this);
     _tabController.addListener(() {
@@ -179,12 +174,8 @@ class _EditPersonPageState extends State<EditPersonPage>
 
     final email = _nullIfBlank(_emailCtrl.text)?.toLowerCase();
     final prevEmail = (_p.linkedUserEmail ?? '').trim().toLowerCase();
-    String? linkedId;
-    if (_verifiedUserId != null) {
-      linkedId = _verifiedUserId;
-    } else if (email != null && email == prevEmail) {
-      linkedId = _p.linkedUserId;
-    }
+    final linkedId =
+        (email != null && email == prevEmail) ? _p.linkedUserId : null;
 
     final nickname = _nicknameCtrl.text.trim();
     if (nickname.isEmpty) {
@@ -237,30 +228,6 @@ class _EditPersonPageState extends State<EditPersonPage>
         gaplessPlayback: true,
         image: FileImage(File(img)),
       ),
-    );
-  }
-
-  Future<void> _verifyEmail() async {
-    final email = _emailCtrl.text.trim();
-    setState(() {
-      _verifying = true;
-      _verifyError = null;
-      _verifiedUserId = null;
-    });
-
-    final result = await context.read<PeopleCubit>().verifyLifeTimeEmail(email);
-    if (!mounted) return;
-    result.fold(
-      (failure) => setState(() {
-        _verifyError = failure.message;
-        _verifiedUserId = null;
-        _verifying = false;
-      }),
-      (id) => setState(() {
-        _verifiedUserId = id;
-        _verifyError = null;
-        _verifying = false;
-      }),
     );
   }
 
@@ -337,12 +304,8 @@ class _EditPersonPageState extends State<EditPersonPage>
 
     final email = _nullIfBlank(_emailCtrl.text)?.toLowerCase();
     final prevEmail = (_p.linkedUserEmail ?? '').trim().toLowerCase();
-    String? linkedId;
-    if (_verifiedUserId != null) {
-      linkedId = _verifiedUserId;
-    } else if (email != null && email == prevEmail) {
-      linkedId = _p.linkedUserId;
-    }
+    final linkedId =
+        (email != null && email == prevEmail) ? _p.linkedUserId : null;
 
     final updated = _p.copyScalars()
       ..name = nickname
@@ -370,8 +333,6 @@ class _EditPersonPageState extends State<EditPersonPage>
   @override
   Widget build(BuildContext context) {
     final canSave = !_saving && _nicknameCtrl.text.trim().isNotEmpty;
-    final canVerify = !_verifying && _emailCtrl.text.trim().isNotEmpty;
-    final premium = sl<PremiumService>().isPremium;
 
     final peopleState = context.watch<PeopleCubit>().state;
     final allGroups = peopleState is PeopleLoaded
@@ -524,57 +485,11 @@ class _EditPersonPageState extends State<EditPersonPage>
                 TextField(
                   controller: _emailCtrl,
                   keyboardType: TextInputType.emailAddress,
-                  decoration: InputDecoration(
+                  decoration: const InputDecoration(
                     labelText: 'Email (opcional)',
-                    helperText: premium
-                        ? null
-                        : 'La verificación con cuenta LifeTime está disponible con Premium.',
-                    suffixIcon: _verifiedUserId != null
-                        ? const Icon(Icons.check_circle, color: Colors.green)
-                        : null,
                   ),
-                  onChanged: (_) => setState(() {
-                    _verifiedUserId = null;
-                    _verifyError = null;
-                  }),
+                  onChanged: (_) => setState(() {}),
                 ),
-                if (premium) ...[
-                  const SizedBox(height: 16),
-                  Text(
-                    'Vincular con usuario de LifeTime',
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
-                  const SizedBox(height: 8),
-                  FilledButton.icon(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppTheme.navy,
-                      foregroundColor: AppTheme.cream,
-                    ),
-                    onPressed: canVerify ? _verifyEmail : null,
-                    icon: _verifying
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.verified_outlined),
-                    label: const Text('Verificar email'),
-                  ),
-                  if (_verifyError != null) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      _verifyError!,
-                      style: TextStyle(color: Colors.red.shade700),
-                    ),
-                  ],
-                  if (_verifiedUserId != null) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      'Vinculado correctamente.',
-                      style: TextStyle(color: Colors.green.shade700),
-                    ),
-                  ],
-                ],
                 const SizedBox(height: 28),
                 const Divider(),
                 const SizedBox(height: 8),

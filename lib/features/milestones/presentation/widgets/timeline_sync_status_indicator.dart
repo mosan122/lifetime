@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../../core/config/app_flags.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../auth/presentation/bloc/auth_cubit.dart';
 import '../../../sync/presentation/bloc/sync_status_cubit.dart';
@@ -35,6 +36,7 @@ class _TimelineSyncStatusIndicatorState extends State<TimelineSyncStatusIndicato
 
   @override
   Widget build(BuildContext context) {
+    if (!AppFlags.kIsCloudEnabled) return const SizedBox.shrink();
     final auth = context.watch<AuthCubit>().state;
     if (auth is! AuthAuthenticated || !auth.isPremium) {
       return const SizedBox.shrink();
@@ -118,6 +120,7 @@ class TimelineSyncMediaProgressBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (!AppFlags.kIsCloudEnabled) return const SizedBox.shrink();
     final auth = context.watch<AuthCubit>().state;
     if (auth is! AuthAuthenticated || !auth.isPremium) {
       return const SizedBox.shrink();

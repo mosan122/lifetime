@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../../../../core/services/premium_service.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../injection_container.dart';
 import '../../domain/models/relationship_tree_member.dart';
@@ -15,55 +14,32 @@ import '../widgets/relationship_tree_person_sheet.dart';
 class RelationshipTreeView extends StatelessWidget {
   const RelationshipTreeView({
     super.key,
-    required this.personId,
+    this.personId,
   });
 
-  final String personId;
+  /// Persona central del árbol. Si es `null`, se centra en el usuario raíz
+  /// local ("yo") mediante [RelationshipTreeCubit.centerOnRootUser].
+  final String? personId;
 
   @override
   Widget build(BuildContext context) {
-    final premium = sl<PremiumService>().isPremium;
+    final pid = personId?.trim();
     return BlocProvider(
-      create: (_) => sl<RelationshipTreeCubit>()..setCenterPerson(personId),
+      create: (_) {
+        final cubit = sl<RelationshipTreeCubit>();
+        if (pid == null || pid.isEmpty) {
+          cubit.centerOnRootUser();
+        } else {
+          cubit.setCenterPerson(pid);
+        }
+        return cubit;
+      },
       child: Scaffold(
         backgroundColor: AppTheme.cream,
         appBar: AppBar(
           title: const Text('Árbol genealógico'),
         ),
-        body: premium
-            ? const RelationshipTreeCanvas()
-            : const _RelationshipTreePremiumGate(),
-      ),
-    );
-  }
-}
-
-class _RelationshipTreePremiumGate extends StatelessWidget {
-  const _RelationshipTreePremiumGate();
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(28),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.hub_outlined,
-              size: 56,
-              color: AppTheme.navy.withValues(alpha: 0.5),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'El árbol genealógico interactivo está disponible con Premium.',
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    color: AppTheme.navy,
-                  ),
-            ),
-          ],
-        ),
+        body: const RelationshipTreeCanvas(),
       ),
     );
   }

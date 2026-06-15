@@ -30,6 +30,10 @@ class PersonCollection {
   bool isSynced = false;
   bool isDeleted = false;
 
+  /// Nodo raíz del modo local ("yo"): el dueño del dispositivo.
+  /// Solo debería existir una persona con [isMe] == true.
+  bool isMe = false;
+
   /// Relleno en memoria tras cargar enlaces de grupos (no persiste en Isar).
   @ignore
   List<String> runtimeGroupIds = [];
@@ -49,7 +53,8 @@ class PersonCollection {
       ..faceImagePath = faceImagePath
       ..driveFaceFileId = driveFaceFileId
       ..supabaseId = supabaseId
-      ..isSynced = isSynced;
+      ..isSynced = isSynced
+      ..isMe = isMe;
   }
 
   static PersonCollection fromEntity(Person person) {

@@ -689,6 +689,21 @@ class _WebMilestoneDataSource implements IsarMilestoneDataSource {
   }
 
   @override
+  Future<Map<String, int>> buildPersonMilestoneParticipationCounts() async {
+    final counts = <String, int>{};
+    for (final m in _store) {
+      if (m.isDeleted) continue;
+      final seen = <String>{};
+      for (final id in [...m.participants, ...m.protagonists]) {
+        final pid = id.trim();
+        if (pid.isEmpty || !seen.add(pid)) continue;
+        counts[pid] = (counts[pid] ?? 0) + 1;
+      }
+    }
+    return counts;
+  }
+
+  @override
   Future<int> countMilestonesUsingSavedLocation(int savedLocationId) async {
     if (savedLocationId <= 0) return 0;
     var n = 0;
@@ -760,6 +775,10 @@ class _WebPersonDataSource implements IsarPersonDataSource {
   }
 
   @override
+  Future<PersonCollection?> getRootUser() async =>
+      _store.where((p) => !p.isDeleted && p.isMe).firstOrNull;
+
+  @override
   Future<List<PersonCollection>> fetchAll() async =>
       List.unmodifiable(_store.where((p) => !p.isDeleted));
 
@@ -771,6 +790,7 @@ class _WebPersonDataSource implements IsarPersonDataSource {
   Future<PersonCollection> upsert(PersonCollection c) async {
     final existingIndex = _store.indexWhere((e) => e.id == c.id);
     if (existingIndex != -1) {
+      c.isMe = c.isMe || _store[existingIndex].isMe;
       _store[existingIndex] = c;
     } else {
       _store.add(c);

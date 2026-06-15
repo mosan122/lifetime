@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../../core/config/app_flags.dart';
 import '../../data/datasources/isar_milestone_datasource.dart';
 import '../../domain/entities/milestone.dart';
 import '../../core/notifiers/cloud_sync_activity_notifier.dart';
@@ -56,6 +57,7 @@ class CloudSyncService {
     Duration initialDelay = const Duration(seconds: 5),
     bool forceRestore = false,
   }) async {
+    if (!AppFlags.kIsCloudEnabled) return;
     if (!_premium.isPremium) return;
     if (_mediaDeferredRunning) return;
     _mediaDeferredRunning = true;
@@ -70,6 +72,7 @@ class CloudSyncService {
 
   /// Subida/restauración en Drive sin retraso (p. ej. botón «Sincronizar ahora»).
   Future<void> syncMediaNow({bool forceRestore = false}) async {
+    if (!AppFlags.kIsCloudEnabled) return;
     if (!_premium.isPremium) return;
 
     _syncStatus.startMedia();
@@ -178,6 +181,7 @@ class CloudSyncService {
 
   /// Borra en Drive los archivos de hitos/personas marcados con [isDeleted].
   Future<void> purgeDeletedFromDrive() async {
+    if (!AppFlags.kIsCloudEnabled) return;
     if (!_premium.isPremium) return;
 
     final driveService = await _openDriveServiceSilently();
@@ -262,6 +266,7 @@ class CloudSyncService {
   }
 
   Future<void> syncIfNeeded(List<Milestone> milestones) async {
+    if (!AppFlags.kIsCloudEnabled) return;
     if (!_premium.isPremium) return;
     if (_running) return;
 
@@ -365,6 +370,7 @@ class CloudSyncService {
   Future<DriveMediaRestoreResult> restoreMilestoneMediaFromDrive({
     bool force = false,
   }) async {
+    if (!AppFlags.kIsCloudEnabled) return const DriveMediaRestoreResult();
     if (!_premium.isPremium) return const DriveMediaRestoreResult();
     if (_mediaRestoreRunning) return const DriveMediaRestoreResult();
 
@@ -398,6 +404,7 @@ class CloudSyncService {
   }
 
   Future<void> restoreMissingFaces() async {
+    if (!AppFlags.kIsCloudEnabled) return;
     if (!_premium.isPremium) return;
     if (_running) return;
     try {
@@ -448,6 +455,7 @@ class CloudSyncService {
   }
 
   Future<void> deleteDriveFace(String fileId) async {
+    if (!AppFlags.kIsCloudEnabled) return;
     if (!_premium.isPremium) return;
     try {
       final driveService = await _openDriveServiceSilently();

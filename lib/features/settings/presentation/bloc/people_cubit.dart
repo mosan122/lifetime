@@ -65,10 +65,13 @@ class PeopleCubit extends Cubit<PeopleState> {
     }
     final groups = await _personGroupDs.fetchAllGroupsOrdered();
     final forUi = withoutLinkedCurrentUser(raw);
+    final milestoneCounts =
+        await _milestoneDs.buildPersonMilestoneParticipationCounts();
     emit(PeopleLoaded(
       List<PersonCollection>.from(forUi),
       List<GroupCollection>.from(groups),
       refreshEpoch: ++_refreshEpoch,
+      milestoneCountsByPersonId: milestoneCounts,
     ));
     if (sl.isRegistered<PeopleFacesRevisionNotifier>()) {
       sl<PeopleFacesRevisionNotifier>().bump();

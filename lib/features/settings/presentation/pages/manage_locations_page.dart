@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 
+import '../../../../core/exceptions/duplicate_saved_location_name_exception.dart';
 import '../../../../core/models/milestone_location_data.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../injection_container.dart';
@@ -34,12 +37,50 @@ class _ManageLocationsPageState extends State<ManageLocationsPage> {
 
   Future<List<SavedLocationCollection>> _load() => _ds.fetchAll();
 
+  Future<void> _openDetail(SavedLocationCollection item) async {
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SavedLocationDetailPage(initialIsarId: item.isarId),
+      ),
+    );
+    _refresh();
+  }
+
+  Future<void> _openMap(List<SavedLocationCollection> items) async {
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SavedLocationsMapPage(items: items),
+      ),
+    );
+    _refresh();
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
       backgroundColor: AppTheme.cream,
-      appBar: AppBar(title: const Text('Lugares')),
+      appBar: AppBar(
+        title: const Text('Lugares'),
+        actions: [
+          FutureBuilder<List<SavedLocationCollection>>(
+            future: _locationsFuture,
+            builder: (context, snapshot) {
+              final items = snapshot.data ?? const <SavedLocationCollection>[];
+              final hasCoords = items.any(
+                (e) => e.latitude != null && e.longitude != null,
+              );
+              return IconButton(
+                tooltip: 'Ver en el mapa',
+                icon: const Icon(Icons.map_outlined),
+                onPressed: hasCoords ? () => _openMap(items) : null,
+              );
+            },
+          ),
+        ],
+      ),
       body: FutureBuilder<List<SavedLocationCollection>>(
         future: _locationsFuture,
         builder: (context, snapshot) {
@@ -67,7 +108,7 @@ class _ManageLocationsPageState extends State<ManageLocationsPage> {
             separatorBuilder: (_, __) => const SizedBox(height: 8),
             itemBuilder: (context, i) => _SavedLocationTile(
               item: items[i],
-              onChanged: () => _refresh(),
+              onTap: () => _openDetail(items[i]),
             ),
           );
         },
@@ -78,35 +119,30 @@ class _ManageLocationsPageState extends State<ManageLocationsPage> {
 
 class _SavedLocationTile extends StatelessWidget {
   final SavedLocationCollection item;
-  final VoidCallback onChanged;
+  final VoidCallback onTap;
 
-  const _SavedLocationTile({required this.item, required this.onChanged});
+  const _SavedLocationTile({required this.item, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final ds = sl<IsarSavedLocationDataSource>();
 
+    // La lista solo muestra nombre, ciudad y país (sin coordenadas ni icono).
     final subtitleParts = <String>[
       if ((item.city ?? '').trim().isNotEmpty) item.city!.trim(),
       if ((item.country ?? '').trim().isNotEmpty) item.country!.trim(),
-      if (item.latitude != null && item.longitude != null)
-        '${item.latitude!.toStringAsFixed(5)}, ${item.longitude!.toStringAsFixed(5)}',
     ];
 
     return Card(
       clipBehavior: Clip.antiAlias,
       child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: AppTheme.navy.withValues(alpha: 0.10),
-          foregroundColor: AppTheme.navy,
-          child: const Icon(Icons.place_outlined),
-        ),
+        onTap: onTap,
         title: Text(
           item.name,
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
-          style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+          style:
+              theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
         ),
         subtitle: subtitleParts.isEmpty
             ? null
@@ -115,85 +151,425 @@ class _SavedLocationTile extends StatelessWidget {
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
-        trailing: PopupMenuButton<String>(
-          tooltip: 'Opciones',
-          onSelected: (v) async {
-            if (v == 'edit') {
-              final didSave = await showModalBottomSheet<bool>(
-                context: context,
-                isScrollControlled: true,
-                backgroundColor: AppTheme.cream,
-                builder: (_) => _LocationEditorSheet(initial: item),
-              );
-              if (didSave == true) onChanged();
-            }
-            if (v == 'delete') {
-              final milestoneCount = await sl<IsarMilestoneDataSource>()
-                  .countMilestonesUsingSavedLocation(item.isarId);
-              if (!context.mounted) return;
-              if (milestoneCount > 0) {
-                await showDialog<void>(
-                  context: context,
-                  builder: (ctx) => AlertDialog(
-                    backgroundColor: AppTheme.cream,
-                    title: const Text('No se puede borrar'),
-                    content: Text(
-                      '«${item.name}» está asociado a '
-                      '$milestoneCount '
-                      'hito${milestoneCount == 1 ? '' : 's'}. '
-                      'Quita este lugar de esos hitos antes de borrarlo.',
+        trailing: const Icon(Icons.chevron_right),
+      ),
+    );
+  }
+}
+
+/// Detalle de un lugar: mapa centrado + ficha (incluye coordenadas) y editar.
+class SavedLocationDetailPage extends StatefulWidget {
+  const SavedLocationDetailPage({super.key, required this.initialIsarId});
+
+  final int initialIsarId;
+
+  @override
+  State<SavedLocationDetailPage> createState() =>
+      _SavedLocationDetailPageState();
+}
+
+class _SavedLocationDetailPageState extends State<SavedLocationDetailPage> {
+  final _ds = sl<IsarSavedLocationDataSource>();
+  final _mapController = MapController();
+  final _placeService = PlaceAutocompleteService();
+  SavedLocationCollection? _item;
+  bool _loading = true;
+  String? _resolvedAddress;
+
+  @override
+  void initState() {
+    super.initState();
+    _reload();
+  }
+
+  Future<void> _reload() async {
+    final fresh = await _ds.fetchById(widget.initialIsarId);
+    if (!mounted) return;
+    setState(() {
+      _item = fresh;
+      _loading = false;
+      _resolvedAddress = null;
+    });
+    final i = fresh;
+    if (i != null && i.latitude != null && i.longitude != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        try {
+          _mapController.move(LatLng(i.latitude!, i.longitude!), 15);
+        } catch (_) {}
+      });
+      final stored = (i.address ?? '').trim();
+      if (stored.isEmpty) {
+        final rev = await _placeService.reverse(
+          latitude: i.latitude!,
+          longitude: i.longitude!,
+        );
+        if (!mounted) return;
+        if (rev != null && rev.name.trim().isNotEmpty) {
+          setState(() => _resolvedAddress = rev.name.trim());
+        }
+      }
+    }
+  }
+
+  Future<void> _edit() async {
+    final item = _item;
+    if (item == null) return;
+    final didSave = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppTheme.cream,
+      builder: (_) => _LocationEditorSheet(initial: item),
+    );
+    if (didSave == true) await _reload();
+  }
+
+  Future<void> _delete() async {
+    final item = _item;
+    if (item == null) return;
+    final milestoneCount = await sl<IsarMilestoneDataSource>()
+        .countMilestonesUsingSavedLocation(item.isarId);
+    if (!mounted) return;
+    if (milestoneCount > 0) {
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: AppTheme.cream,
+          title: const Text('No se puede borrar'),
+          content: Text(
+            '«${item.name}» está asociado a '
+            '$milestoneCount '
+            'hito${milestoneCount == 1 ? '' : 's'}. '
+            'Quita este lugar de esos hitos antes de borrarlo.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Entendido'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.cream,
+        title: const Text('Borrar lugar'),
+        content: Text('¿Borrar "${item.name}"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Borrar', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || ok != true) return;
+    final clientId = item.clientId.trim();
+    if (clientId.isNotEmpty && sl.isRegistered<SyncService>()) {
+      unawaited(sl<SyncService>().deleteSavedLocationRemote(clientId));
+    }
+    await _ds.deleteById(item.isarId);
+    scheduleCloudDataSync();
+    if (!mounted) return;
+    Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final item = _item;
+    return Scaffold(
+      backgroundColor: AppTheme.cream,
+      appBar: AppBar(
+        title: Text(item?.name ?? 'Lugar'),
+        actions: [
+          if (item != null) ...[
+            IconButton(
+              tooltip: 'Editar',
+              icon: const Icon(Icons.edit_outlined),
+              onPressed: _edit,
+            ),
+            IconButton(
+              tooltip: 'Borrar',
+              icon: const Icon(Icons.delete_outline),
+              onPressed: _delete,
+            ),
+          ],
+        ],
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : item == null
+              ? const Center(child: Text('Lugar no encontrado.'))
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(
+                      child: (item.latitude == null || item.longitude == null)
+                          ? Center(
+                              child: Text(
+                                'Este lugar no tiene coordenadas.\nUsa “Editar” para situarlo en el mapa.',
+                                textAlign: TextAlign.center,
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: Colors.black54,
+                                ),
+                              ),
+                            )
+                          : Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                FlutterMap(
+                                  mapController: _mapController,
+                                  options: MapOptions(
+                                    initialCenter: LatLng(
+                                      item.latitude!,
+                                      item.longitude!,
+                                    ),
+                                    initialZoom: 15,
+                                  ),
+                                  children: [
+                                    TileLayer(
+                                      urlTemplate:
+                                          'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                      userAgentPackageName: 'lifetime',
+                                      tileProvider: NetworkTileProvider(
+                                        cachingProvider:
+                                            BuiltInMapCachingProvider
+                                                .getOrCreateInstance(
+                                          maxCacheSize: 256 * 1024 * 1024,
+                                        ),
+                                      ),
+                                    ),
+                                    MarkerLayer(
+                                      markers: [
+                                        Marker(
+                                          point: LatLng(
+                                            item.latitude!,
+                                            item.longitude!,
+                                          ),
+                                          width: 46,
+                                          height: 46,
+                                          child: const Icon(
+                                            Icons.location_on,
+                                            size: 46,
+                                            color: AppTheme.navy,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
                     ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(ctx),
-                        child: const Text('Entendido'),
-                      ),
-                    ],
-                  ),
-                );
-                return;
-              }
-              final ok = await showDialog<bool>(
-                context: context,
-                builder: (ctx) => AlertDialog(
-                  backgroundColor: AppTheme.cream,
-                  title: const Text('Borrar lugar'),
-                  content: Text('¿Borrar "${item.name}"?'),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(ctx, false),
-                      child: const Text('Cancelar'),
-                    ),
-                    TextButton(
-                      onPressed: () => Navigator.pop(ctx, true),
-                      child: const Text(
-                        'Borrar',
-                        style: TextStyle(color: Colors.red),
-                      ),
+                    _DetailInfoPanel(
+                      item: item,
+                      resolvedAddress: _resolvedAddress,
                     ),
                   ],
                 ),
-              );
-              if (!context.mounted) return;
-              if (ok == true) {
-                final clientId = item.clientId.trim();
-                if (clientId.isNotEmpty &&
-                    sl.isRegistered<SyncService>()) {
-                  unawaited(
-                    sl<SyncService>().deleteSavedLocationRemote(clientId),
-                  );
-                }
-                await ds.deleteById(item.isarId);
-                scheduleCloudDataSync();
-                onChanged();
-              }
-            }
-          },
-          itemBuilder: (_) => const [
-            PopupMenuItem(value: 'edit', child: Text('Editar nombre')),
-            PopupMenuItem(value: 'delete', child: Text('Borrar')),
+    );
+  }
+}
+
+class _DetailInfoPanel extends StatelessWidget {
+  const _DetailInfoPanel({
+    required this.item,
+    this.resolvedAddress,
+  });
+
+  final SavedLocationCollection item;
+  final String? resolvedAddress;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final address = (item.address ?? '').trim().isNotEmpty
+        ? item.address!.trim()
+        : (resolvedAddress ?? '').trim();
+    final place = <String>[
+      if ((item.city ?? '').trim().isNotEmpty) item.city!.trim(),
+      if ((item.country ?? '').trim().isNotEmpty) item.country!.trim(),
+    ].join(', ');
+    final hasCoords = item.latitude != null && item.longitude != null;
+
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              item.name,
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: AppTheme.navy,
+              ),
+            ),
+            if (address.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.place_outlined,
+                    size: 18,
+                    color: AppTheme.navy.withValues(alpha: 0.7),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      address,
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                  ),
+                ],
+              ),
+            ] else if (place.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(place, style: theme.textTheme.bodyMedium),
+            ],
+            if (hasCoords) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Icon(
+                    Icons.my_location,
+                    size: 16,
+                    color: AppTheme.navy.withValues(alpha: 0.7),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    '${item.latitude!.toStringAsFixed(5)}, '
+                    '${item.longitude!.toStringAsFixed(5)}',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: Colors.black54,
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Mapa con todos los lugares guardados; al tocar un marcador se abre el detalle.
+class SavedLocationsMapPage extends StatefulWidget {
+  const SavedLocationsMapPage({super.key, required this.items});
+
+  final List<SavedLocationCollection> items;
+
+  @override
+  State<SavedLocationsMapPage> createState() => _SavedLocationsMapPageState();
+}
+
+class _SavedLocationsMapPageState extends State<SavedLocationsMapPage> {
+  final _mapController = MapController();
+
+  List<SavedLocationCollection> get _withCoords => widget.items
+      .where((e) => e.latitude != null && e.longitude != null)
+      .toList();
+
+  LatLng _centroid() {
+    final pts = _withCoords;
+    if (pts.isEmpty) return const LatLng(40.4168, -3.7038);
+    final lat =
+        pts.map((e) => e.latitude!).reduce((a, b) => a + b) / pts.length;
+    final lon =
+        pts.map((e) => e.longitude!).reduce((a, b) => a + b) / pts.length;
+    return LatLng(lat, lon);
+  }
+
+  Future<void> _openDetail(SavedLocationCollection item) async {
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SavedLocationDetailPage(initialIsarId: item.isarId),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppTheme.cream,
+      appBar: AppBar(title: const Text('Mapa de lugares')),
+      body: FlutterMap(
+        mapController: _mapController,
+        options: MapOptions(
+          initialCenter: _centroid(),
+          initialZoom: 4.4,
+        ),
+        children: [
+          TileLayer(
+            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+            userAgentPackageName: 'lifetime',
+            tileProvider: NetworkTileProvider(
+              cachingProvider: BuiltInMapCachingProvider.getOrCreateInstance(
+                maxCacheSize: 256 * 1024 * 1024,
+              ),
+            ),
+          ),
+          MarkerLayer(
+            markers: [
+              for (final item in _withCoords)
+                Marker(
+                  point: LatLng(item.latitude!, item.longitude!),
+                  width: 120,
+                  height: 64,
+                  child: GestureDetector(
+                    onTap: () => _openDetail(item),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.location_on,
+                          size: 40,
+                          color: AppTheme.navy,
+                        ),
+                        Flexible(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: AppTheme.cream.withValues(alpha: 0.9),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 4,
+                                vertical: 1,
+                              ),
+                              child: Text(
+                                item.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppTheme.navy,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -210,11 +586,13 @@ class _LocationEditorSheet extends StatefulWidget {
 class _LocationEditorSheetState extends State<_LocationEditorSheet> {
   late final TextEditingController _name;
   MilestoneLocationData? _picked;
+  String? _geocodeAddress;
 
   @override
   void initState() {
     super.initState();
     _name = TextEditingController(text: widget.initial.name);
+    _geocodeAddress = widget.initial.address;
     _picked = MilestoneLocationData(
       name: widget.initial.name,
       city: widget.initial.city,
@@ -282,6 +660,7 @@ class _LocationEditorSheetState extends State<_LocationEditorSheet> {
                     );
                     if (!context.mounted) return;
                     if (picked != null) {
+                      final geocodeName = picked.name.trim();
                       final friendly = await showPersonNameAlertDialog(
                         context: context,
                         title: 'Nombre del lugar',
@@ -301,15 +680,16 @@ class _LocationEditorSheetState extends State<_LocationEditorSheet> {
                               ? _name.text.trim()
                               : picked.name;
                       if (chosen.isNotEmpty) _name.text = chosen;
-                      setState(
-                        () => _picked = MilestoneLocationData(
+                      setState(() {
+                        _geocodeAddress = geocodeName;
+                        _picked = MilestoneLocationData(
                           name: displayName,
                           city: picked.city,
                           country: picked.country,
                           latitude: picked.latitude,
                           longitude: picked.longitude,
-                        ),
-                      );
+                        );
+                      });
                     }
                   },
                   icon: const Icon(Icons.map_outlined),
@@ -337,15 +717,30 @@ class _LocationEditorSheetState extends State<_LocationEditorSheet> {
                       final t = v?.trim();
                       return (t == null || t.isEmpty) ? null : t;
                     }
+
                     final c = SavedLocationCollection()
                       ..isarId = widget.initial.isarId
                       ..clientId = widget.initial.clientId
                       ..name = name
+                      ..address = trimOrNull(
+                        _geocodeAddress ?? widget.initial.address,
+                      )
                       ..city = trimOrNull(p?.city ?? widget.initial.city)
                       ..country = trimOrNull(p?.country ?? widget.initial.country)
                       ..latitude = p?.latitude ?? widget.initial.latitude
                       ..longitude = p?.longitude ?? widget.initial.longitude;
-                    await ds.upsert(c);
+                    try {
+                      await ds.upsert(c);
+                    } on DuplicateSavedLocationNameException catch (e) {
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(e.toString()),
+                          backgroundColor: Colors.red.shade700,
+                        ),
+                      );
+                      return;
+                    }
                     scheduleCloudDataSync();
                     if (oldName != name ||
                         widget.initial.latitude != c.latitude ||
@@ -377,4 +772,3 @@ class _LocationEditorSheetState extends State<_LocationEditorSheet> {
     );
   }
 }
-

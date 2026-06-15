@@ -13,6 +13,10 @@ abstract final class RelationshipTypeCodes {
   static const esAbuelaDe = 'es_abuela_de';
   static const esNietoDe = 'es_nieto_de';
   static const esNietaDe = 'es_nieta_de';
+  static const esTioDe = 'es_tio_de';
+  static const esTiaDe = 'es_tia_de';
+  static const esSobrinoDe = 'es_sobrino_de';
+  static const esSobrinaDe = 'es_sobrina_de';
   static const otro = 'otro';
 
   static const List<String> pickerOrdered = [
@@ -27,6 +31,10 @@ abstract final class RelationshipTypeCodes {
     esAbuelaDe,
     esNietoDe,
     esNietaDe,
+    esTioDe,
+    esTiaDe,
+    esSobrinoDe,
+    esSobrinaDe,
     otro,
   ];
 
@@ -56,6 +64,14 @@ abstract final class RelationshipTypeCodes {
         return 'Nieto de';
       case esNietaDe:
         return 'Nieta de';
+      case esTioDe:
+        return 'Tío de';
+      case esTiaDe:
+        return 'Tía de';
+      case esSobrinoDe:
+        return 'Sobrino de';
+      case esSobrinaDe:
+        return 'Sobrina de';
       case otro:
         return 'Otro vínculo con';
       default:
@@ -102,6 +118,13 @@ abstract final class RelationshipTypeCodes {
       case esNietoDe:
       case esNietaDe:
         return '$ownerName es nieto/a tuyo/a';
+      case esTioDe:
+        return '$ownerName es tu tío';
+      case esTiaDe:
+        return '$ownerName es tu tía';
+      case esSobrinoDe:
+      case esSobrinaDe:
+        return '$ownerName es sobrino/a tuyo/a';
       default:
         return '$ownerName (${labelEs(forwardType)})';
     }

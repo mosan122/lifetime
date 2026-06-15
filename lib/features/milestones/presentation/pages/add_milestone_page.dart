@@ -17,6 +17,7 @@ import '../../../../core/utils/milestone_title_utils.dart';
 import '../../../../core/services/location_service.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/constants/milestone_categories.dart';
+import '../../../../core/exceptions/duplicate_saved_location_name_exception.dart';
 import '../../../../domain/entities/media_item.dart';
 import '../../../../domain/entities/milestone.dart';
 import '../../../../domain/services/face_cropper_service.dart';
@@ -1328,10 +1329,12 @@ class _PlacePickerSheetState extends State<_PlacePickerSheet> {
   MilestoneLocationData? _selected;
   int? _selectedSavedLocationId;
   bool _savedExpanded = false;
+  String? _geocodeAddressForSave;
 
   Future<int?> _maybePersistToMyPlaces(
     MilestoneLocationData picked, {
     int? existingIsarId,
+    String? geocodeAddress,
   }) async {
     if (!_saveToMyPlaces) return null;
     final name = picked.name.trim();
@@ -1344,6 +1347,9 @@ class _PlacePickerSheetState extends State<_PlacePickerSheet> {
       }
       final c = SavedLocationCollection()
         ..name = name
+        ..address = (geocodeAddress ?? '').trim().isEmpty
+            ? null
+            : geocodeAddress!.trim()
         ..city = (picked.city ?? '').trim().isEmpty ? null : picked.city!.trim()
         ..country = (picked.country ?? '').trim().isEmpty
             ? null
@@ -1359,6 +1365,15 @@ class _PlacePickerSheetState extends State<_PlacePickerSheet> {
       scheduleCloudDataSync();
       await _loadSaved();
       return saved.isarId;
+    } on DuplicateSavedLocationNameException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString()),
+            backgroundColor: Colors.red.shade700,
+          ),
+        );
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1376,6 +1391,7 @@ class _PlacePickerSheetState extends State<_PlacePickerSheet> {
     MilestoneLocationData picked,
   ) async {
     if (!_saveToMyPlaces) return picked;
+    _geocodeAddressForSave = picked.name.trim();
     final friendly = await showPersonNameAlertDialog(
       context: context,
       title: 'Nombre del lugar',
@@ -1408,6 +1424,7 @@ class _PlacePickerSheetState extends State<_PlacePickerSheet> {
     final savedId = await _maybePersistToMyPlaces(
       named,
       existingIsarId: _selectedSavedLocationId,
+      geocodeAddress: _geocodeAddressForSave,
     );
     if (!mounted) return;
 
@@ -1674,6 +1691,7 @@ class _PlacePickerSheetState extends State<_PlacePickerSheet> {
                         final savedId = await _maybePersistToMyPlaces(
                           picked,
                           existingIsarId: _selectedSavedLocationId,
+                          geocodeAddress: _geocodeAddressForSave,
                         );
                         if (!context.mounted) return;
                         Navigator.pop(

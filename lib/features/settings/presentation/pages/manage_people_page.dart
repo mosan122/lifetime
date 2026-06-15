@@ -3,13 +3,16 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../../core/utils/group_icon_helpers.dart';
+import '../../../../core/utils/person_display_helpers.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../milestones/data/models/local/group_collection.dart';
 import '../../../milestones/data/models/local/person_collection.dart';
 import '../../../milestones/presentation/pages/group_constellation_view.dart';
-import '../../../milestones/presentation/widgets/face_stack.dart';
-import '../../../milestones/presentation/widgets/person_avatar_badge.dart';
 import '../bloc/people_cubit.dart';
+import '../../../milestones/presentation/widgets/group_members_preview.dart';
+import '../../../milestones/presentation/widgets/person_avatar_badge.dart'
+    show faceImageWidgetCacheKey;
 import '../widgets/manage_people_relations_tab.dart';
 import '../widgets/person_detail_sheet.dart';
 import 'add_person_page.dart';
@@ -39,13 +42,6 @@ class _ManagePeoplePageState extends State<ManagePeoplePage>
   void dispose() {
     _tabController.dispose();
     super.dispose();
-  }
-
-  String _fullName(PersonCollection p) {
-    final first = (p.firstName ?? '').trim();
-    final last = (p.lastName ?? '').trim();
-    final full = [first, last].where((s) => s.isNotEmpty).join(' ');
-    return full;
   }
 
   @override
@@ -87,7 +83,12 @@ class _ManagePeoplePageState extends State<ManagePeoplePage>
             controller: _tabController,
             children: [
               _buildPersonasTab(context, people, groups),
-              _buildGruposTab(context, people, groups),
+              _buildGruposTab(
+                context,
+                people,
+                groups,
+                loaded.milestoneCountsByPersonId,
+              ),
               const ManagePeopleRelationsTab(),
             ],
           );
@@ -144,10 +145,7 @@ class _ManagePeoplePageState extends State<ManagePeoplePage>
       );
     }
 
-    final ordered = [...people]
-      ..sort(
-        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
-      );
+    final ordered = [...people]..sort(comparePeopleRootFirst);
 
     return ListView.separated(
       padding: const EdgeInsets.symmetric(vertical: 8),
@@ -161,12 +159,12 @@ class _ManagePeoplePageState extends State<ManagePeoplePage>
             img.trim().isNotEmpty &&
             File(img).existsSync();
 
-        final full = _fullName(p);
         final linked =
             p.linkedUserId != null && p.linkedUserId!.trim().isNotEmpty;
 
         return ListTile(
           onTap: () => showPersonDetailSheet(context, person: p, groups: groups),
+          tileColor: p.isMe ? AppTheme.navy.withValues(alpha: 0.05) : null,
           leading: CircleAvatar(
             radius: 22,
             backgroundColor: AppTheme.navy.withValues(alpha: 0.10),
@@ -187,33 +185,12 @@ class _ManagePeoplePageState extends State<ManagePeoplePage>
           ),
           title: Row(
             children: [
-              Expanded(
-                child: Text(
-                  p.name,
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleMedium
-                      ?.copyWith(fontWeight: FontWeight.w700),
-                ),
-              ),
+              Expanded(child: PersonListTitle(person: p)),
               if (linked)
                 const Icon(
                   Icons.bolt,
                   size: 18,
                   color: Colors.blue,
-                ),
-            ],
-          ),
-          subtitle: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (full.isNotEmpty)
-                Text(
-                  full,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Colors.black54,
-                      ),
                 ),
             ],
           ),
@@ -226,6 +203,7 @@ class _ManagePeoplePageState extends State<ManagePeoplePage>
     BuildContext context,
     List<PersonCollection> people,
     List<GroupCollection> groups,
+    Map<String, int> milestoneCountsByPersonId,
   ) {
     if (groups.isEmpty) {
       return Center(
@@ -251,55 +229,60 @@ class _ManagePeoplePageState extends State<ManagePeoplePage>
       separatorBuilder: (_, __) => const SizedBox(height: 4),
       itemBuilder: (context, index) {
         final g = sortedGroups[index];
-        final members = people
-            .where((p) => p.runtimeGroupIds.contains(g.id))
-            .toList()
-          ..sort(
-            (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
-          );
+        final members = sortPeopleByMilestoneActivity(
+          people.where((p) => p.runtimeGroupIds.contains(g.id)).toList(),
+          milestoneCountsByPersonId,
+        );
 
         return Card(
           margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
           clipBehavior: Clip.antiAlias,
-          child: ListTile(
-            leading: members.isEmpty
-                ? CircleAvatar(
-                    radius: 20,
-                    backgroundColor: AppTheme.navy.withValues(alpha: 0.10),
-                    child: const Icon(
-                      Icons.groups_outlined,
-                      color: AppTheme.navy,
-                    ),
-                  )
-                : FaceStack(
-                    people: members,
-                    diameter: 40,
-                    overlap: 10,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              ListTile(
+                leading: CircleAvatar(
+                  radius: 20,
+                  backgroundColor: AppTheme.navy.withValues(alpha: 0.10),
+                  child: Icon(
+                    groupIconFor(g.id),
+                    color: AppTheme.navy,
                   ),
-            title: Text(
-              g.name,
-              style: Theme.of(context)
-                  .textTheme
-                  .titleMedium
-                  ?.copyWith(fontWeight: FontWeight.w700, color: AppTheme.navy),
-            ),
-            subtitle: Text(
-              members.isEmpty
-                  ? 'Sin integrantes'
-                  : '${members.length} integrante${members.length == 1 ? '' : 's'}',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            trailing: Icon(
-              Icons.chevron_right,
-              color: AppTheme.navy.withValues(alpha: 0.45),
-            ),
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => GroupConstellationView(groupId: g.id),
                 ),
-              );
-            },
+                title: Text(
+                  g.name,
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleMedium
+                      ?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.navy,
+                      ),
+                ),
+                subtitle: Text(
+                  members.isEmpty
+                      ? 'Sin integrantes'
+                      : '${members.length} integrante${members.length == 1 ? '' : 's'}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                trailing: Icon(
+                  Icons.chevron_right,
+                  color: AppTheme.navy.withValues(alpha: 0.45),
+                ),
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => GroupConstellationView(groupId: g.id),
+                    ),
+                  );
+                },
+              ),
+              if (members.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+                  child: GroupMembersPreview(members: members),
+                ),
+            ],
           ),
         );
       },

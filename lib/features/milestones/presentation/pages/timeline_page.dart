@@ -1,27 +1,34 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import '../../../../core/constants/milestone_categories.dart';
+import '../../../../core/config/app_flags.dart';
 import '../../../../core/notifiers/people_faces_revision_notifier.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/utils/map_location_helpers.dart'
+    show locationInlineLabel;
+import '../../../../core/utils/milestone_display_helpers.dart';
 import '../../../../injection_container.dart';
 import '../../../../domain/entities/media_item.dart';
 import '../../../../domain/entities/milestone.dart';
 import '../../../auth/presentation/bloc/auth_cubit.dart';
 import '../../data/datasources/isar_person_datasource.dart';
 import '../bloc/milestone_timeline_cubit.dart';
-import '../../data/datasources/isar_category_datasource.dart';
-import '../../data/models/local/category_collection.dart';
 import '../widgets/drive_thumbnail.dart';
+import '../widgets/error_retry_view.dart';
 import '../widgets/face_stack.dart';
 import '../widgets/local_media_thumb.dart';
+import '../widgets/milestone_category_chip.dart';
+import '../widgets/timeline_active_filters_bar.dart';
+import '../widgets/timeline_filter_sheet.dart';
 import '../widgets/timeline_sync_status_indicator.dart';
 import '../widgets/milestone_sync_badge.dart';
+import '../../../profile/presentation/pages/local_user_profile_page.dart';
 import '../../../../features/settings/presentation/bloc/people_cubit.dart';
 import '../../../../features/settings/presentation/pages/manage_people_page.dart';
 import '../../../../features/settings/presentation/pages/settings_page.dart';
 import 'add_milestone_page.dart';
 import 'milestones_map_page.dart';
 import 'milestone_detail_page.dart';
+import 'relationship_tree_view.dart';
 
 class TimelinePage extends StatelessWidget {
   const TimelinePage({super.key});
@@ -45,6 +52,35 @@ class _AuthenticatedTimelineView extends StatelessWidget {
         title: const Text('LifeTime'),
         actions: [
           const TimelineSyncStatusIndicator(),
+          BlocBuilder<MilestoneTimelineCubit, MilestoneTimelineState>(
+            buildWhen: (prev, next) =>
+                prev is MilestoneTimelineLoaded || next is MilestoneTimelineLoaded,
+            builder: (context, state) {
+              final active =
+                  state is MilestoneTimelineLoaded && state.filters.isActive;
+              return IconButton(
+                icon: Badge(
+                  isLabelVisible: active,
+                  smallSize: 8,
+                  child: const Icon(Icons.filter_list),
+                ),
+                tooltip: 'Filtrar timeline',
+                onPressed: state is! MilestoneTimelineLoaded
+                    ? null
+                    : () async {
+                        final cubit = context.read<MilestoneTimelineCubit>();
+                        final result = await showTimelineFilterSheet(
+                          context: context,
+                          allMilestones: state.allMilestones,
+                          initial: state.filters,
+                        );
+                        if (result != null && context.mounted) {
+                          cubit.setFilters(result);
+                        }
+                      },
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.map_outlined),
             tooltip: 'Mapa de hitos',
@@ -79,6 +115,28 @@ class _AuthenticatedTimelineView extends StatelessWidget {
             ),
           ),
           IconButton(
+            icon: const Icon(Icons.account_tree_outlined),
+            tooltip: 'Árbol genealógico',
+            onPressed: () => Navigator.push<void>(
+              context,
+              MaterialPageRoute<void>(
+                // Sin personId: el árbol se centra en el usuario raíz ("yo").
+                builder: (_) => const RelationshipTreeView(),
+              ),
+            ),
+          ),
+          if (!AppFlags.kIsCloudEnabled)
+            IconButton(
+              icon: const Icon(Icons.person_outline),
+              tooltip: 'Mi perfil',
+              onPressed: () => Navigator.push<void>(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) => const LocalUserProfilePage(),
+                ),
+              ),
+            ),
+          IconButton(
             icon: const Icon(Icons.settings_outlined),
             tooltip: 'Ajustes',
             onPressed: () async {
@@ -98,6 +156,21 @@ class _AuthenticatedTimelineView extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const TimelineSyncMediaProgressBar(),
+          BlocBuilder<MilestoneTimelineCubit, MilestoneTimelineState>(
+            buildWhen: (prev, next) =>
+                prev is MilestoneTimelineLoaded || next is MilestoneTimelineLoaded,
+            builder: (context, state) {
+              if (state is! MilestoneTimelineLoaded || !state.filters.isActive) {
+                return const SizedBox.shrink();
+              }
+              final cubit = context.read<MilestoneTimelineCubit>();
+              return TimelineActiveFiltersBar(
+                allMilestones: state.allMilestones,
+                filters: state.filters,
+                onChanged: cubit.setFilters,
+              );
+            },
+          ),
           Expanded(
             child: BlocBuilder<MilestoneTimelineCubit, MilestoneTimelineState>(
               builder: (context, state) {
@@ -105,13 +178,31 @@ class _AuthenticatedTimelineView extends StatelessWidget {
                   return const Center(child: CircularProgressIndicator());
                 }
                 if (state is MilestoneTimelineLoaded) {
-                  if (state.milestones.isEmpty) {
+                  if (state.allMilestones.isEmpty) {
                     return const _EmptyTimeline();
+                  }
+                  if (state.milestones.isEmpty) {
+                    return _EmptyFilteredTimeline(
+                      onClear: () =>
+                          context.read<MilestoneTimelineCubit>().clearFilters(),
+                      onEditFilters: () async {
+                        final cubit = context.read<MilestoneTimelineCubit>();
+                        final result = await showTimelineFilterSheet(
+                          context: context,
+                          allMilestones: state.allMilestones,
+                          initial: state.filters,
+                        );
+                        if (result != null && context.mounted) {
+                          cubit.setFilters(result);
+                        }
+                      },
+                    );
                   }
                   return _MilestoneList(milestones: state.milestones);
                 }
                 if (state is MilestoneTimelineError) {
-                  return _ErrorView(
+                  return ErrorRetryView(
+                    title: 'No se pudo cargar la bitácora',
                     message: state.message,
                     onRetry: () =>
                         context.read<MilestoneTimelineCubit>().loadTimeline(),
@@ -166,9 +257,12 @@ class _TimelineYearHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final softBg = theme.colorScheme.surfaceContainerHighest.withOpacity(0.92);
+    final softBg =
+        theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.92);
     return Material(
       color: softBg,
+      elevation: 0.5,
+      shadowColor: theme.dividerColor.withValues(alpha: 0.35),
       child: SizedBox(
         height: height,
         child: Padding(
@@ -201,7 +295,6 @@ class _MilestoneListState extends State<_MilestoneList> {
   final ScrollController _scrollController = ScrollController();
   final Map<int, GlobalKey> _yearAnchorKeys = {};
   int? _stickyYear;
-  bool _showStickyYear = false;
 
   GlobalKey _keyForYear(int year) =>
       _yearAnchorKeys.putIfAbsent(year, GlobalKey.new);
@@ -209,9 +302,9 @@ class _MilestoneListState extends State<_MilestoneList> {
   @override
   void initState() {
     super.initState();
-    _scrollController.addListener(_updateStickyYearHeader);
+    _scrollController.addListener(_updateStickyYear);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _updateStickyYearHeader();
+      if (mounted) _updateStickyYear();
     });
   }
 
@@ -223,60 +316,49 @@ class _MilestoneListState extends State<_MilestoneList> {
         .toSet();
     _yearAnchorKeys.removeWhere((y, _) => !validYears.contains(y));
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _updateStickyYearHeader();
+      if (mounted) _updateStickyYear();
     });
   }
 
   @override
   void dispose() {
-    _scrollController.removeListener(_updateStickyYearHeader);
+    _scrollController.removeListener(_updateStickyYear);
     _scrollController.dispose();
     super.dispose();
   }
 
-  double? _yearHeaderDyInViewport(int year) {
-    final headerCtx = _yearAnchorKeys[year]?.currentContext;
-    if (headerCtx == null) return null;
-
-    final headerBox = headerCtx.findRenderObject() as RenderBox?;
-    if (headerBox == null || !headerBox.hasSize) return null;
-
+  double? _yearSectionDy(int year) {
+    final ctx = _yearAnchorKeys[year]?.currentContext;
+    if (ctx == null) return null;
+    final box = ctx.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return null;
     final viewportCtx = _scrollController.position.context.storageContext;
     final viewportBox = viewportCtx.findRenderObject() as RenderBox?;
     if (viewportBox == null || !viewportBox.hasSize) return null;
-
-    return headerBox
-        .localToGlobal(Offset.zero, ancestor: viewportBox)
-        .dy;
+    return box.localToGlobal(Offset.zero, ancestor: viewportBox).dy;
   }
 
-  void _updateStickyYearHeader() {
+  void _updateStickyYear() {
     if (!mounted || !_scrollController.hasClients) return;
-
     final grouped = _groupMilestonesByYear(widget.milestones);
     if (grouped.isEmpty) return;
 
-    int activeYear = grouped.first.$1;
-    var showSticky = false;
+    // Año cuya cabecera está más cerca del borde superior (sin contar las ya
+    // muy arriba del viewport).
+    var activeYear = grouped.first.$1;
+    var bestDy = double.negativeInfinity;
 
     for (final (year, _) in grouped) {
-      final dy = _yearHeaderDyInViewport(year);
+      final dy = _yearSectionDy(year);
       if (dy == null) continue;
-      if (dy <= _TimelineYearHeader.height) {
+      if (dy <= _TimelineYearHeader.height && dy > bestDy) {
+        bestDy = dy;
         activeYear = year;
       }
     }
 
-    final activeDy = _yearHeaderDyInViewport(activeYear);
-    if (activeDy != null && activeDy < 0) {
-      showSticky = true;
-    }
-
-    if (_stickyYear != activeYear || _showStickyYear != showSticky) {
-      setState(() {
-        _stickyYear = activeYear;
-        _showStickyYear = showSticky;
-      });
+    if (_stickyYear != activeYear) {
+      setState(() => _stickyYear = activeYear);
     }
   }
 
@@ -300,7 +382,10 @@ class _MilestoneListState extends State<_MilestoneList> {
                 for (final (year, items) in grouped) ...[
                   SliverToBoxAdapter(
                     key: _keyForYear(year),
-                    child: _TimelineYearHeader(year: year, theme: theme),
+                    child: SizedBox(
+                      height: _TimelineYearHeader.height,
+                      width: double.infinity,
+                    ),
                   ),
                   SliverPadding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
@@ -308,8 +393,7 @@ class _MilestoneListState extends State<_MilestoneList> {
                       delegate: SliverChildBuilderDelegate(
                         (context, index) {
                           final m = items[index];
-                          final gap =
-                              index < items.length - 1 ? 12.0 : 20.0;
+                          final gap = index < items.length - 1 ? 12.0 : 20.0;
                           return Padding(
                             padding: EdgeInsets.only(bottom: gap),
                             child: _MilestoneCard(
@@ -326,17 +410,12 @@ class _MilestoneListState extends State<_MilestoneList> {
                 const SliverToBoxAdapter(child: SizedBox(height: 8)),
               ],
             ),
-            if (_showStickyYear)
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: Material(
-                  elevation: 0.5,
-                  shadowColor: theme.dividerColor.withOpacity(0.4),
-                  child: _TimelineYearHeader(year: stickyYear, theme: theme),
-                ),
-              ),
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: _TimelineYearHeader(year: stickyYear, theme: theme),
+            ),
           ],
         );
       },
@@ -421,9 +500,7 @@ class _LocalMediaCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final date = milestone.eventDate;
-    final formatted =
-        '${date.day.toString().padLeft(2, '0')} / ${date.month.toString().padLeft(2, '0')} / ${date.year}';
+    final formatted = formatEventDate(milestone.eventDate);
     final title = milestone.title.trim();
     final hasTitle = title.isNotEmpty;
     final peopleLabelFallback = (milestone.participants.isEmpty)
@@ -520,7 +597,7 @@ class _LocalMediaCard extends StatelessWidget {
                   ],
                   Row(
                     children: [
-                      _CategoryChip(categoryId: milestone.categoryId),
+                      MilestoneCategoryChip(categoryId: milestone.categoryId),
                       if (milestone.locationName != null) ...[
                         const SizedBox(width: 10),
                         Icon(Icons.place_outlined,
@@ -528,7 +605,7 @@ class _LocalMediaCard extends StatelessWidget {
                         const SizedBox(width: 2),
                         Flexible(
                           child: Text(
-                            _locationInlineLabel(milestone),
+                            locationInlineLabel(milestone),
                             style: theme.textTheme.bodySmall,
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -585,9 +662,7 @@ class _MediaCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final date = milestone.eventDate;
-    final formatted =
-        '${date.day.toString().padLeft(2, '0')} / ${date.month.toString().padLeft(2, '0')} / ${date.year}';
+    final formatted = formatEventDate(milestone.eventDate);
     final title = milestone.title.trim();
     final hasTitle = title.isNotEmpty;
     final peopleLabelFallback = (milestone.participants.isEmpty)
@@ -675,7 +750,7 @@ class _MediaCard extends StatelessWidget {
                 ],
                 Row(
                   children: [
-                    _CategoryChip(categoryId: milestone.categoryId),
+                    MilestoneCategoryChip(categoryId: milestone.categoryId),
                     if (milestone.locationName != null) ...[
                       const SizedBox(width: 10),
                       Icon(Icons.place_outlined,
@@ -683,7 +758,7 @@ class _MediaCard extends StatelessWidget {
                       const SizedBox(width: 2),
                       Flexible(
                         child: Text(
-                          _locationInlineLabel(milestone),
+                          locationInlineLabel(milestone),
                           style: theme.textTheme.bodySmall,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -721,9 +796,7 @@ class _TextCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final date = milestone.eventDate;
-    final formatted =
-        '${date.day.toString().padLeft(2, '0')} / ${date.month.toString().padLeft(2, '0')} / ${date.year}';
+    final formatted = formatEventDate(milestone.eventDate);
     final title = milestone.title.trim();
     final hasTitle = title.isNotEmpty;
     final description = (milestone.description ?? '').trim();
@@ -818,7 +891,7 @@ class _TextCard extends StatelessWidget {
                         const SizedBox(width: 2),
                         Expanded(
                           child: Text(
-                            _locationInlineLabel(milestone),
+                            locationInlineLabel(milestone),
                             style: theme.textTheme.bodySmall,
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -836,7 +909,7 @@ class _TextCard extends StatelessWidget {
                 ],
               ),
             ),
-            _CategoryChip(categoryId: milestone.categoryId),
+            MilestoneCategoryChip(categoryId: milestone.categoryId),
           ],
         ),
         ),    // Padding
@@ -940,78 +1013,6 @@ Future<List<String>> _loadPeopleNames(List<String> ids) async {
       .toList();
 }
 
-class _CategoryChip extends StatelessWidget {
-  final String? categoryId;
-  const _CategoryChip({required this.categoryId});
-
-  static Future<Map<String, CategoryCollection>>? _cacheFuture;
-
-  static Future<Map<String, CategoryCollection>> _loadCategoryMap() async {
-    final ds = sl<IsarCategoryDataSource>();
-    await ds.ensureSeeded();
-    final all = await ds.fetchAll();
-    return {for (final c in all) c.id: c};
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    _cacheFuture ??= _loadCategoryMap();
-
-    return FutureBuilder<Map<String, CategoryCollection>>(
-      future: _cacheFuture,
-      builder: (context, snap) {
-        final id = (categoryId ?? '').trim().toLowerCase();
-        final db = snap.data?[id];
-        final fallback = milestoneCategoryById(categoryId);
-
-        final name = db?.name ?? fallback.name;
-        final icon = db != null
-            ? (kCategoryIconPalette[db.iconName] ?? Icons.category_outlined)
-            : fallback.icon;
-        final color = db != null ? Color(db.colorValue) : fallback.color;
-
-        if (id.isEmpty || id == 'otros') return const SizedBox.shrink();
-
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.14),
-            borderRadius: BorderRadius.circular(999),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 14, color: color),
-              const SizedBox(width: 6),
-              Text(
-                name,
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: AppTheme.navy,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-}
-
-// Categories are dynamic in Isar; keep constants as fallback.
-
-String _locationInlineLabel(Milestone m) {
-  final name = (m.locationName ?? '').trim();
-  if (name.isEmpty) return '';
-  final parts = <String>[
-    if ((m.locationCity ?? '').trim().isNotEmpty) m.locationCity!.trim(),
-    if ((m.locationCountry ?? '').trim().isNotEmpty) m.locationCountry!.trim(),
-  ];
-  if (parts.isEmpty) return name;
-  return '$name • ${parts.join(', ')}';
-}
-
 // ── Empty & Error ─────────────────────────────────────────────────────────────
 
 class _EmptyTimeline extends StatelessWidget {
@@ -1044,10 +1045,14 @@ class _EmptyTimeline extends StatelessWidget {
   }
 }
 
-class _ErrorView extends StatelessWidget {
-  final String message;
-  final VoidCallback onRetry;
-  const _ErrorView({required this.message, required this.onRetry});
+class _EmptyFilteredTimeline extends StatelessWidget {
+  const _EmptyFilteredTimeline({
+    required this.onClear,
+    required this.onEditFilters,
+  });
+
+  final VoidCallback onClear;
+  final VoidCallback onEditFilters;
 
   @override
   Widget build(BuildContext context) {
@@ -1058,24 +1063,39 @@ class _ErrorView extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.signal_wifi_off_outlined,
-                size: 56, color: Colors.red.shade300),
+            Icon(Icons.filter_list_off,
+                size: 56, color: AppTheme.navy.withValues(alpha: 0.35)),
             const SizedBox(height: 16),
-            Text('No se pudo cargar la bitácora',
-                style: theme.textTheme.titleLarge),
+            Text(
+              'Ningún hito con estos filtros',
+              style: theme.textTheme.titleLarge,
+              textAlign: TextAlign.center,
+            ),
             const SizedBox(height: 8),
-            Text(message,
-                style: theme.textTheme.bodySmall,
-                textAlign: TextAlign.center),
-            const SizedBox(height: 24),
-            OutlinedButton.icon(
-              onPressed: onRetry,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Reintentar'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: AppTheme.navy,
-                side: const BorderSide(color: AppTheme.navy),
-              ),
+            Text(
+              'Prueba a quitar algún filtro o ajusta la selección.',
+              style: theme.textTheme.bodyMedium,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton(
+                  onPressed: onEditFilters,
+                  child: const Text('Cambiar filtros'),
+                ),
+                FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppTheme.navy,
+                    foregroundColor: Colors.white,
+                  ),
+                  onPressed: onClear,
+                  child: const Text('Quitar filtros'),
+                ),
+              ],
             ),
           ],
         ),

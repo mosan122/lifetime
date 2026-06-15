@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
-import 'person_avatar_badge.dart';
+import '../../../../core/utils/group_icon_helpers.dart';
+import 'relationship_tree_node.dart';
 
 String groupDisplayInitials(String name) {
   final parts =
@@ -14,27 +15,6 @@ String groupDisplayInitials(String name) {
         : w.toUpperCase();
   }
   return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
-}
-
-IconData? builtinGroupIcon(String groupId) {
-  switch (groupId) {
-    case 'grp_builtin_family':
-      return Icons.family_restroom_outlined;
-    case 'grp_builtin_best_friends':
-      return Icons.favorite_outline;
-    case 'grp_builtin_friends':
-      return Icons.people_outline;
-    case 'grp_builtin_work':
-      return Icons.work_outline;
-    case 'grp_builtin_school':
-      return Icons.school_outlined;
-    case 'grp_builtin_neighbors':
-      return Icons.home_work_outlined;
-    case 'grp_builtin_other':
-      return Icons.more_horiz;
-    default:
-      return null;
-  }
 }
 
 /// Nodo central del grupo (más grande: iniciales o icono + nombre).
@@ -56,8 +36,7 @@ class GroupConstellationGroupNode extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final icon = builtinGroupIcon(groupId);
-    final initials = groupDisplayInitials(name);
+    final icon = groupIconFor(groupId);
 
     return GestureDetector(
       onTap: onTap,
@@ -83,17 +62,7 @@ class GroupConstellationGroupNode extends StatelessWidget {
               child: SizedBox(
                 width: diameter,
                 height: diameter,
-                child: icon != null
-                    ? Icon(icon, color: AppTheme.cream, size: 36)
-                    : Center(
-                        child: Text(
-                          initials,
-                          style: theme.textTheme.titleLarge?.copyWith(
-                            color: AppTheme.cream,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
+                child: Icon(icon, color: AppTheme.cream, size: 36),
               ),
             ),
             const SizedBox(height: 8),
@@ -115,6 +84,9 @@ class GroupConstellationGroupNode extends StatelessWidget {
 }
 
 /// Nodo de integrante (avatar + nombre).
+///
+/// Delega en [RelationshipTreeNode] para evitar duplicar el layout visual de
+/// avatar circular + nombre centrado que ambos comparten.
 class GroupConstellationMemberNode extends StatelessWidget {
   const GroupConstellationMemberNode({
     super.key,
@@ -132,35 +104,13 @@ class GroupConstellationMemberNode extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return GestureDetector(
+    return RelationshipTreeNode(
+      name: name,
+      faceImagePath: faceImagePath,
+      kinshipLabel: '',
+      isCenter: false,
+      isDimmed: false,
       onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: SizedBox(
-        width: width,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            PersonCircleAvatar(
-              faceImagePath: faceImagePath,
-              diameter: avatarSize,
-              semanticLabel: name,
-            ),
-            const SizedBox(height: 6),
-            Text(
-              name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: theme.textTheme.labelMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-                color: AppTheme.navy,
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

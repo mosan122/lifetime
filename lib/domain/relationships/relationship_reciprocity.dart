@@ -61,6 +61,21 @@ abstract final class RelationshipReciprocity {
             RelationshipTypeCodes.esAbuelaDe,
           ],
         );
+      case RelationshipTypeCodes.esTioDe:
+      case RelationshipTypeCodes.esTiaDe:
+        return const RelationshipMirrorPlan(
+          mode: RelationshipMirrorMode.singleMirror,
+          mirrorType: RelationshipTypeCodes.esSobrinoDe,
+        );
+      case RelationshipTypeCodes.esSobrinoDe:
+      case RelationshipTypeCodes.esSobrinaDe:
+        return const RelationshipMirrorPlan(
+          mode: RelationshipMirrorMode.chooseMirrorType,
+          mirrorTypeChoices: [
+            RelationshipTypeCodes.esTioDe,
+            RelationshipTypeCodes.esTiaDe,
+          ],
+        );
       case RelationshipTypeCodes.esHermanoDe:
       case RelationshipTypeCodes.esConyugeDe:
       case RelationshipTypeCodes.esParejaDe:

@@ -55,9 +55,14 @@ class GroupGraphCubit extends Cubit<GroupGraphState> {
       };
 
       final members = await _personDs.fetchByIds(personIds.toList());
-      members.sort(
-        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
-      );
+      final counts =
+          await _milestoneDs.buildPersonMilestoneParticipationCounts();
+      members.sort((a, b) {
+        final ca = counts[a.id] ?? 0;
+        final cb = counts[b.id] ?? 0;
+        if (ca != cb) return cb.compareTo(ca);
+        return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+      });
 
       final memberIds = members.map((p) => p.id).toSet();
       final linkedMilestones = (await _milestoneDs.fetchAll())

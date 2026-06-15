@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../../../../core/services/premium_service.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../domain/relationships/relationship_reciprocity.dart';
 import '../../../../domain/relationships/relationship_type_codes.dart';
@@ -135,86 +134,25 @@ class _EditPersonRelationsTabState extends State<EditPersonRelationsTab> {
       );
       await _svc.saveRow(main);
 
+      // La relación inversa se registra automáticamente, sin preguntar.
+      // Para los tipos que admiten varias inversas (p. ej. hijo → padre/madre)
+      // se toma la primera opción por defecto.
       final plan = RelationshipService.planFor(_type);
-
-      if (plan.mode == RelationshipMirrorMode.symmetricAuto) {
-        await _svc.saveMirrorIfNeeded(
-          subjectId: widget.subject.id,
-          objectId: other.id,
-          forwardType: _type,
-          plan: plan,
-          startDate: _start,
-          endDate: _end,
-          isCurrent: isCurrent,
-        );
-      } else if (plan.mode == RelationshipMirrorMode.singleMirror) {
-        if (!mounted) return;
-        final mirrorLabel = RelationshipTypeCodes.labelEs(plan.mirrorType!);
-        final ok = await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('Vínculo inverso'),
-            content: Text(
-              '¿Registrar también que ${other.name} es $mirrorLabel ${widget.displayName}?',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('No'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Sí'),
-              ),
-            ],
-          ),
-        );
-        if (ok == true) {
-          await _svc.saveMirrorIfNeeded(
-            subjectId: widget.subject.id,
-            objectId: other.id,
-            forwardType: _type,
-            plan: plan,
-            startDate: _start,
-            endDate: _end,
-            isCurrent: isCurrent,
-          );
-        }
-      } else if (plan.mode == RelationshipMirrorMode.chooseMirrorType) {
-        if (!mounted) return;
-        final choice = await showDialog<String?>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('Vínculo inverso'),
-            content: Text(
-              '¿Cómo se relaciona ${other.name} con ${widget.displayName}?',
-            ),
-            actions: [
-              for (final c in plan.mirrorTypeChoices)
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx, c),
-                  child: Text(RelationshipTypeCodes.labelEs(c)),
-                ),
-              TextButton(
-                onPressed: () => Navigator.pop<String?>(ctx),
-                child: const Text('Cancelar'),
-              ),
-            ],
-          ),
-        );
-        if (choice != null) {
-          await _svc.saveMirrorIfNeeded(
-            subjectId: widget.subject.id,
-            objectId: other.id,
-            forwardType: _type,
-            plan: plan,
-            chosenMirrorType: choice,
-            startDate: _start,
-            endDate: _end,
-            isCurrent: isCurrent,
-          );
-        }
-      }
+      final chosenMirror =
+          plan.mode == RelationshipMirrorMode.chooseMirrorType &&
+                  plan.mirrorTypeChoices.isNotEmpty
+              ? plan.mirrorTypeChoices.first
+              : null;
+      await _svc.saveMirrorIfNeeded(
+        subjectId: widget.subject.id,
+        objectId: other.id,
+        forwardType: _type,
+        plan: plan,
+        chosenMirrorType: chosenMirror,
+        startDate: _start,
+        endDate: _end,
+        isCurrent: isCurrent,
+      );
 
       if (!mounted) return;
       setState(() {
@@ -247,25 +185,22 @@ class _EditPersonRelationsTabState extends State<EditPersonRelationsTab> {
 
   @override
   Widget build(BuildContext context) {
-    final premium = sl<PremiumService>().isPremium;
-
     return ListView(
       key: ValueKey<int>(_listEpoch),
       padding: const EdgeInsets.all(16),
       children: [
-        if (premium)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 16),
-            child: OutlinedButton.icon(
-              onPressed: () => _openGenealogyTree(context),
-              icon: const Icon(Icons.hub_outlined),
-              label: const Text('Árbol genealógico'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: AppTheme.navy,
-                side: BorderSide(color: AppTheme.navy.withValues(alpha: 0.35)),
-              ),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 16),
+          child: OutlinedButton.icon(
+            onPressed: () => _openGenealogyTree(context),
+            icon: const Icon(Icons.hub_outlined),
+            label: const Text('Árbol genealógico'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppTheme.navy,
+              side: BorderSide(color: AppTheme.navy.withValues(alpha: 0.35)),
             ),
           ),
+        ),
         Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [

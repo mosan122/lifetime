@@ -228,8 +228,8 @@ class _PersonRelationshipsBody extends StatelessWidget {
       builder: (ctx) => AlertDialog(
         title: const Text('Eliminar vínculo'),
         content: const Text(
-          'Se borrará solo esta relación en este dispositivo. '
-          'Si existe un vínculo inverso, permanecerá hasta que lo elimines aparte.',
+          'Se borrará esta relación y su vínculo recíproco (si existe) en este '
+          'dispositivo.',
         ),
         actions: [
           TextButton(
@@ -245,7 +245,13 @@ class _PersonRelationshipsBody extends StatelessWidget {
     );
     if (ok != true || !context.mounted) return;
     final soft = sl<PremiumService>().isPremium;
+    // Borra también la fila recíproca (p. ej. «madre de» ↔ «hijo de»).
+    final involving = await relDs.findInvolvingPerson(r.personId);
+    final inverse = relSvc.findInverseRow(r, involving);
     await relDs.deleteById(r.id, softDelete: soft);
+    if (inverse != null) {
+      await relDs.deleteById(inverse.id, softDelete: soft);
+    }
     if (!context.mounted) return;
     onDeleted();
     ScaffoldMessenger.of(context).showSnackBar(

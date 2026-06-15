@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../../core/config/app_flags.dart';
 import '../../core/services/cloud_sync_service.dart';
 import '../../core/services/cloud_sync_status_store.dart';
 import '../../injection_container.dart';
@@ -10,6 +11,7 @@ var _pendingForceResync = false;
 
 /// Tras login premium: marca pull en el primer timeline y programa sync en segundo plano.
 void onPremiumSessionStarted() {
+  if (!AppFlags.kIsCloudEnabled) return;
   if (sl.isRegistered<CloudSyncStatusStore>()) {
     unawaited(sl<CloudSyncStatusStore>().markNeedsTimelinePull());
   }
@@ -23,6 +25,7 @@ void scheduleCloudDataSyncAfterLocalRestore() {
 
 /// Metadatos al instante; medios/Drive diferidos (agrupado ~3 s).
 void scheduleCloudDataSync({bool forceResync = false}) {
+  if (!AppFlags.kIsCloudEnabled) return;
   if (!sl.isRegistered<SyncService>()) return;
   if (forceResync) _pendingForceResync = true;
   _debounce?.cancel();

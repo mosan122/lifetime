@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../../core/utils/group_icon_helpers.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../injection_container.dart';
 import '../../../milestones/data/datasources/person_group_local_datasource.dart';
@@ -123,6 +124,15 @@ class EditPersonGroupsTab extends StatelessWidget {
           children: [
             for (final g in allGroups)
               FilterChip(
+                avatar: CircleAvatar(
+                  radius: 12,
+                  backgroundColor: AppTheme.navy.withValues(alpha: 0.12),
+                  child: Icon(
+                    groupIconFor(g.id),
+                    size: 16,
+                    color: AppTheme.navy,
+                  ),
+                ),
                 label: Text(g.name),
                 selected: selectedIds.contains(g.id),
                 onSelected: (_) => _toggle(g.id, selectedIds),

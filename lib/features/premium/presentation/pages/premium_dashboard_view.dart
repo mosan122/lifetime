@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../../core/config/app_flags.dart';
 import '../../../../core/services/storage_metrics_service.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/format_bytes.dart';
@@ -572,29 +573,32 @@ class _SyncStatusCardState extends State<_SyncStatusCard>
                       : null,
                 ),
             ],
-            const SizedBox(height: 18),
-            FilledButton.icon(
-              onPressed: canSync ? widget.onSyncNow : null,
-              icon: widget.syncing
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Icon(Icons.cloud_upload_outlined),
-              label: Text(
-                widget.syncing ? 'Sincronizando…' : 'Sincronizar ahora',
+            if (AppFlags.kIsCloudEnabled) ...[
+              const SizedBox(height: 18),
+              FilledButton.icon(
+                onPressed: canSync ? widget.onSyncNow : null,
+                icon: widget.syncing
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.cloud_upload_outlined),
+                label: Text(
+                  widget.syncing ? 'Sincronizando…' : 'Sincronizar ahora',
+                ),
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppTheme.navy,
+                  foregroundColor: Colors.white,
+                  disabledBackgroundColor:
+                      AppTheme.navy.withValues(alpha: 0.35),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
               ),
-              style: FilledButton.styleFrom(
-                backgroundColor: AppTheme.navy,
-                foregroundColor: Colors.white,
-                disabledBackgroundColor: AppTheme.navy.withValues(alpha: 0.35),
-                padding: const EdgeInsets.symmetric(vertical: 14),
-              ),
-            ),
+            ],
           ],
         ),
       ),

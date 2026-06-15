@@ -44,6 +44,18 @@ abstract final class RelationshipTreeKinship {
       case RelationshipTypeCodes.esConyugeDe:
       case RelationshipTypeCodes.esParejaDe:
         return RelationshipTreeQuadrant.partners;
+      // Tío/tía → generación superior (junto a progenitores); sobrino/a →
+      // generación inferior (junto a hijos).
+      case RelationshipTypeCodes.esTioDe:
+      case RelationshipTypeCodes.esTiaDe:
+        return viewerIsSubject
+            ? RelationshipTreeQuadrant.children
+            : RelationshipTreeQuadrant.parents;
+      case RelationshipTypeCodes.esSobrinoDe:
+      case RelationshipTypeCodes.esSobrinaDe:
+        return viewerIsSubject
+            ? RelationshipTreeQuadrant.parents
+            : RelationshipTreeQuadrant.children;
       default:
         return RelationshipTreeQuadrant.skip;
     }
@@ -85,6 +97,12 @@ abstract final class RelationshipTreeKinship {
       case RelationshipTypeCodes.esNietoDe:
       case RelationshipTypeCodes.esNietaDe:
         return 'Abuelo/a';
+      case RelationshipTypeCodes.esTioDe:
+      case RelationshipTypeCodes.esTiaDe:
+        return 'Sobrino/a';
+      case RelationshipTypeCodes.esSobrinoDe:
+      case RelationshipTypeCodes.esSobrinaDe:
+        return 'Tío/a';
       default:
         return 'Vínculo';
     }
@@ -111,6 +129,12 @@ abstract final class RelationshipTreeKinship {
       case RelationshipTypeCodes.esNietoDe:
       case RelationshipTypeCodes.esNietaDe:
         return 'Nieto/a';
+      case RelationshipTypeCodes.esTioDe:
+      case RelationshipTypeCodes.esTiaDe:
+        return 'Tío/a';
+      case RelationshipTypeCodes.esSobrinoDe:
+      case RelationshipTypeCodes.esSobrinaDe:
+        return 'Sobrino/a';
       default:
         return 'Vínculo';
     }

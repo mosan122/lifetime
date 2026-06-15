@@ -8,6 +8,7 @@ import '../../../../domain/entities/milestone.dart';
 import '../../../../features/sync/data/services/sync_service.dart';
 import '../../../../injection_container.dart';
 import '../../domain/usecases/get_milestones_usecase.dart';
+import '../utils/timeline_filters.dart';
 
 part 'milestone_timeline_state.dart';
 
@@ -43,10 +44,29 @@ class MilestoneTimelineCubit extends Cubit<MilestoneTimelineState> {
   }
 
   Future<void> _fetchAndEmitMilestones() async {
+    final previous = state;
+    final preservedFilters = previous is MilestoneTimelineLoaded
+        ? previous.filters
+        : TimelineFilters.empty;
+
     final result = await _getMilestones(const NoParams());
     result.fold(
-      (failure) => emit(MilestoneTimelineError(failure.message, code: failure.code)),
-      (milestones) => emit(MilestoneTimelineLoaded(milestones)),
+      (failure) =>
+          emit(MilestoneTimelineError(failure.message, code: failure.code)),
+      (milestones) => emit(
+        MilestoneTimelineLoaded(
+          milestones,
+          filters: preservedFilters,
+        ),
+      ),
     );
   }
+
+  void setFilters(TimelineFilters filters) {
+    final current = state;
+    if (current is! MilestoneTimelineLoaded) return;
+    emit(current.copyWith(filters: filters));
+  }
+
+  void clearFilters() => setFilters(TimelineFilters.empty);
 }

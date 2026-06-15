@@ -3,6 +3,32 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
+/// Mueve el mapa de forma segura: si el [MapController] aún no está enlazado a
+/// un `FlutterMap` renderizado (lanza "rendered at least once"), reintenta tras
+/// el siguiente frame en lugar de abortar la operación.
+void _moveSafely(MapController controller, LatLng point, double zoom) {
+  double resolveZoom() {
+    try {
+      final current = controller.camera.zoom;
+      return current < zoom ? zoom : current;
+    } catch (_) {
+      return zoom;
+    }
+  }
+
+  try {
+    controller.move(point, resolveZoom());
+  } catch (_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      try {
+        controller.move(point, resolveZoom());
+      } catch (_) {
+        // El mapa sigue sin estar listo; se ignora (no es crítico).
+      }
+    });
+  }
+}
+
 /// Centra [controller] en la posición GPS actual del dispositivo.
 Future<LatLng?> centerMapOnCurrentLocation(
   BuildContext context,
@@ -61,14 +87,7 @@ Future<LatLng?> centerMapOnCurrentLocation(
     );
 
     final point = LatLng(pos.latitude, pos.longitude);
-    final targetZoom =
-        controller.camera.zoom < zoom ? zoom : controller.camera.zoom;
-    controller.move(point, targetZoom);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (controller.camera.center != point) {
-        controller.move(point, targetZoom);
-      }
-    });
+    _moveSafely(controller, point, zoom);
     return point;
   } catch (e) {
     if (context.mounted) {

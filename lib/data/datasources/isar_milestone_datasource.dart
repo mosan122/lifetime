@@ -51,6 +51,9 @@ abstract class IsarMilestoneDataSource {
   /// Hitos donde [personId] figura en participantes o protagonistas.
   Future<int> countMilestonesContainingPerson(String personId);
 
+  /// Recuento de hitos por persona (participante o protagonista).
+  Future<Map<String, int>> buildPersonMilestoneParticipationCounts();
+
   /// Hitos activos que usan el lugar favorito [savedLocationId].
   Future<int> countMilestonesUsingSavedLocation(int savedLocationId);
 
@@ -363,6 +366,24 @@ class IsarMilestoneDataSourceImpl implements IsarMilestoneDataSource {
       }
     }
     return n;
+  }
+
+  @override
+  Future<Map<String, int>> buildPersonMilestoneParticipationCounts() async {
+    final all = await _isar.milestoneCollections
+        .filter()
+        .isDeletedEqualTo(false)
+        .findAll();
+    final counts = <String, int>{};
+    for (final m in all) {
+      final seen = <String>{};
+      for (final id in [...m.participants, ...m.protagonists]) {
+        final pid = id.trim();
+        if (pid.isEmpty || !seen.add(pid)) continue;
+        counts[pid] = (counts[pid] ?? 0) + 1;
+      }
+    }
+    return counts;
   }
 
   @override

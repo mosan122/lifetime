@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'core/config/app_flags.dart';
 import 'core/config/supabase_auth_config.dart';
 import 'core/theme/app_theme.dart';
 import 'features/auth/presentation/bloc/auth_cubit.dart';
 import 'features/auth/presentation/widgets/auth_gate.dart';
+import 'features/profile/presentation/pages/local_boot_gate.dart';
 import 'features/sync/presentation/bloc/sync_status_cubit.dart';
 import 'injection_container.dart' as di;
 
@@ -46,8 +48,12 @@ class LifeTimeApp extends StatelessWidget {
         BlocProvider<AuthCubit>(
           create: (_) {
             final c = di.sl<AuthCubit>();
-            c.listenToSupabaseAuth();
-            c.checkCurrentUser();
+            // En modo Local-First no escuchamos la sesión de Supabase:
+            // el arranque se decide consultando Isar (ver [LocalBootGate]).
+            if (AppFlags.kIsCloudEnabled) {
+              c.listenToSupabaseAuth();
+              c.checkCurrentUser();
+            }
             return c;
           },
         ),
@@ -68,7 +74,9 @@ class LifeTimeApp extends StatelessWidget {
           GlobalWidgetsLocalizations.delegate,
           GlobalCupertinoLocalizations.delegate,
         ],
-        home: const AuthGate(),
+        home: AppFlags.kIsCloudEnabled
+            ? const AuthGate()
+            : const LocalBootGate(),
       ),
     );
   }

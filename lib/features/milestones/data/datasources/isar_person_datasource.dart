@@ -12,6 +12,8 @@ abstract class IsarPersonDataSource {
   Future<List<PersonCollection>> fetchByIds(List<String> ids);
   /// Persona vinculada a la cuenta LifeTime (`linkedUserId` = id Supabase).
   Future<PersonCollection?> fetchByLinkedUserId(String linkedUserId);
+  /// Nodo raíz del modo local ("yo"): persona con [PersonCollection.isMe] == true.
+  Future<PersonCollection?> getRootUser();
   Future<List<PersonCollection>> fetchAll();
   Future<List<PersonCollection>> fetchDeleted();
   Future<PersonCollection> upsert(PersonCollection c);
@@ -68,6 +70,12 @@ class IsarPersonDataSourceImpl implements IsarPersonDataSource {
   }
 
   @override
+  Future<PersonCollection?> getRootUser() async {
+    final all = await fetchAll();
+    return all.where((p) => p.isMe).firstOrNull;
+  }
+
+  @override
   Future<List<PersonCollection>> fetchAll() async {
     final rows = await _isar.personCollections
         .filter()
@@ -87,6 +95,7 @@ class IsarPersonDataSourceImpl implements IsarPersonDataSource {
       if (existing != null) {
         c.isarId = existing.isarId;
         c.supabaseId ??= existing.supabaseId;
+        c.isMe = c.isMe || existing.isMe;
       }
       c.isSynced = false;
       await _isar.personCollections.put(c);

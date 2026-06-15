@@ -11,6 +11,10 @@ class SavedLocationCollection {
   String clientId = '';
 
   late String name;
+
+  /// Dirección postal completa (p. ej. de geocodificación inversa).
+  String? address;
+
   String? city;
   String? country;
   double? latitude;

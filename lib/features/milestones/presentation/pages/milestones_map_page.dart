@@ -4,29 +4,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_marker_cluster/flutter_map_marker_cluster.dart';
-import '../utils/map_location_helpers.dart';
+import '../utils/map_location_helpers.dart' show centerMapOnCurrentLocation;
 import 'package:latlong2/latlong.dart';
 
 import '../../../../core/constants/milestone_categories.dart';
 import '../../../../core/theme/app_theme.dart';
-import '../../../../domain/entities/media_item.dart';
+import '../../../../core/utils/map_location_helpers.dart'
+    show milestonesCentroid;
 import '../../../../domain/entities/milestone.dart';
-import '../../../../injection_container.dart';
 import '../../../auth/presentation/bloc/auth_cubit.dart';
 import '../widgets/drive_thumbnail.dart';
 import '../widgets/local_media_thumb.dart';
+import '../widgets/milestone_count_badge.dart';
+import '../widgets/milestone_preview_content.dart';
 import 'milestone_detail_page.dart';
-
-String _locationInlineLabel(Milestone m) {
-  final name = (m.locationName ?? '').trim();
-  if (name.isEmpty) return '';
-  final parts = <String>[
-    if ((m.locationCity ?? '').trim().isNotEmpty) m.locationCity!.trim(),
-    if ((m.locationCountry ?? '').trim().isNotEmpty) m.locationCountry!.trim(),
-  ];
-  if (parts.isEmpty) return name;
-  return '$name • ${parts.join(', ')}';
-}
 
 class MilestonesMapPage extends StatefulWidget {
   final List<Milestone> milestonesWithCoords;
@@ -69,7 +60,7 @@ class _MilestonesMapPageState extends State<MilestonesMapPage> {
           if (milestones.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(right: 16),
-              child: Center(child: _CountBadge(count: milestones.length)),
+              child: Center(child: MilestoneCountBadge(count: milestones.length)),
             ),
         ],
       ),
@@ -192,13 +183,8 @@ class _MilestonesMapPageState extends State<MilestonesMapPage> {
   }
 
   static LatLng _centroid(List<Milestone> milestones) {
-    final avgLat =
-        milestones.map((m) => m.latitude!).reduce((a, b) => a + b) /
-            milestones.length;
-    final avgLng =
-        milestones.map((m) => m.longitude!).reduce((a, b) => a + b) /
-            milestones.length;
-    return LatLng(avgLat, avgLng);
+    final (lat, lng) = milestonesCentroid(milestones);
+    return LatLng(lat, lng);
   }
 
   /// Si hay hitos con coordenadas idénticas, aplica un desvío mínimo (jitter)
@@ -311,13 +297,7 @@ class _MilestoneMarker extends StatelessWidget {
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           border: Border.all(color: border, width: 2.2),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x22000000),
-              blurRadius: 10,
-              offset: Offset(0, 4),
-            ),
-          ],
+          boxShadow: const [AppTheme.cardShadow],
         ),
         child: ClipOval(child: thumb),
       ),
@@ -336,13 +316,7 @@ class _ClusterBubble extends StatelessWidget {
         color: AppTheme.navy.withValues(alpha: 0.92),
         shape: BoxShape.circle,
         border: Border.all(color: AppTheme.cream, width: 2),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x22000000),
-            blurRadius: 10,
-            offset: Offset(0, 4),
-          ),
-        ],
+        boxShadow: const [AppTheme.cardShadow],
       ),
       child: Center(
         child: Text(
@@ -373,11 +347,6 @@ class _MilestonePreviewCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final d = milestone.eventDate;
-    final formatted =
-        '${d.day.toString().padLeft(2, '0')} / ${d.month.toString().padLeft(2, '0')} / ${d.year}';
-
     final hasLocal = milestone.mediaItems.isNotEmpty;
     final hasDrive = milestone.driveFileId != null &&
         accessToken != null &&
@@ -414,7 +383,7 @@ class _MilestonePreviewCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: AppTheme.cream,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFD4D4B8)),
+          border: Border.all(color: AppTheme.divider),
           boxShadow: const [
             BoxShadow(
               color: Color(0x22000000),
@@ -433,100 +402,20 @@ class _MilestonePreviewCard extends StatelessWidget {
                     const BorderRadius.vertical(top: Radius.circular(16)),
                 child: header,
               ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          milestone.title.trim().isEmpty
-                              ? 'Hito'
-                              : milestone.title,
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            color: AppTheme.navy,
-                            fontWeight: FontWeight.w800,
-                          ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 4),
-                        Text(formatted, style: theme.textTheme.bodySmall),
-                        if (milestone.locationName != null) ...[
-                          const SizedBox(height: 4),
-                          Row(
-                            children: [
-                              Icon(Icons.place_outlined,
-                                  size: 12,
-                                  color: theme.textTheme.bodySmall?.color),
-                              const SizedBox(width: 4),
-                              Flexible(
-                                child: Text(
-                                  _locationInlineLabel(milestone),
-                                  style: theme.textTheme.bodySmall,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: onClose,
-                    icon: const Icon(Icons.close),
-                    color: AppTheme.navy.withValues(alpha: 0.7),
-                    tooltip: 'Cerrar',
-                  ),
-                ],
+            MilestonePreviewContent(
+              milestone: milestone,
+              onViewDetail: onViewDetail,
+              titleFallback: 'Hito',
+              trailingAction: IconButton(
+                onPressed: onClose,
+                icon: const Icon(Icons.close),
+                color: AppTheme.navy.withValues(alpha: 0.7),
+                tooltip: 'Cerrar',
               ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-              child: SizedBox(
-                width: double.infinity,
-                child: OutlinedButton(
-                  onPressed: onViewDetail,
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppTheme.navy,
-                    side: const BorderSide(color: AppTheme.navy),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                  child: const Text('Ver hito completo'),
-                ),
-              ),
+              useFullLocationLabel: true,
+              buttonBorderRadius: 10.0,
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _CountBadge extends StatelessWidget {
-  final int count;
-  const _CountBadge({required this.count});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: AppTheme.navy.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(
-        '$count hito${count == 1 ? '' : 's'}',
-        style: const TextStyle(
-          color: AppTheme.navy,
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
         ),
       ),
     );

@@ -11,6 +11,7 @@ import 'package:video_player/video_player.dart';
 import '../../../../core/constants/milestone_categories.dart';
 import '../../../../core/notifiers/people_faces_revision_notifier.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/utils/milestone_display_helpers.dart';
 import '../../../../domain/entities/media_item.dart';
 import '../../../../domain/entities/milestone.dart';
 import '../../../../injection_container.dart';
@@ -23,6 +24,7 @@ import '../widgets/person_avatar_badge.dart';
 import '../widgets/app_bar_cloud_sync_indicator.dart';
 import '../widgets/milestone_sync_badge.dart';
 import '../widgets/location_map_modal.dart';
+import '../widgets/milestone_category_chip.dart';
 import '../../../settings/presentation/widgets/person_detail_sheet.dart';
 import 'add_milestone_page.dart';
 import '../../data/models/local/person_collection.dart';
@@ -321,9 +323,7 @@ class _DetailScaffoldState extends State<_DetailScaffold> {
 
   Widget _buildBody(BuildContext context) {
     final theme = Theme.of(context);
-    final d = _milestone.eventDate;
-    final formatted =
-        '${d.day.toString().padLeft(2, '0')} / ${d.month.toString().padLeft(2, '0')} / ${d.year}';
+    final formatted = formatEventDate(_milestone.eventDate);
     final title = _milestone.title.trim();
 
     return Padding(
@@ -333,7 +333,7 @@ class _DetailScaffoldState extends State<_DetailScaffold> {
         children: [
           Row(
             children: [
-              _CategoryChip(categoryId: _milestone.categoryId),
+              MilestoneCategoryChip(categoryId: _milestone.categoryId),
               const SizedBox(width: 6),
               MilestoneSyncBadge(milestone: _milestone),
               const Spacer(),
@@ -347,16 +347,16 @@ class _DetailScaffoldState extends State<_DetailScaffold> {
               ),
             ],
           ),
+          if (_milestone.locationName != null) ...[
+            const SizedBox(height: 8),
+            _MilestoneLocationRow(milestone: _milestone),
+          ],
           const SizedBox(height: 16),
           if (title.isNotEmpty)
             Text(
               title,
               style: theme.textTheme.headlineLarge,
             ),
-          if (_milestone.locationName != null) ...[
-            const SizedBox(height: 8),
-            _MilestoneLocationRow(milestone: _milestone),
-          ],
           const SizedBox(height: 24),
           const Divider(),
           const SizedBox(height: 24),
@@ -1186,39 +1186,3 @@ class _NoImageHeader extends StatelessWidget {
     );
   }
 }
-
-class _CategoryChip extends StatelessWidget {
-  final String? categoryId;
-  const _CategoryChip({required this.categoryId});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final c = milestoneCategoryById(categoryId);
-    if (c.id == 'otros') return const SizedBox.shrink();
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: c.color.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(c.icon, size: 14, color: c.color),
-          const SizedBox(width: 6),
-          Text(
-            c.name,
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: AppTheme.navy,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// (Fixed categories: no Isar lookup needed.)

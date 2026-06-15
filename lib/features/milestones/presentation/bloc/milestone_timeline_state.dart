@@ -17,10 +17,29 @@ class MilestoneTimelineLoading extends MilestoneTimelineState {
 }
 
 class MilestoneTimelineLoaded extends MilestoneTimelineState {
-  final List<Milestone> milestones;
-  const MilestoneTimelineLoaded(this.milestones);
+  const MilestoneTimelineLoaded(
+    this.allMilestones, {
+    this.filters = TimelineFilters.empty,
+  });
+
+  final List<Milestone> allMilestones;
+  final TimelineFilters filters;
+
+  List<Milestone> get milestones =>
+      applyTimelineFilters(allMilestones, filters);
+
+  MilestoneTimelineLoaded copyWith({
+    List<Milestone>? allMilestones,
+    TimelineFilters? filters,
+  }) {
+    return MilestoneTimelineLoaded(
+      allMilestones ?? this.allMilestones,
+      filters: filters ?? this.filters,
+    );
+  }
+
   @override
-  List<Object?> get props => [milestones];
+  List<Object?> get props => [allMilestones, filters];
 }
 
 class MilestoneTimelineError extends MilestoneTimelineState {

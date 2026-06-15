@@ -20,6 +20,26 @@ class RelationshipTreeCubit extends Cubit<RelationshipTreeState> {
   final IsarPersonDataSource _personDs;
   final RelationshipService _relationshipService;
 
+  /// Centra el árbol en el usuario raíz local ("yo"). Si todavía no existe,
+  /// recae en la primera persona disponible.
+  Future<void> centerOnRootUser() async {
+    var root = await _personDs.getRootUser();
+    if (root == null) {
+      final all = await _personDs.fetchAll();
+      if (all.isNotEmpty) root = all.first;
+    }
+    if (root == null) {
+      emit(
+        state.copyWith(
+          status: RelationshipTreeStatus.error,
+          errorMessage: 'Aún no hay personas en tu bitácora.',
+        ),
+      );
+      return;
+    }
+    await setCenterPerson(root.id);
+  }
+
   Future<void> setCenterPerson(String personId) async {
     final pid = personId.trim();
     if (pid.isEmpty) return;

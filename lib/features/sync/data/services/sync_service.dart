@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:isar/isar.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../../core/config/app_flags.dart';
 import '../../../../core/notifiers/cloud_sync_activity_notifier.dart';
 import '../../../../core/services/cloud_sync_service.dart';
 import '../../../../core/services/cloud_sync_status_store.dart';
@@ -93,6 +94,7 @@ class SyncService {
 
   /// Primera apertura del timeline tras login premium (sin bloquear la UI).
   Future<void> syncIfNeededForTimelineOpen() async {
+    if (!AppFlags.kIsCloudEnabled) return;
     if (!await _resolveIsPremium()) return;
     if (!await _syncStatusStore.consumeNeedsTimelinePull()) return;
     unawaited(
@@ -151,6 +153,12 @@ class SyncService {
 
   /// Sincronización completa (metadatos + Drive), p. ej. desde el panel Premium.
   Future<SyncRunResult> syncData({bool forceResync = false}) async {
+    if (!AppFlags.kIsCloudEnabled) {
+      return const SyncRunResult(
+        skipped: true,
+        skipReason: 'La sincronización en la nube está desactivada.',
+      );
+    }
     final meta = await syncMetadata(forceResync: forceResync);
     if (meta.skipped) return meta;
 
@@ -179,6 +187,12 @@ class SyncService {
 
   /// Fase 1: Supabase (hitos, personas, relaciones, catálogo y purgas).
   Future<SyncRunResult> syncMetadata({bool forceResync = false}) async {
+    if (!AppFlags.kIsCloudEnabled) {
+      return const SyncRunResult(
+        skipped: true,
+        skipReason: 'La sincronización en la nube está desactivada.',
+      );
+    }
     if (_metadataRunning) {
       return const SyncRunResult(
         skipped: true,

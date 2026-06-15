@@ -8,6 +8,8 @@ import 'package:file_picker/file_picker.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show SupabaseClient;
 
+import '../../../../core/config/app_flags.dart';
+import '../../../../core/dev/dev_seed_data.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/person_ui_filters.dart';
 import '../../../../core/utils/bitacora_backup_json.dart';
@@ -27,6 +29,10 @@ import '../../../milestones/data/models/local/person_collection.dart';
 import 'manage_people_page.dart';
 import 'manage_locations_page.dart';
 import 'manage_categories_page.dart';
+import 'storage_usage_page.dart';
+import '../../../milestones/presentation/widgets/person_avatar_badge.dart'
+    show PersonCircleAvatar, faceImageWidgetCacheKey;
+import '../../../profile/presentation/pages/local_user_profile_page.dart';
 import '../../../profile/presentation/pages/profile_page.dart';
 import '../bloc/export_cubit.dart';
 import '../bloc/import_cubit.dart';
@@ -208,59 +214,62 @@ class _SettingsView extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 8),
           children: [
             const GoogleDriveReauthBanner(),
-            BlocBuilder<AuthCubit, AuthState>(
-              builder: (context, auth) {
-                if (auth is! AuthAuthenticated) {
-                  return const SizedBox.shrink();
-                }
-                final dn = auth.user.displayName?.trim();
-                final label =
-                    (dn != null && dn.isNotEmpty) ? dn : auth.user.email;
-                final photo = auth.user.photoUrl;
-                return Column(
-                  children: [
-                    ListTile(
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 6,
+            if (!AppFlags.kIsCloudEnabled)
+              _LocalProfileTile()
+            else
+              BlocBuilder<AuthCubit, AuthState>(
+                builder: (context, auth) {
+                  if (auth is! AuthAuthenticated) {
+                    return const SizedBox.shrink();
+                  }
+                  final dn = auth.user.displayName?.trim();
+                  final label =
+                      (dn != null && dn.isNotEmpty) ? dn : auth.user.email;
+                  final photo = auth.user.photoUrl;
+                  return Column(
+                    children: [
+                      ListTile(
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 6,
+                        ),
+                        leading: CircleAvatar(
+                          radius: 28,
+                          backgroundColor: AppTheme.navy.withValues(alpha: 0.12),
+                          backgroundImage: photo != null && photo.isNotEmpty
+                              ? NetworkImage(photo)
+                              : null,
+                          child: photo == null || photo.isEmpty
+                              ? Text(
+                                  label.isNotEmpty
+                                      ? label[0].toUpperCase()
+                                      : '?',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    color: AppTheme.navy,
+                                  ),
+                                )
+                              : null,
+                        ),
+                        title: const Text('Mi perfil'),
+                        subtitle: Text(label),
+                        trailing: const Icon(
+                          Icons.chevron_right,
+                          color: AppTheme.navy,
+                        ),
+                        onTap: () {
+                          Navigator.of(context).push<void>(
+                            MaterialPageRoute<void>(
+                              builder: (_) => const ProfilePage(),
+                            ),
+                          );
+                        },
                       ),
-                      leading: CircleAvatar(
-                        radius: 28,
-                        backgroundColor: AppTheme.navy.withValues(alpha: 0.12),
-                        backgroundImage: photo != null && photo.isNotEmpty
-                            ? NetworkImage(photo)
-                            : null,
-                        child: photo == null || photo.isEmpty
-                            ? Text(
-                                label.isNotEmpty
-                                    ? label[0].toUpperCase()
-                                    : '?',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  color: AppTheme.navy,
-                                ),
-                              )
-                            : null,
-                      ),
-                      title: const Text('Mi perfil'),
-                      subtitle: Text(label),
-                      trailing: const Icon(
-                        Icons.chevron_right,
-                        color: AppTheme.navy,
-                      ),
-                      onTap: () {
-                        Navigator.of(context).push<void>(
-                          MaterialPageRoute<void>(
-                            builder: (_) => const ProfilePage(),
-                          ),
-                        );
-                      },
-                    ),
-                    const Divider(height: 1),
-                  ],
-                );
-              },
-            ),
+                      const Divider(height: 1),
+                    ],
+                  );
+                },
+              ),
             const SettingsSectionHeader(label: 'Mis datos'),
             const _UpcomingBirthdaysTile(),
             ListTile(
@@ -303,6 +312,34 @@ class _SettingsView extends StatelessWidget {
                 ),
               ),
             ),
+            ListTile(
+              leading: const Icon(Icons.pie_chart_outline, color: AppTheme.navy),
+              title: const Text('Almacenamiento'),
+              subtitle: const Text('Espacio usado: imágenes, vídeos y datos'),
+              trailing: const Icon(Icons.chevron_right, color: AppTheme.navy),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const StorageUsagePage(),
+                ),
+              ),
+            ),
+            if (AppFlags.kEnableDevSeed) ...[
+              const SettingsSectionHeader(label: 'Desarrollo'),
+              ListTile(
+                leading: const Icon(Icons.science_outlined, color: AppTheme.navy),
+                title: const Text('Generar datos de demostración'),
+                subtitle: const Text(
+                  '200 hitos (~5 fotos), 150 lugares y 1000 personas con relaciones',
+                ),
+                onTap: () => _runDevSeed(context),
+              ),
+              ListTile(
+                leading: Icon(Icons.delete_sweep_outlined, color: Colors.red.shade700),
+                title: const Text('Borrar datos de demostración'),
+                subtitle: const Text('Elimina hitos, lugares, personas y vínculos'),
+                onTap: () => _wipeDevSeed(context),
+              ),
+            ],
             BlocBuilder<AuthCubit, AuthState>(
               builder: (context, auth) {
                 if (auth is! AuthAuthenticated) {
@@ -465,69 +502,270 @@ class _SettingsView extends StatelessWidget {
       ),
     );
   }
-}
 
-Future<({List<PersonCollection> contacts, UserProfileDetails? profile})>
-    _loadBirthdaysContext() async {
-  final ds = sl<IsarPersonDataSource>();
-  final repo = sl<ProfileRepository>();
-  final supa = sl<SupabaseClient>();
-  final raw = await ds.fetchAll();
-  final contacts = withoutLinkedCurrentUser(raw);
-  final u = supa.auth.currentUser;
-  UserProfileDetails? profile;
-  if (u != null) {
-    final r = await repo.fetchUserProfile(
-      userId: u.id,
-      emailFallback: u.email ?? '',
+  Future<void> _runDevSeed(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.cream,
+        title: const Text('Generar datos de demostración'),
+        content: const Text(
+          'Se añadirán 1000 personas con relaciones, 150 lugares y 200 hitos '
+          '(con unas 5 fotos generadas cada uno). Puede tardar unos segundos.\n\n'
+          '¿Continuar?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Generar'),
+          ),
+        ],
+      ),
     );
-    profile = r.fold((_) => null, (d) => d);
+    if (confirmed != true || !context.mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    final progress = ValueNotifier<String>('Preparando…');
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        backgroundColor: AppTheme.cream,
+        content: Row(
+          children: [
+            const SizedBox(
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: ValueListenableBuilder<String>(
+                valueListenable: progress,
+                builder: (_, msg, __) => Text(msg),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      final summary =
+          await DevSeedData.run(onProgress: (m) => progress.value = m);
+      if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
+      messenger.showSnackBar(
+        SnackBar(content: Text('Datos creados: $summary')),
+      );
+    } catch (e) {
+      if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('No se pudieron generar los datos: $e'),
+          backgroundColor: Colors.red.shade700,
+        ),
+      );
+    } finally {
+      progress.dispose();
+    }
   }
-  return (contacts: contacts, profile: profile);
+
+  Future<void> _wipeDevSeed(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.cream,
+        title: const Text('Borrar datos de demostración'),
+        content: const Text(
+          'Se eliminarán TODOS los hitos, lugares, personas (excepto tú) y '
+          'vínculos de este dispositivo. Esta acción no se puede deshacer.\n\n'
+          '¿Continuar?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Borrar'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await DevSeedData.wipeAll();
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Datos de demostración borrados.')),
+      );
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('No se pudieron borrar: $e'),
+          backgroundColor: Colors.red.shade700,
+        ),
+      );
+    }
+  }
 }
 
-List<(String name, DateTime next)> _mergedUpcomingBirthdays(
-  List<PersonCollection> contacts,
-  UserProfileDetails? selfProfile, {
-  int daysAhead = 21,
+Future<List<PersonCollection>> _loadPeopleForBirthdays() async {
+  final ds = sl<IsarPersonDataSource>();
+  final raw = await ds.fetchAll();
+
+  if (!AppFlags.kIsCloudEnabled) {
+    return raw;
+  }
+
+  final contacts = withoutLinkedCurrentUser(raw);
+  final u = sl<SupabaseClient>().auth.currentUser;
+  if (u == null) return contacts;
+
+  final linked = raw
+      .where((p) => (p.linkedUserId ?? '').trim() == u.id.trim())
+      .firstOrNull;
+  if (linked != null) {
+    return [...contacts, linked];
+  }
+  return contacts;
+}
+
+class _UpcomingBirthdayEntry {
+  const _UpcomingBirthdayEntry({
+    required this.displayName,
+    required this.nextDate,
+    this.faceImagePath,
+    this.avatarUrl,
+  });
+
+  final String displayName;
+  final DateTime nextDate;
+  final String? faceImagePath;
+  final String? avatarUrl;
+}
+
+String _formatUpcomingBirthdayDate(DateTime date, DateTime reference) {
+  final day = date.day.toString().padLeft(2, '0');
+  final month = date.month.toString().padLeft(2, '0');
+  if (date.year != reference.year) {
+    return '$day/$month/${date.year}';
+  }
+  return '$day/$month';
+}
+
+List<_UpcomingBirthdayEntry> _collectUpcomingBirthdays(
+  List<PersonCollection> people, {
+  UserProfileDetails? selfProfile,
+  int daysAhead = 30,
 }) {
   final now = DateTime.now();
-  DateTime nextBirthday(DateTime b) {
-    final today = DateTime(now.year, now.month, now.day);
-    final candidate = DateTime(now.year, b.month, b.day);
-    return candidate.isBefore(today)
-        ? DateTime(now.year + 1, b.month, b.day)
-        : candidate;
+  final today = DateTime(now.year, now.month, now.day);
+
+  DateTime nextOccurrence(DateTime birth) {
+    final candidate = DateTime(now.year, birth.month, birth.day);
+    if (candidate.isBefore(today)) {
+      return DateTime(now.year + 1, birth.month, birth.day);
+    }
+    return candidate;
   }
 
-  final out = <(String, DateTime)>[];
-  for (final p in contacts) {
-    final b = p.birthDate;
-    if (b == null) continue;
-    final n = p.name.trim();
-    if (n.isEmpty) continue;
-    final nx = nextBirthday(b);
-    if (nx.difference(now).inDays <= daysAhead) {
-      out.add((n, nx));
+  int daysUntil(DateTime next) {
+    final target = DateTime(next.year, next.month, next.day);
+    return target.difference(today).inDays;
+  }
+
+  final out = <_UpcomingBirthdayEntry>[];
+  final coveredSelfBirthday = <String>{};
+
+  for (final p in people) {
+    final birth = p.birthDate;
+    if (birth == null) continue;
+    final name = p.name.trim();
+    if (name.isEmpty) continue;
+    final next = nextOccurrence(birth);
+    if (daysUntil(next) > daysAhead) continue;
+    out.add(
+      _UpcomingBirthdayEntry(
+        displayName: name,
+        nextDate: next,
+        faceImagePath: p.faceImagePath,
+      ),
+    );
+    if (p.isMe) {
+      coveredSelfBirthday.add('${birth.month}-${birth.day}');
     }
   }
-  final sb = selfProfile?.birthDate;
-  if (sb != null) {
-    final nx = nextBirthday(sb);
-    if (nx.difference(now).inDays <= daysAhead) {
-      final dn = (selfProfile!.displayName).trim();
-      final fn = (selfProfile.firstName ?? '').trim();
-      final ln = (selfProfile.lastName ?? '').trim();
-      final composed =
-          [fn, ln].where((s) => s.isNotEmpty).join(' ').trim();
-      final name = dn.isNotEmpty
-          ? dn
-          : (composed.isNotEmpty ? composed : selfProfile.email);
-      out.add((name, nx));
+
+  final selfBirth = selfProfile?.birthDate;
+  if (selfBirth != null) {
+    final key = '${selfBirth.month}-${selfBirth.day}';
+    if (!coveredSelfBirthday.contains(key)) {
+      final next = nextOccurrence(selfBirth);
+      if (daysUntil(next) <= daysAhead) {
+        final dn = (selfProfile!.displayName).trim();
+        final fn = (selfProfile.firstName ?? '').trim();
+        final ln = (selfProfile.lastName ?? '').trim();
+        final composed =
+            [fn, ln].where((s) => s.isNotEmpty).join(' ').trim();
+        final name = dn.isNotEmpty
+            ? dn
+            : (composed.isNotEmpty ? composed : selfProfile.email);
+        out.add(
+          _UpcomingBirthdayEntry(
+            displayName: name,
+            nextDate: next,
+            avatarUrl: selfProfile.avatarUrl,
+          ),
+        );
+      }
     }
   }
-  out.sort((a, b) => a.$2.compareTo(b.$2));
+
+  out.sort((a, b) => a.nextDate.compareTo(b.nextDate));
   return out;
+}
+
+Widget _birthdayLeadingAvatar(_UpcomingBirthdayEntry entry) {
+  final path = (entry.faceImagePath ?? '').trim();
+  if (path.isNotEmpty) {
+    return PersonCircleAvatar(
+      key: ValueKey<String>(faceImageWidgetCacheKey(path)),
+      faceImagePath: path,
+      diameter: 44,
+      semanticLabel: entry.displayName,
+    );
+  }
+
+  final url = (entry.avatarUrl ?? '').trim();
+  if (url.isNotEmpty) {
+    return CircleAvatar(
+      radius: 22,
+      backgroundColor: AppTheme.navy.withValues(alpha: 0.12),
+      backgroundImage: NetworkImage(url),
+    );
+  }
+
+  final initial =
+      entry.displayName.isNotEmpty ? entry.displayName[0].toUpperCase() : '?';
+  return CircleAvatar(
+    radius: 22,
+    backgroundColor: AppTheme.navy.withValues(alpha: 0.12),
+    child: Text(
+      initial,
+      style: const TextStyle(
+        fontWeight: FontWeight.w700,
+        color: AppTheme.navy,
+      ),
+    ),
+  );
 }
 
 class _UpcomingBirthdaysTile extends StatefulWidget {
@@ -539,13 +777,30 @@ class _UpcomingBirthdaysTile extends StatefulWidget {
 
 class _UpcomingBirthdaysTileState extends State<_UpcomingBirthdaysTile> {
   late final Future<
-      ({List<PersonCollection> contacts, UserProfileDetails? profile})> _future =
-      _loadBirthdaysContext();
+      ({List<PersonCollection> people, UserProfileDetails? profile})> _future =
+      _loadBirthdaysData();
+
+  Future<({List<PersonCollection> people, UserProfileDetails? profile})>
+      _loadBirthdaysData() async {
+    final people = await _loadPeopleForBirthdays();
+    UserProfileDetails? profile;
+    if (AppFlags.kIsCloudEnabled) {
+      final u = sl<SupabaseClient>().auth.currentUser;
+      if (u != null) {
+        final r = await sl<ProfileRepository>().fetchUserProfile(
+          userId: u.id,
+          emailFallback: u.email ?? '',
+        );
+        profile = r.fold((_) => null, (d) => d);
+      }
+    }
+    return (people: people, profile: profile);
+  }
 
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<
-        ({List<PersonCollection> contacts, UserProfileDetails? profile})>(
+        ({List<PersonCollection> people, UserProfileDetails? profile})>(
       future: _future,
       builder: (context, snapshot) {
         if (snapshot.connectionState != ConnectionState.done) {
@@ -553,52 +808,40 @@ class _UpcomingBirthdaysTileState extends State<_UpcomingBirthdaysTile> {
         }
         final data = snapshot.data;
         if (data == null) return const SizedBox.shrink();
-        final upcoming = _mergedUpcomingBirthdays(
-          data.contacts,
-          data.profile,
-          daysAhead: 21,
+
+        final now = DateTime.now();
+        final upcoming = _collectUpcomingBirthdays(
+          data.people,
+          selfProfile: data.profile,
+          daysAhead: 30,
         );
         if (upcoming.isEmpty) return const SizedBox.shrink();
 
-        final names = upcoming.take(2).map((t) => t.$1).join(', ');
-        final more = upcoming.length > 2 ? ' +${upcoming.length - 2}' : '';
-
-        return ListTile(
-          leading: const Icon(Icons.cake_outlined, color: AppTheme.navy),
-          title: const Text('Cumpleaños próximos'),
-          subtitle: Text('$names$more'),
-          trailing: const Icon(Icons.chevron_right, color: AppTheme.navy),
-          onTap: () {
-            showDialog<void>(
-              context: context,
-              builder: (ctx) => AlertDialog(
-                title: const Text('Cumpleaños próximos'),
-                content: SizedBox(
-                  width: double.maxFinite,
-                  child: ListView(
-                    shrinkWrap: true,
-                    children: upcoming.map((t) {
-                      final name = t.$1;
-                      final d = t.$2;
-                      final dd =
-                          '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}';
-                      return ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: Text(name),
-                        subtitle: Text(dd),
-                      );
-                    }).toList(),
-                  ),
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.of(ctx).pop(),
-                    child: const Text('Cerrar'),
-                  ),
-                ],
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SettingsSectionHeader(label: 'Cumpleaños próximos'),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+              child: Text(
+                'En los próximos 30 días',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Colors.black54,
+                    ),
               ),
-            );
-          },
+            ),
+            for (final entry in upcoming)
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                leading: _birthdayLeadingAvatar(entry),
+                title: Text(
+                  entry.displayName,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                subtitle: Text(_formatUpcomingBirthdayDate(entry.nextDate, now)),
+              ),
+            const Divider(height: 1),
+          ],
         );
       },
     );
@@ -708,6 +951,71 @@ class _ExportTile extends StatelessWidget {
           onTap: isLoading
               ? null
               : () => context.read<ExportCubit>().export(),
+        );
+      },
+    );
+  }
+}
+
+class _LocalProfileTile extends StatelessWidget {
+  const _LocalProfileTile();
+
+  String _displayName(PersonCollection p) {
+    final parts = [p.firstName, p.lastName]
+        .where((s) => (s ?? '').trim().isNotEmpty)
+        .map((s) => s!.trim());
+    final legal = parts.join(' ');
+    if (legal.isNotEmpty) return legal;
+    return p.name.trim().isEmpty ? 'Sin nombre' : p.name.trim();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<PersonCollection?>(
+      future: sl<IsarPersonDataSource>().getRootUser(),
+      builder: (context, snapshot) {
+        final root = snapshot.data;
+        final label = root == null ? 'Configura tu perfil' : _displayName(root);
+        return Column(
+          children: [
+            ListTile(
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 6,
+              ),
+              leading: root == null
+                  ? CircleAvatar(
+                      radius: 28,
+                      backgroundColor: AppTheme.navy.withValues(alpha: 0.12),
+                      child: const Icon(
+                        Icons.person_outline,
+                        color: AppTheme.navy,
+                      ),
+                    )
+                  : PersonCircleAvatar(
+                      key: ValueKey<String>(
+                        faceImageWidgetCacheKey(root.faceImagePath),
+                      ),
+                      faceImagePath: root.faceImagePath,
+                      diameter: 56,
+                      semanticLabel: label,
+                    ),
+              title: const Text('Mi perfil'),
+              subtitle: Text(label),
+              trailing: const Icon(
+                Icons.chevron_right,
+                color: AppTheme.navy,
+              ),
+              onTap: () {
+                Navigator.of(context).push<void>(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const LocalUserProfilePage(),
+                  ),
+                );
+              },
+            ),
+            const Divider(height: 1),
+          ],
         );
       },
     );

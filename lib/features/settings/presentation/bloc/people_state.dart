@@ -15,15 +15,19 @@ class PeopleLoaded extends PeopleState {
     this.people,
     this.groups, {
     this.refreshEpoch = 0,
+    this.milestoneCountsByPersonId = const {},
   });
 
   final List<PersonCollection> people;
   final List<GroupCollection> groups;
+
+  /// Hitos en los que participa cada persona (participante o protagonista).
+  final Map<String, int> milestoneCountsByPersonId;
 
   /// Se incrementa en cada [PeopleCubit.reload] (p. ej. tras guardar cara) para
   /// forzar que [BlocBuilder] vuelva a pintar aunque la lista sea similar.
   final int refreshEpoch;
 
   @override
-  List<Object?> get props => [people, groups, refreshEpoch];
+  List<Object?> get props => [people, groups, refreshEpoch, milestoneCountsByPersonId];
 }

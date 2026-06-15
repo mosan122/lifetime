@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../../../../core/services/premium_service.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../injection_container.dart';
 import '../../data/models/local/group_collection.dart';
@@ -12,7 +11,10 @@ import '../utils/group_constellation_layout.dart';
 import '../widgets/group_constellation_connection_painter.dart';
 import '../widgets/group_constellation_milestones_sheet.dart';
 import '../widgets/group_constellation_nodes.dart';
+import '../widgets/group_members_preview.dart';
 import '../widgets/relationship_tree_person_sheet.dart';
+
+const _kMaxConstellationOrbitMembers = 20;
 
 /// Constelación de un círculo social / grupo (Premium).
 class GroupConstellationView extends StatelessWidget {
@@ -25,7 +27,6 @@ class GroupConstellationView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final premium = sl<PremiumService>().isPremium;
     return BlocProvider(
       create: (_) => sl<GroupGraphCubit>()..loadGroup(groupId),
       child: Scaffold(
@@ -33,40 +34,7 @@ class GroupConstellationView extends StatelessWidget {
         appBar: AppBar(
           title: const Text('Constelación del grupo'),
         ),
-        body: premium
-            ? const _GroupConstellationCanvas()
-            : const _GroupConstellationPremiumGate(),
-      ),
-    );
-  }
-}
-
-class _GroupConstellationPremiumGate extends StatelessWidget {
-  const _GroupConstellationPremiumGate();
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(28),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.bubble_chart_outlined,
-              size: 56,
-              color: AppTheme.navy.withValues(alpha: 0.5),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'La visualización de círculos sociales está disponible con Premium.',
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    color: AppTheme.navy,
-                  ),
-            ),
-          ],
-        ),
+        body: const _GroupConstellationCanvas(),
       ),
     );
   }
@@ -152,65 +120,102 @@ class _GroupConstellationCanvasState extends State<_GroupConstellationCanvas> {
           return const Center(child: Text('Grupo no encontrado.'));
         }
 
+        final orbitMembers = state.members.length > _kMaxConstellationOrbitMembers
+            ? state.members.take(_kMaxConstellationOrbitMembers).toList()
+            : state.members;
+
         final positions = GroupConstellationLayout.orbitPositions(
-          count: state.members.length,
+          count: orbitMembers.length,
         );
 
         final connections = <GroupConstellationConnection>[
-          for (var i = 0; i < state.members.length; i++)
+          for (var i = 0; i < orbitMembers.length; i++)
             GroupConstellationConnection(
               from: _center,
               to: positions[i],
             ),
         ];
 
-        return Stack(
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            InteractiveViewer(
-              transformationController: _transform,
-              constrained: false,
-              minScale: 0.35,
-              maxScale: 3.5,
-              boundaryMargin: const EdgeInsets.all(480),
-              child: SizedBox(
-                width: _canvasSize,
-                height: _canvasSize,
-                child: Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    CustomPaint(
-                      size: const Size(_canvasSize, _canvasSize),
-                      painter: GroupConstellationConnectionPainter(
-                        connections: connections,
+            Expanded(
+              child: Stack(
+                children: [
+                  InteractiveViewer(
+                    transformationController: _transform,
+                    constrained: false,
+                    minScale: 0.35,
+                    maxScale: 3.5,
+                    boundaryMargin: const EdgeInsets.all(480),
+                    child: SizedBox(
+                      width: _canvasSize,
+                      height: _canvasSize,
+                      child: Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          CustomPaint(
+                            size: const Size(_canvasSize, _canvasSize),
+                            painter: GroupConstellationConnectionPainter(
+                              connections: connections,
+                            ),
+                          ),
+                          _positionedGroupNode(
+                            center: _center,
+                            group: group,
+                            onTap: () => showGroupConstellationMilestonesSheet(
+                              context,
+                              groupName: group.name,
+                              milestones: state.linkedMilestones,
+                            ),
+                          ),
+                          for (var i = 0; i < orbitMembers.length; i++)
+                            _positionedMemberNode(
+                              center: positions[i],
+                              member: orbitMembers[i],
+                              groupName: group.name,
+                            ),
+                        ],
                       ),
                     ),
-                    _positionedGroupNode(
-                      center: _center,
-                      group: group,
-                      onTap: () => showGroupConstellationMilestonesSheet(
-                        context,
-                        groupName: group.name,
-                        milestones: state.linkedMilestones,
+                  ),
+                  if (state.isLoading)
+                    const Positioned(
+                      top: 12,
+                      right: 12,
+                      child: SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(strokeWidth: 2),
                       ),
                     ),
-                    for (var i = 0; i < state.members.length; i++)
-                      _positionedMemberNode(
-                        center: positions[i],
-                        member: state.members[i],
-                        groupName: group.name,
-                      ),
-                  ],
-                ),
+                ],
               ),
             ),
-            if (state.isLoading)
-              const Positioned(
-                top: 12,
-                right: 12,
-                child: SizedBox(
-                  width: 22,
-                  height: 22,
-                  child: CircularProgressIndicator(strokeWidth: 2),
+            if (state.members.length > _kMaxConstellationOrbitMembers)
+              Material(
+                color: AppTheme.cream,
+                elevation: 6,
+                shadowColor: AppTheme.navy.withValues(alpha: 0.12),
+                child: SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Integrantes (${state.members.length})',
+                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w700,
+                                color: AppTheme.navy,
+                              ),
+                        ),
+                        const SizedBox(height: 8),
+                        GroupMembersPreview(members: state.members),
+                      ],
+                    ),
+                  ),
                 ),
               ),
           ],

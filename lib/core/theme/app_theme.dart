@@ -6,9 +6,23 @@ class AppTheme {
 
   static const Color cream = Color(0xFFF5F5DC);
   static const Color navy = Color(0xFF000080);
+  static const Color divider = Color(0xFFD4D4B8);
   static const Color _textDark = Color(0xFF1C1C1E);
   static const Color _textMuted = Color(0xFF6B6B6B);
-  static const Color _divider = Color(0xFFD4D4B8);
+
+  /// Sombra estándar para tarjetas y marcadores en el mapa.
+  static const BoxShadow cardShadow = BoxShadow(
+    color: Color(0x22000000),
+    blurRadius: 10,
+    offset: Offset(0, 4),
+  );
+
+  /// Estilo base para botones `OutlinedButton` en color marino.
+  /// Para añadir `shape` específico usa `.copyWith(shape: ...)`.
+  static ButtonStyle get navyOutlinedButton => OutlinedButton.styleFrom(
+        foregroundColor: navy,
+        side: const BorderSide(color: navy),
+      );
 
   static ThemeData get light {
     final base = ThemeData.light(useMaterial3: true);
@@ -27,14 +41,14 @@ class AppTheme {
         surface: cream,
         onSurface: _textDark,
         surfaceContainerHighest: Color(0xFFEDEDD4),
-        outline: _divider,
+        outline: divider,
       ),
       appBarTheme: AppBarTheme(
         backgroundColor: cream,
         foregroundColor: navy,
         elevation: 0,
         scrolledUnderElevation: 1,
-        shadowColor: _divider,
+        shadowColor: divider,
         centerTitle: false,
         titleTextStyle: serifDisplay(
           color: navy,
@@ -77,13 +91,13 @@ class AppTheme {
         labelSmall: const TextStyle(
             fontSize: 11, fontWeight: FontWeight.w400, color: _textMuted),
       ),
-      dividerTheme: const DividerThemeData(color: _divider, thickness: 1),
+      dividerTheme: const DividerThemeData(color: divider, thickness: 1),
       cardTheme: const CardThemeData(
         color: Color(0xFFFAFAE8),
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.all(Radius.circular(8)),
-          side: BorderSide(color: _divider),
+          side: BorderSide(color: divider),
         ),
       ),
       progressIndicatorTheme:
