@@ -1,0 +1,97 @@
+import 'package:equatable/equatable.dart';
+import 'media_item.dart';
+import 'media_asset_entity.dart';
+
+class Milestone extends Equatable {
+  final String id;
+  final String userId;
+  final String title;
+  final String? description;
+  final List<String> participants;
+  final List<String> participantIds;
+  /// Subset of [participantIds] marked as protagonists for this milestone.
+  final List<String> protagonistIds;
+  final List<String> tags;
+  final List<MediaAssetEntity> media;
+  final List<MediaItem> mediaItems;
+  /// Índice en [mediaItems] del medio que se muestra en el timeline y en el encabezado del detalle.
+  final int galleryCoverIndex;
+  final DateTime eventDate;
+  /// Enlace al favorito en Isar (Mis lugares). Si se borra el favorito, el hito sigue teniendo
+  /// `locationName`/coords como copia de seguridad.
+  final int? savedLocationId;
+  final String? locationName;
+  final String? locationCity;
+  final String? locationCountry;
+  final double? latitude;
+  final double? longitude;
+  /// Category id from a fixed, closed list (see `kMilestoneCategorySeeds` /
+  /// `defaultCategories` in `lib/core/constants/`).
+  /// If null/unknown, UI should fall back to `otros`.
+  final String? categoryId;
+  final bool isPublic;
+  final DateTime createdAt;
+  final String? driveFileId;
+  /// Metadatos del hito subidos a Supabase (Premium).
+  final bool isSynced;
+
+  const Milestone({
+    required this.id,
+    required this.userId,
+    required this.title,
+    this.description,
+    this.participants = const [],
+    this.participantIds = const [],
+    this.protagonistIds = const [],
+    this.tags = const [],
+    this.media = const [],
+    this.mediaItems = const [],
+    this.galleryCoverIndex = 0,
+    required this.eventDate,
+    this.savedLocationId,
+    this.locationName,
+    this.locationCity,
+    this.locationCountry,
+    this.latitude,
+    this.longitude,
+    this.categoryId,
+    this.isPublic = false,
+    required this.createdAt,
+    this.driveFileId,
+    this.isSynced = false,
+  });
+
+  /// Medios locales aún no subidos a Drive.
+  bool get hasUnsyncedMedia =>
+      mediaItems.any((m) => !m.isDeleted && !m.isSynced);
+
+  /// Supabase + Drive (si hay archivos) al día.
+  bool get isFullySyncedToCloud => isSynced && !hasUnsyncedMedia;
+
+  @override
+  List<Object?> get props => [
+        id,
+        userId,
+        title,
+        description,
+        participants,
+        participantIds,
+        protagonistIds,
+        tags,
+        media,
+        mediaItems,
+        galleryCoverIndex,
+        eventDate,
+        savedLocationId,
+        locationName,
+        locationCity,
+        locationCountry,
+        latitude,
+        longitude,
+        categoryId,
+        isPublic,
+        createdAt,
+        driveFileId,
+        isSynced,
+      ];
+}

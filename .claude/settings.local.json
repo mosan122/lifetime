@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(flutter --version)",
+      "Bash(/mnt/c/flutter/flutter/bin/flutter test *)",
+      "Bash(flutter test *)",
+      "Bash(bash -c 'cd \"/mnt/c/Users/fernando/OneDrive - Dynamic Macroweb & Design S.L/Documentos/PROYECTOS/01_LifeTime\" && /mnt/c/flutter/flutter/bin/flutter test test/data/models/media_asset_model_test.dart')",
+      "Bash(dart analyze *)",
+      "Bash(powershell.exe *)",
+      "Bash(flutter pub *)",
+      "Read(//home/fernandoadmin/flutter/bin/**)",
+      "Read(//usr/local/bin/**)",
+      "Read(//mnt/c/flutter/flutter/bin/cache/dart-sdk/bin/**)",
+      "Read(//mnt/c/flutter/flutter/bin/**)",
+      "Bash(git add *)",
+      "Bash(git commit *)"
+    ]
+  }
+}

@@ -1,0 +1,72 @@
+import 'dart:io';
+
+import 'package:dartz/dartz.dart';
+import '../entities/media_item.dart';
+import '../entities/milestone.dart';
+import '../../core/failures/failure.dart';
+
+abstract class MilestoneRepository {
+  Future<Either<Failure, Milestone>> createMilestone({
+    String? title,
+    required String userNote,
+    required DateTime eventDate,
+    int? savedLocationId,
+    String? locationName,
+    String? locationCity,
+    String? locationCountry,
+    double? latitude,
+    double? longitude,
+    String? categoryId,
+    List<String> participants = const [],
+    List<String> protagonistIds = const [],
+    bool isPublic = false,
+    String? driveFileId,
+    String? imageBase64,
+    List<String> localMediaPaths = const [],
+    List<MediaType> localMediaTypes = const [],
+  });
+
+  Future<Either<Failure, List<Milestone>>> getMilestones();
+
+  /// Pulls all milestones from Supabase and upserts them into Isar.
+  /// Intended for "new device" bootstrap on premium accounts.
+  Future<Either<Failure, void>> syncFromCloud();
+
+  Future<Either<Failure, Milestone>> getMilestoneById(String id);
+
+  Future<Either<Failure, void>> deleteMilestone(
+    String id, {
+    String? accessToken,
+  });
+
+  Future<Either<Failure, Milestone>> updateMilestone({
+    required String id,
+    required String title,
+    required String description,
+    String? categoryId,
+    DateTime? eventDate,
+    int? savedLocationId,
+    String? locationName,
+    String? locationCity,
+    String? locationCountry,
+    double? latitude,
+    double? longitude,
+    List<String> participantIds = const [],
+    List<String> protagonistIds = const [],
+    List<MediaItem> mediaToKeep = const [],
+    List<File> newMediaFiles = const [],
+    List<MediaType> newMediaTypes = const [],
+    int? galleryCoverIndex,
+  });
+
+  /// Medio que se muestra en el timeline y en el encabezado del detalle.
+  Future<Either<Failure, Milestone>> setGalleryCoverIndex({
+    required String id,
+    required int index,
+  });
+
+  /// Importa hitos desde JSON LifeTime (v2 solo hitos; v3 hitos + personas, categorías
+  /// personalizadas, lugares favoritos, grupos, enlaces y relaciones).
+  /// Misma [id] sustituye el hito local. Los medios solo se restauran si las rutas existen.
+  Future<Either<Failure, int>> importFromBackupJson(String json);
+}
